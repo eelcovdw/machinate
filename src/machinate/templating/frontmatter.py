@@ -28,6 +28,11 @@ class ContextFrontmatter(BaseModel):
     summary: str = ""
 
 
+class ProjectFrontmatter(BaseModel):
+    created: date = Field(default_factory=date.today)
+    summary: str = ""
+
+
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     """Split markdown into (frontmatter dict, body). Returns empty dict if no frontmatter."""
     if not text.startswith("---\n"):

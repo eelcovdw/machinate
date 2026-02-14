@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from machinate.templating.frontmatter import (
     ContextFrontmatter,
     PlanFrontmatter,
+    ProjectFrontmatter,
     TaskFrontmatter,
     render_frontmatter,
 )
@@ -30,3 +31,7 @@ def render_task(name: str, *, template: str = DEFAULT_TEMPLATE) -> str:
 
 def render_context(name: str, *, template: str = DEFAULT_TEMPLATE) -> str:
     return render_template(ContextFrontmatter(), name, entity="Context", template=template)
+
+
+def render_project(name: str, *, template: str = DEFAULT_TEMPLATE) -> str:
+    return render_template(ProjectFrontmatter(), name, entity="Project", template=template)

@@ -12,6 +12,7 @@ STATE_FILE = "machinate.toml"
 
 class ProjectState(BaseModel):
     current_plan: str | None = None
+    project_name: str | None = None
 
     @classmethod
     def load(cls, path: Path) -> Self:

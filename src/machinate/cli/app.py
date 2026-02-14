@@ -16,7 +16,9 @@ from machinate.plan_service import (
     execute_init,
     get_current_plan,
     get_plans_dir,
+    get_project_file,
     list_plans,
+    plan_file,
     plan_init,
     set_plan,
     set_plan_status,
@@ -117,7 +119,7 @@ def new(
     if current:
         set_plan(plans_dir, name)
 
-    print(short_path(plan_dir / "plan.md"))  # noqa: T201
+    print(short_path(plan_dir / plan_file(name)))  # noqa: T201
 
 
 @app.command(name="list")
@@ -135,7 +137,7 @@ def list_cmd() -> None:
 
     by_status: dict[str, list[tuple[str, str, str]]] = {}
     for name in names:
-        plan_meta, _ = parse_frontmatter((plans_dir / name / "plan.md").read_text())
+        plan_meta, _ = parse_frontmatter((plans_dir / name / plan_file(name)).read_text())
         status = plan_meta.get("status", "unknown")
         summary = plan_meta.get("summary", "")
         marker = "▸ " if name == current else "  "
@@ -217,7 +219,7 @@ def info() -> None:
     row("Plans:", str(len(names)))
 
     if current:
-        plan_meta, _ = parse_frontmatter((plans_dir / current / "plan.md").read_text())
+        plan_meta, _ = parse_frontmatter((plans_dir / current / plan_file(current)).read_text())
         status = plan_meta.get("status", "")
         status_str = f" [muted]({status})[/muted]" if status else ""
         row("Current plan:", f"[name]{current}[/name]{status_str}")
@@ -253,6 +255,12 @@ def show(
     if meta:
         parts = [f"[muted]{k}:[/muted] {v}" for k, v in meta.items()]
         console.print("  ".join(parts))
+    try:
+        project_file = get_project_file(plans_dir)
+        if project_file.exists():
+            console.print(f"\n[info]Project:[/info] [path]{short_path(project_file)}[/path]")
+    except ValueError:
+        pass
     if info.task_files:
         console.print("\n[info]Tasks:[/info]")
         by_status: dict[str, list[Path]] = {}

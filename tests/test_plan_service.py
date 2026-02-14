@@ -4,13 +4,14 @@ import pytest
 
 from machinate.context_service import CONTEXT_DIR, add_context
 from machinate.plan_service import (
-    PLAN_FILE,
     InitResult,
     create_plan,
     execute_init,
     get_current_plan,
     get_plans_dir,
+    get_project_file,
     list_plans,
+    plan_file,
     plan_init,
     set_plan,
     show_plan,
@@ -164,7 +165,12 @@ class TestExecuteInit:
         plans_dir: Path,
         symlink: Path | None = None,
     ) -> InitResult:
-        return InitResult(plans_dir=plans_dir, project_root=project, symlink=symlink)
+        return InitResult(
+            plans_dir=plans_dir,
+            project_root=project,
+            project_name="test-project",
+            symlink=symlink,
+        )
 
     def test_creates_plans_dir(self, tmp_path: Path, project: Path) -> None:
         plans = tmp_path / "plans"
@@ -178,6 +184,7 @@ class TestExecuteInit:
         assert state_file.exists()
         state = ProjectState.load(state_file)
         assert state.current_plan is None
+        assert state.project_name == "test-project"
 
     def test_does_not_overwrite_existing_state(self, tmp_path: Path, project: Path) -> None:
         plans = tmp_path / "plans"
@@ -206,7 +213,9 @@ class TestExecuteInit:
         execute_init(self._init_result(project, plans, symlink))
         assert symlink.is_symlink()
 
-    def test_override_replaces_state(self, tmp_path: Path, project: Path) -> None:
+    def test_override_updates_project_name_preserves_current_plan(
+        self, tmp_path: Path, project: Path
+    ) -> None:
         plans = tmp_path / "plans"
         plans.mkdir(parents=True)
         state_file = plans / STATE_FILE
@@ -214,7 +223,8 @@ class TestExecuteInit:
 
         execute_init(self._init_result(project, plans), override=True)
         state = ProjectState.load(state_file)
-        assert state.current_plan is None
+        assert state.current_plan == "existing"
+        assert state.project_name == "test-project"
 
     def test_moves_existing_dir_to_plans_dir(self, tmp_path: Path, project: Path) -> None:
         plans = tmp_path / "plans"
@@ -283,9 +293,9 @@ class TestCreatePlan:
 
     def test_creates_plan_md(self, tmp_path: Path) -> None:
         create_plan(tmp_path, "my-feature")
-        plan_file = tmp_path / "my-feature" / PLAN_FILE
-        assert plan_file.exists()
-        content = plan_file.read_text()
+        plan_path = tmp_path / "my-feature" / plan_file("my-feature")
+        assert plan_path.exists()
+        content = plan_path.read_text()
         assert content.startswith("---\n")
         assert "# Plan: my-feature\n" in content
 
@@ -393,7 +403,7 @@ class TestListPlans:
 
     def test_ignores_non_plan_dirs(self, tmp_path: Path) -> None:
         create_plan(tmp_path, "real-plan")
-        (tmp_path / "random-dir").mkdir()  # no plan.md
+        (tmp_path / "random-dir").mkdir()  # no plan file
         assert list_plans(tmp_path) == ["real-plan"]
 
 
@@ -448,3 +458,60 @@ class TestShowPlan:
         (ctx / "spec.md").write_text("world")
         info = show_plan(tmp_path, "my-plan")
         assert info.context_files == [ctx / "notes.md", ctx / "spec.md"]
+
+
+class TestProjectFile:
+    @pytest.fixture
+    def project(self, tmp_path: Path) -> Path:
+        root = tmp_path / "project"
+        root.mkdir()
+        (root / ".git").mkdir()
+        return root
+
+    def _init_result(self, project: Path, plans_dir: Path) -> InitResult:
+        return InitResult(
+            plans_dir=plans_dir,
+            project_root=project,
+            project_name="my-app",
+        )
+
+    def test_execute_init_creates_project_file(self, tmp_path: Path, project: Path) -> None:
+        plans = tmp_path / "plans"
+        execute_init(self._init_result(project, plans))
+        project_file = plans / "project-my-app.md"
+        assert project_file.exists()
+        content = project_file.read_text()
+        assert content.startswith("---\n")
+        assert "# Project: my-app\n" in content
+
+    def test_execute_init_does_not_overwrite_project_file(
+        self, tmp_path: Path, project: Path
+    ) -> None:
+        plans = tmp_path / "plans"
+        plans.mkdir(parents=True)
+        project_file = plans / "project-my-app.md"
+        project_file.write_text("custom content")
+        execute_init(self._init_result(project, plans))
+        assert project_file.read_text() == "custom content"
+
+    def test_get_project_file_returns_path(self, tmp_path: Path) -> None:
+        ProjectState(project_name="my-app").save(tmp_path / STATE_FILE)
+        result = get_project_file(tmp_path)
+        assert result == tmp_path / "project-my-app.md"
+
+    def test_get_project_file_raises_when_no_name(self, tmp_path: Path) -> None:
+        ProjectState().save(tmp_path / STATE_FILE)
+        with pytest.raises(ValueError, match="No project name"):
+            get_project_file(tmp_path)
+
+    def test_plan_init_sets_project_name(self, tmp_path: Path, project: Path) -> None:
+        result = plan_init(
+            project_root=project,
+            base_plans_dir=tmp_path / "base",
+            project_name="explicit-name",
+        )
+        assert result.project_name == "explicit-name"
+
+    def test_plan_init_infers_project_name(self, project: Path) -> None:
+        result = plan_init(project_root=project)
+        assert result.project_name == "project"
