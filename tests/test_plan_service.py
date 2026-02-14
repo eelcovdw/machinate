@@ -3,16 +3,14 @@ from pathlib import Path
 import pytest
 
 from machinate.context_service import CONTEXT_DIR, add_context
+from machinate.init_service import InitResult, execute_init, plan_init
 from machinate.plan_service import (
-    InitResult,
     create_plan,
-    execute_init,
     get_current_plan,
     get_plans_dir,
     get_project_file,
     list_plans,
     plan_file,
-    plan_init,
     set_plan,
     show_plan,
 )

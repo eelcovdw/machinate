@@ -9,20 +9,22 @@ from rich.prompt import Confirm
 from machinate.cli.context_cli import context_app
 from machinate.cli.task_cli import task_app
 from machinate.console import get_console, print_files_with_summary, short_path
-from machinate.plan_service import (
+from machinate.init_service import (
     ALLOW_RULES,
-    create_plan,
     execute_init,
+    plan_init,
+    update_claude_settings,
+)
+from machinate.plan_service import (
+    create_plan,
     get_current_plan,
     get_plans_dir,
     get_project_file,
     list_plans,
     plan_file,
-    plan_init,
     set_plan,
     set_plan_status,
     show_plan,
-    update_claude_settings,
 )
 from machinate.project_state import resolve_current_plan
 from machinate.settings import Settings
