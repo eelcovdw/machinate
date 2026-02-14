@@ -1,9 +1,9 @@
+from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.padding import Padding
 
-from machinate.console import get_console, short_path
+from machinate.console import get_console, print_files_with_summary, short_path
 from machinate.plan_service import get_plans_dir
 from machinate.settings import Settings
 from machinate.task_service import add_task, list_tasks, resolve_task_file, set_task_status
@@ -28,13 +28,14 @@ def task_add(
 ) -> None:
     """Ensure tasks/ dir exists and print the path. Pipe-friendly."""
     plans_dir = get_plans_dir()
+    console = get_console(Settings())
     if filenames:
         for filename in filenames:
             path = add_task(plans_dir, plan, filename)
-            print(short_path(path))  # noqa: T201
+            console.print(short_path(path))
     else:
         path = add_task(plans_dir, plan)
-        print(short_path(path))  # noqa: T201
+        console.print(short_path(path))
 
 
 @task_app.command(name="status")
@@ -69,18 +70,14 @@ def task_list(
     """List task files for a plan."""
     plans_dir = get_plans_dir()
     files = list_tasks(plans_dir, plan)
-    by_status: dict[str, list[tuple[str, str]]] = {}
+    by_status: dict[str, list[Path]] = {}
     for f in files:
         meta, _ = parse_frontmatter(f.read_text())
         status = meta.get("status", "unknown")
-        summary = meta.get("summary", "")
-        by_status.setdefault(status, []).append((short_path(f), summary))
+        by_status.setdefault(status, []).append(f)
     console = get_console(Settings())
     ordered = [s for s in TASK_STATUS_ORDER if s in by_status]
     ordered += [s for s in by_status if s not in ordered]
     for status in ordered:
         console.print(f"[muted]{status}[/muted]")
-        for path, summary in by_status[status]:
-            console.print(f"  [path]{path}[/path]")
-            if summary:
-                console.print(Padding(f"[muted]{summary}[/muted]", (0, 0, 0, 4)))
+        print_files_with_summary(console, by_status[status], indent=1)

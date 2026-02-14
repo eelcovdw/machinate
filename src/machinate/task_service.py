@@ -5,7 +5,7 @@ from pathlib import Path
 import typer
 
 from machinate.project_state import get_plan_dir, resolve_current_plan
-from machinate.templating import TaskStatus, render_task
+from machinate.templating import TaskStatus, render_task, update_frontmatter_field
 
 TASKS_DIR = "tasks"
 
@@ -62,13 +62,5 @@ def set_task_status(
 ) -> Path:
     """Set the status of a task file matched by prefix. Returns the task path."""
     path = resolve_task_file(plans_dir, prefix, name)
-    text = path.read_text()
-    lines = text.splitlines()
-    new_lines: list[str] = []
-    for line in lines:
-        if line.startswith("status:"):
-            new_lines.append(f"status: {status}")
-        else:
-            new_lines.append(line)
-    path.write_text("\n".join(new_lines) + "\n")
+    update_frontmatter_field(path, "status", status)
     return path

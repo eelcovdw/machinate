@@ -9,6 +9,7 @@ from machinate.templating.frontmatter import (
     TaskStatus,
     parse_frontmatter,
     render_frontmatter,
+    update_frontmatter_field,
 )
 from machinate.templating.templates import (
     DEFAULT_TEMPLATE,
@@ -36,4 +37,5 @@ __all__ = [
     "render_project",
     "render_task",
     "render_template",
+    "update_frontmatter_field",
 ]

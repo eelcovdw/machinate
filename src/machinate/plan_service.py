@@ -14,7 +14,7 @@ from machinate.project_state import (
 )
 from machinate.settings import Settings
 from machinate.task_service import list_tasks
-from machinate.templating import PlanStatus, render_plan
+from machinate.templating import PlanStatus, render_plan, update_frontmatter_field
 from machinate.templating.templates import render_project
 
 DEFAULT_BASE_PLANS_DIR: Path = Path.home() / ".machinate"
@@ -267,15 +267,7 @@ def set_plan_status(plans_dir: Path, name: str, status: PlanStatus) -> Path:
     """Update the status in a plan's frontmatter. Returns the plan.md path."""
     plan_dir = get_plan_dir(plans_dir, name)
     path = plan_dir / plan_file(name)
-    text = path.read_text()
-    lines = text.splitlines()
-    new_lines: list[str] = []
-    for line in lines:
-        if line.startswith("status:"):
-            new_lines.append(f"status: {status}")
-        else:
-            new_lines.append(line)
-    path.write_text("\n".join(new_lines) + "\n")
+    update_frontmatter_field(path, "status", status)
     return path
 
 

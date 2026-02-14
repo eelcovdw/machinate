@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 from typing import Literal, get_args
 
 from pydantic import BaseModel, Field
@@ -48,6 +49,14 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
             key, value = line.split(": ", 1)
             data[key.strip()] = value.strip()
     return data, body
+
+
+def update_frontmatter_field(path: Path, field: str, value: str) -> None:
+    """Update a single field in a file's YAML frontmatter."""
+    text = path.read_text()
+    lines = text.splitlines()
+    new_lines = [f"{field}: {value}" if line.startswith(f"{field}:") else line for line in lines]
+    path.write_text("\n".join(new_lines) + "\n")
 
 
 def render_frontmatter(model: BaseModel) -> str:

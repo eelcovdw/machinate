@@ -2,14 +2,13 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.console import Console
 from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.prompt import Confirm
 
 from machinate.cli.context_cli import context_app
 from machinate.cli.task_cli import task_app
-from machinate.console import get_console, short_path
+from machinate.console import get_console, print_files_with_summary, short_path
 from machinate.plan_service import (
     ALLOW_RULES,
     create_plan,
@@ -120,7 +119,8 @@ def new(
     if current:
         set_plan(plans_dir, name)
 
-    print(short_path(plan_dir / plan_file(name)))  # noqa: T201
+    console = get_console(Settings())
+    console.print(short_path(plan_dir / plan_file(name)))
 
 
 @app.command(name="list")
@@ -181,16 +181,6 @@ def status(
         set_plan_status(plans_dir, name, new_status)
     meta, _ = parse_frontmatter((plans_dir / name / plan_file(name)).read_text())
     console.print(meta.get("status", "unknown"))
-
-
-def _print_files_with_summary(console: Console, files: list[Path], indent: int) -> None:
-    """Print file paths with optional summary from frontmatter."""
-    for f in files:
-        meta, _ = parse_frontmatter(f.read_text())
-        summary = meta.get("summary", "")
-        console.print(f"{'  ' * indent}[path]{short_path(f)}[/path]")
-        if summary:
-            console.print(Padding(f"[muted]{summary}[/muted]", (0, 0, 0, indent * 2 + 2)))
 
 
 @app.command()
@@ -280,10 +270,10 @@ def show(
             by_status.setdefault(status, []).append(f)
         for status, files in by_status.items():
             console.print(f"  [muted]{status}[/muted]")
-            _print_files_with_summary(console, files, indent=2)
+            print_files_with_summary(console, files, indent=2)
     if info.context_files:
         console.print("\n[info]Context:[/info]")
-        _print_files_with_summary(console, info.context_files, indent=1)
+        print_files_with_summary(console, info.context_files, indent=1)
     if body.strip():
         console.print()
         console.print(Markdown(body, justify="left"))

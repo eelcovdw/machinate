@@ -1,13 +1,11 @@
 from typing import Annotated
 
 import typer
-from rich.padding import Padding
 
-from machinate.console import get_console, short_path
+from machinate.console import get_console, print_files_with_summary, short_path
 from machinate.context_service import add_context, list_context
 from machinate.plan_service import get_plans_dir
 from machinate.settings import Settings
-from machinate.templating import parse_frontmatter
 
 context_app = typer.Typer(
     pretty_exceptions_enable=False,
@@ -28,13 +26,14 @@ def context_add(
 ) -> None:
     """Ensure context/ dir exists and print the path. Pipe-friendly."""
     plans_dir = get_plans_dir()
+    console = get_console(Settings())
     if filenames:
         for filename in filenames:
             path = add_context(plans_dir, plan, filename)
-            print(short_path(path))  # noqa: T201
+            console.print(short_path(path))
     else:
         path = add_context(plans_dir, plan)
-        print(short_path(path))  # noqa: T201
+        console.print(short_path(path))
 
 
 @context_app.command(name="list")
@@ -48,9 +47,4 @@ def context_list(
     plans_dir = get_plans_dir()
     files = list_context(plans_dir, plan)
     console = get_console(Settings())
-    for f in files:
-        meta, _ = parse_frontmatter(f.read_text())
-        summary = meta.get("summary", "")
-        console.print(f"[path]{short_path(f)}[/path]")
-        if summary:
-            console.print(Padding(f"[muted]{summary}[/muted]", (0, 0, 0, 2)))
+    print_files_with_summary(console, files, indent=0)
