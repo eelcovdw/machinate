@@ -25,6 +25,7 @@ from machinate.plan_service import (
     show_plan,
     update_claude_settings,
 )
+from machinate.project_state import resolve_current_plan
 from machinate.settings import Settings
 from machinate.skills import install_skills
 from machinate.templating import PLAN_STATUS_ORDER, PlanStatus, parse_frontmatter
@@ -155,22 +156,32 @@ def list_cmd() -> None:
 
 
 @app.command(name="set")
-def set_cmd(
-    name: str,
-    status: Annotated[
-        PlanStatus | None,
-        typer.Option("--status", "-s", help="Set plan status: draft, active, done."),
-    ] = None,
-) -> None:
-    """Set the current plan, optionally updating its status."""
+def set_cmd(name: str) -> None:
+    """Set the current plan."""
     settings = Settings()
     console = get_console(settings)
     plans_dir = get_plans_dir()
     set_plan(plans_dir, name)
+    set_plan_status(plans_dir, name, "active")
     console.print(f"[success]Current plan:[/success] [name]{name}[/name]")
-    if status is not None:
-        set_plan_status(plans_dir, name, status)
-        console.print(f"[success]Status:[/success] [muted]{status}[/muted]")
+
+
+@app.command()
+def status(
+    new_status: Annotated[
+        PlanStatus | None,
+        typer.Argument(help="New status: draft, active, done. Omit to print current status."),
+    ] = None,
+) -> None:
+    """Print or set the current plan's status."""
+    settings = Settings()
+    console = get_console(settings)
+    plans_dir = get_plans_dir()
+    name = resolve_current_plan(plans_dir)
+    if new_status is not None:
+        set_plan_status(plans_dir, name, new_status)
+    meta, _ = parse_frontmatter((plans_dir / name / plan_file(name)).read_text())
+    console.print(meta.get("status", "unknown"))
 
 
 def _print_files_with_summary(console: Console, files: list[Path], indent: int) -> None:

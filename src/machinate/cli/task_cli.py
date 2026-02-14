@@ -6,7 +6,7 @@ from rich.padding import Padding
 from machinate.console import get_console, short_path
 from machinate.plan_service import get_plans_dir
 from machinate.settings import Settings
-from machinate.task_service import add_task, list_tasks, set_task_status
+from machinate.task_service import add_task, list_tasks, resolve_task_file, set_task_status
 from machinate.templating import TASK_STATUS_ORDER, TaskStatus, parse_frontmatter
 
 task_app = typer.Typer(
@@ -37,20 +37,26 @@ def task_add(
         print(short_path(path))  # noqa: T201
 
 
-@task_app.command(name="set")
-def task_set(
+@task_app.command(name="status")
+def task_status(
     task: Annotated[str, typer.Argument(help="Task prefix (e.g. '01').")],
-    status: Annotated[TaskStatus, typer.Argument(help="New status: todo, in-progress, done.")],
+    new_status: Annotated[
+        TaskStatus | None,
+        typer.Argument(help="New status: todo, in-progress, done. Omit to print current status."),
+    ] = None,
     plan: Annotated[
         str | None,
         typer.Option("--plan", "-p", help="Plan name. Defaults to current plan."),
     ] = None,
 ) -> None:
-    """Set a task's status."""
+    """Print or set a task's status."""
     plans_dir = get_plans_dir()
-    path = set_task_status(plans_dir, task, status, plan)
+    if new_status is not None:
+        set_task_status(plans_dir, task, new_status, plan)
+    path = resolve_task_file(plans_dir, task, plan)
+    meta, _ = parse_frontmatter(path.read_text())
     console = get_console(Settings())
-    console.print(f"[path]{short_path(path)}[/path] → [muted]{status}[/muted]")
+    console.print(meta.get("status", "unknown"))
 
 
 @task_app.command(name="list")
