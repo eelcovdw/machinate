@@ -1,6 +1,7 @@
 from typing import Annotated
 
 import typer
+from rich.padding import Padding
 
 from machinate.console import get_console, short_path
 from machinate.plan_service import get_plans_dir
@@ -46,13 +47,16 @@ def task_list(
     """List task files for a plan."""
     plans_dir = get_plans_dir()
     files = list_tasks(plans_dir, plan)
-    by_status: dict[str, list[str]] = {}
+    by_status: dict[str, list[tuple[str, str]]] = {}
     for f in files:
         meta, _ = parse_frontmatter(f.read_text())
         status = meta.get("status", "unknown")
-        by_status.setdefault(status, []).append(short_path(f))
+        summary = meta.get("summary", "")
+        by_status.setdefault(status, []).append((short_path(f), summary))
     console = get_console(Settings())
-    for status, paths in by_status.items():
+    for status, entries in by_status.items():
         console.print(f"[muted]{status}[/muted]")
-        for p in paths:
-            console.print(f"  [path]{p}[/path]")
+        for path, summary in entries:
+            console.print(f"  [path]{path}[/path]")
+            if summary:
+                console.print(Padding(f"[muted]{summary}[/muted]", (0, 0, 0, 4)))

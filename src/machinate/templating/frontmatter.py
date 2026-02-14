@@ -12,15 +12,18 @@ TaskStatus = Literal["todo", "in-progress", "done"]
 class PlanFrontmatter(BaseModel):
     created: date = Field(default_factory=date.today)
     status: PlanStatus = "draft"
+    summary: str = ""
 
 
 class TaskFrontmatter(BaseModel):
     created: date = Field(default_factory=date.today)
     status: TaskStatus = "todo"
+    summary: str = ""
 
 
 class ContextFrontmatter(BaseModel):
     created: date = Field(default_factory=date.today)
+    summary: str = ""
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -44,6 +47,8 @@ def render_frontmatter(model: BaseModel) -> str:
     """Render a pydantic model as YAML frontmatter string."""
     lines = ["---"]
     for key, value in model.model_dump().items():  # pyright: ignore[reportAny]
+        if isinstance(value, str) and value == "":
+            continue
         lines.append(f"{key}: {value}")
     lines.append("---")
     return "\n".join(lines)

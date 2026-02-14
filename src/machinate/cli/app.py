@@ -2,7 +2,9 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.console import Console
 from rich.markdown import Markdown
+from rich.padding import Padding
 from rich.prompt import Confirm
 
 from machinate.cli.context_cli import context_app
@@ -115,7 +117,11 @@ def list_cmd() -> None:
 
     for name in names:
         marker = "▸ " if name == current else "  "
+        plan_meta, _ = parse_frontmatter((plans_dir / name / "plan.md").read_text())
+        plan_summary = plan_meta.get("summary", "")
         console.print(f"{marker}[name]{name}[/name]")
+        if plan_summary:
+            console.print(Padding(f"[muted]{plan_summary}[/muted]", (0, 0, 0, 4)))
 
 
 @app.command(name="set")
@@ -126,6 +132,16 @@ def set_cmd(name: str) -> None:
     plans_dir = get_plans_dir()
     set_plan(plans_dir, name)
     console.print(f"[success]Current plan:[/success] [name]{name}[/name]")
+
+
+def _print_files_with_summary(console: Console, files: list[Path], indent: int) -> None:
+    """Print file paths with optional summary from frontmatter."""
+    for f in files:
+        meta, _ = parse_frontmatter(f.read_text())
+        summary = meta.get("summary", "")
+        console.print(f"{'  ' * indent}[path]{short_path(f)}[/path]")
+        if summary:
+            console.print(Padding(f"[muted]{summary}[/muted]", (0, 0, 0, indent * 2 + 2)))
 
 
 @app.command()
@@ -156,12 +172,10 @@ def show(
             by_status.setdefault(status, []).append(f)
         for status, files in by_status.items():
             console.print(f"  [muted]{status}[/muted]")
-            for f in files:
-                console.print(f"    [path]{short_path(f)}[/path]")
+            _print_files_with_summary(console, files, indent=2)
     if info.context_files:
         console.print("\n[info]Context:[/info]")
-        for f in info.context_files:
-            console.print(f"  [path]{short_path(f)}[/path]")
+        _print_files_with_summary(console, info.context_files, indent=1)
     if body.strip():
         console.print()
         console.print(Markdown(body, justify="left"))

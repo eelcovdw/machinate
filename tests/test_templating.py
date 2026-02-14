@@ -30,6 +30,11 @@ class TestFrontmatterModels:
         fm = ContextFrontmatter()
         assert fm.created == date.today()  # noqa: DTZ011
 
+    def test_summary_defaults_to_empty(self) -> None:
+        assert PlanFrontmatter().summary == ""
+        assert TaskFrontmatter().summary == ""
+        assert ContextFrontmatter().summary == ""
+
     def test_plan_rejects_invalid_status(self) -> None:
         with pytest.raises(Exception):  # noqa: B017, PT011
             PlanFrontmatter.model_validate({"status": "invalid"})
@@ -70,6 +75,14 @@ class TestParseFrontmatter:
         assert meta["status"] == "draft"
         assert body == "# Plan: my-feature\n"
 
+    def test_parses_summary(self) -> None:
+        text = (
+            "---\ncreated: 2026-01-01\nstatus: draft\n"
+            "summary: A short description\n---\n\n# My Plan\n"
+        )
+        meta, _ = parse_frontmatter(text)
+        assert meta["summary"] == "A short description"
+
 
 class TestRenderFrontmatter:
     def test_plan(self) -> None:
@@ -86,6 +99,16 @@ class TestRenderFrontmatter:
         fm = ContextFrontmatter(created=date(2026, 1, 1))
         result = render_frontmatter(fm)
         assert result == "---\ncreated: 2026-01-01\n---"
+
+    def test_skips_empty_summary(self) -> None:
+        fm = PlanFrontmatter(created=date(2026, 1, 1))
+        result = render_frontmatter(fm)
+        assert "summary" not in result
+
+    def test_includes_nonempty_summary(self) -> None:
+        fm = PlanFrontmatter(created=date(2026, 1, 1), summary="A short description")
+        result = render_frontmatter(fm)
+        assert "summary: A short description" in result
 
 
 class TestRenderTemplate:

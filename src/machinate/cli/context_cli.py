@@ -1,10 +1,13 @@
 from typing import Annotated
 
 import typer
+from rich.padding import Padding
 
-from machinate.console import short_path
+from machinate.console import get_console, short_path
 from machinate.context_service import add_context, list_context
 from machinate.plan_service import get_plans_dir
+from machinate.settings import Settings
+from machinate.templating import parse_frontmatter
 
 context_app = typer.Typer(
     pretty_exceptions_enable=False,
@@ -44,5 +47,10 @@ def context_list(
     """List context files for a plan."""
     plans_dir = get_plans_dir()
     files = list_context(plans_dir, plan)
+    console = get_console(Settings())
     for f in files:
-        print(short_path(f))  # noqa: T201
+        meta, _ = parse_frontmatter(f.read_text())
+        summary = meta.get("summary", "")
+        console.print(f"[path]{short_path(f)}[/path]")
+        if summary:
+            console.print(Padding(f"[muted]{summary}[/muted]", (0, 0, 0, 2)))
