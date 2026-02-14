@@ -12,6 +12,7 @@ from machinate.project_state import (
     resolve_current_plan,
 )
 from machinate.settings import Settings
+from machinate.skills import install_skills
 from machinate.task_service import list_tasks
 from machinate.templating import render_plan
 
@@ -22,6 +23,7 @@ PLAN_FILE = "plan.md"
 @dataclass
 class InitResult:
     plans_dir: Path
+    project_root: Path
     symlink: Path | None = None
 
 
@@ -111,7 +113,7 @@ def plan_init(
     claude_plans = _claude_plans_dir(resolved_root).expanduser().resolve()
 
     symlink = claude_plans if resolved_plans != claude_plans else None
-    return InitResult(plans_dir=resolved_plans, symlink=symlink)
+    return InitResult(plans_dir=resolved_plans, project_root=resolved_root, symlink=symlink)
 
 
 def execute_init(plan: InitResult, *, override: bool = False) -> None:
@@ -132,6 +134,8 @@ def execute_init(plan: InitResult, *, override: bool = False) -> None:
     state_file = plan.plans_dir / STATE_FILE
     if not state_file.exists() or override:
         ProjectState().save(state_file)
+
+    install_skills(plan.project_root)
 
 
 def get_plans_dir(project_root: Path | None = None) -> Path:

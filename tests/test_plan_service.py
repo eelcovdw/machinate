@@ -150,78 +150,120 @@ class TestPlanInitWithSettings:
 
 
 class TestExecuteInit:
-    def test_creates_plans_dir(self, tmp_path: Path) -> None:
+    @pytest.fixture
+    def project(self, tmp_path: Path) -> Path:
+        root = tmp_path / "project"
+        root.mkdir()
+        (root / ".git").mkdir()
+        return root
+
+    def _init_result(
+        self,
+        project: Path,
+        plans_dir: Path,
+        symlink: Path | None = None,
+    ) -> InitResult:
+        return InitResult(plans_dir=plans_dir, project_root=project, symlink=symlink)
+
+    def test_creates_plans_dir(self, tmp_path: Path, project: Path) -> None:
         plans = tmp_path / "plans"
-        execute_init(InitResult(plans_dir=plans))
+        execute_init(self._init_result(project, plans))
         assert plans.exists()
 
-    def test_creates_state_file(self, tmp_path: Path) -> None:
+    def test_creates_state_file(self, tmp_path: Path, project: Path) -> None:
         plans = tmp_path / "plans"
-        execute_init(InitResult(plans_dir=plans))
+        execute_init(self._init_result(project, plans))
         state_file = plans / STATE_FILE
         assert state_file.exists()
         state = ProjectState.load(state_file)
         assert state.current_plan is None
 
-    def test_does_not_overwrite_existing_state(self, tmp_path: Path) -> None:
+    def test_does_not_overwrite_existing_state(self, tmp_path: Path, project: Path) -> None:
         plans = tmp_path / "plans"
         plans.mkdir(parents=True)
         state_file = plans / STATE_FILE
         ProjectState(current_plan="existing").save(state_file)
 
-        execute_init(InitResult(plans_dir=plans))
+        execute_init(self._init_result(project, plans))
         state = ProjectState.load(state_file)
         assert state.current_plan == "existing"
 
-    def test_creates_symlink(self, tmp_path: Path) -> None:
+    def test_creates_symlink(self, tmp_path: Path, project: Path) -> None:
         plans = tmp_path / "plans"
-        symlink = tmp_path / "project" / ".claude" / "plans"
-        execute_init(InitResult(plans_dir=plans, symlink=symlink))
+        symlink = tmp_path / "link" / ".claude" / "plans"
+        execute_init(self._init_result(project, plans, symlink))
         assert symlink.is_symlink()
         assert symlink.resolve() == plans.resolve()
 
-    def test_skips_existing_symlink(self, tmp_path: Path) -> None:
+    def test_skips_existing_symlink(self, tmp_path: Path, project: Path) -> None:
         plans = tmp_path / "plans"
         plans.mkdir(parents=True)
-        symlink = tmp_path / "project" / ".claude" / "plans"
+        symlink = tmp_path / "link" / ".claude" / "plans"
         symlink.parent.mkdir(parents=True)
         symlink.symlink_to(plans)
 
-        execute_init(InitResult(plans_dir=plans, symlink=symlink))
+        execute_init(self._init_result(project, plans, symlink))
         assert symlink.is_symlink()
 
-    def test_override_replaces_state(self, tmp_path: Path) -> None:
+    def test_override_replaces_state(self, tmp_path: Path, project: Path) -> None:
         plans = tmp_path / "plans"
         plans.mkdir(parents=True)
         state_file = plans / STATE_FILE
         ProjectState(current_plan="existing").save(state_file)
 
-        execute_init(InitResult(plans_dir=plans), override=True)
+        execute_init(self._init_result(project, plans), override=True)
         state = ProjectState.load(state_file)
         assert state.current_plan is None
 
-    def test_moves_existing_dir_to_plans_dir(self, tmp_path: Path) -> None:
+    def test_moves_existing_dir_to_plans_dir(self, tmp_path: Path, project: Path) -> None:
         plans = tmp_path / "plans"
-        symlink = tmp_path / "project" / ".claude" / "plans"
+        symlink = tmp_path / "link" / ".claude" / "plans"
         symlink.mkdir(parents=True)
         (symlink / "some-plan").mkdir()
         (symlink / "some-plan" / "plan.md").write_text("hello")
 
-        execute_init(InitResult(plans_dir=plans, symlink=symlink))
+        execute_init(self._init_result(project, plans, symlink))
         assert symlink.is_symlink()
         assert symlink.resolve() == plans.resolve()
         assert (plans / "some-plan" / "plan.md").read_text() == "hello"
 
-    def test_override_replaces_symlink(self, tmp_path: Path) -> None:
+    def test_override_replaces_symlink(self, tmp_path: Path, project: Path) -> None:
         old_target = tmp_path / "old"
         old_target.mkdir()
         new_target = tmp_path / "new"
-        symlink = tmp_path / "project" / ".claude" / "plans"
+        symlink = tmp_path / "link" / ".claude" / "plans"
         symlink.parent.mkdir(parents=True)
         symlink.symlink_to(old_target)
 
-        execute_init(InitResult(plans_dir=new_target, symlink=symlink), override=True)
+        execute_init(self._init_result(project, new_target, symlink), override=True)
         assert symlink.resolve() == new_target.resolve()
+
+    def test_installs_skills(self, project: Path) -> None:
+        plans = project / ".claude" / "plans"
+        execute_init(self._init_result(project, plans))
+        skills_dir = project / ".claude" / "skills"
+        assert skills_dir.is_dir()
+        assert (skills_dir / "machinate-plan" / "SKILL.md").exists()
+        assert (skills_dir / "machinate-resume" / "SKILL.md").exists()
+        assert (skills_dir / "machinate-update" / "SKILL.md").exists()
+
+    def test_installs_skills_idempotent(self, project: Path) -> None:
+        plans = project / ".claude" / "plans"
+        execute_init(self._init_result(project, plans))
+        # Modify a skill file
+        skill_file = project / ".claude" / "skills" / "machinate-plan" / "SKILL.md"
+        skill_file.write_text("modified")
+        # Re-run init overwrites it
+        execute_init(self._init_result(project, plans))
+        assert skill_file.read_text() != "modified"
+
+    def test_skill_files_use_machi_executable(self, project: Path) -> None:
+        plans = project / ".claude" / "plans"
+        execute_init(self._init_result(project, plans))
+        for name in ("machinate-plan", "machinate-resume", "machinate-update"):
+            content = (project / ".claude" / "skills" / name / "SKILL.md").read_text()
+            assert "uv run" not in content
+            assert "machi" in content
 
 
 class TestGetPlansDir:
