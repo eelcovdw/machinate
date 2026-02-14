@@ -162,7 +162,6 @@ def set_cmd(name: str) -> None:
     console = get_console(settings)
     plans_dir = get_plans_dir()
     set_plan(plans_dir, name)
-    set_plan_status(plans_dir, name, "active")
     console.print(f"[success]Current plan:[/success] [name]{name}[/name]")
 
 
