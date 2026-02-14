@@ -17,6 +17,7 @@ from machinate.plan_service import (
 )
 from machinate.project_state import STATE_FILE, ProjectState, get_plan_dir, resolve_current_plan
 from machinate.settings import Settings
+from machinate.skills import install_skills
 from machinate.task_service import TASKS_DIR
 
 
@@ -239,8 +240,7 @@ class TestExecuteInit:
         assert symlink.resolve() == new_target.resolve()
 
     def test_installs_skills(self, project: Path) -> None:
-        plans = project / ".claude" / "plans"
-        execute_init(self._init_result(project, plans))
+        install_skills(project)
         skills_dir = project / ".claude" / "skills"
         assert skills_dir.is_dir()
         assert (skills_dir / "machinate-plan" / "SKILL.md").exists()
@@ -248,18 +248,16 @@ class TestExecuteInit:
         assert (skills_dir / "machinate-update" / "SKILL.md").exists()
 
     def test_installs_skills_idempotent(self, project: Path) -> None:
-        plans = project / ".claude" / "plans"
-        execute_init(self._init_result(project, plans))
+        install_skills(project)
         # Modify a skill file
         skill_file = project / ".claude" / "skills" / "machinate-plan" / "SKILL.md"
         skill_file.write_text("modified")
-        # Re-run init overwrites it
-        execute_init(self._init_result(project, plans))
+        # Re-run overwrites it
+        install_skills(project)
         assert skill_file.read_text() != "modified"
 
     def test_skill_files_use_machi_executable(self, project: Path) -> None:
-        plans = project / ".claude" / "plans"
-        execute_init(self._init_result(project, plans))
+        install_skills(project)
         for name in ("machinate-plan", "machinate-resume", "machinate-update"):
             content = (project / ".claude" / "skills" / name / "SKILL.md").read_text()
             assert "uv run" not in content

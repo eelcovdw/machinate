@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,12 +13,20 @@ from machinate.project_state import (
     resolve_current_plan,
 )
 from machinate.settings import Settings
-from machinate.skills import install_skills
 from machinate.task_service import list_tasks
-from machinate.templating import render_plan
+from machinate.templating import PlanStatus, render_plan
 
 DEFAULT_BASE_PLANS_DIR: Path = Path.home() / ".machinate"
 PLAN_FILE = "plan.md"
+
+ALLOW_RULES = [
+    "Bash(machi list)",
+    "Bash(machi show)",
+    "Bash(machi show *)",
+    "Bash(machi task list)",
+    "Bash(machi context list)",
+    "Read(.claude/plans/**)",
+]
 
 
 @dataclass
@@ -110,10 +119,36 @@ def plan_init(
     )
 
     resolved_plans = resolved_plans.expanduser().resolve()
-    claude_plans = _claude_plans_dir(resolved_root).expanduser().resolve()
+    claude_plans = _claude_plans_dir(resolved_root).expanduser()
+    # Don't resolve() claude_plans — if it's already a symlink to resolved_plans,
+    # resolve() would follow it and make both equal, hiding the symlink.
+    claude_plans = claude_plans.parent.resolve() / claude_plans.name
 
     symlink = claude_plans if resolved_plans != claude_plans else None
     return InitResult(plans_dir=resolved_plans, project_root=resolved_root, symlink=symlink)
+
+
+def update_claude_settings(project_root: Path) -> None:
+    """Merge machinate allow rules into .claude/settings.json."""
+    settings_path = project_root / ".claude" / "settings.json"
+    data: dict[str, object] = (
+        json.loads(settings_path.read_text()) if settings_path.exists() else {}
+    )
+
+    perms_raw = data.get("permissions")
+    perms: dict[str, object] = dict(perms_raw) if isinstance(perms_raw, dict) else {}  # pyright: ignore[reportUnknownArgumentType]
+    allow_raw = perms.get("allow")
+    existing: list[object] = list(allow_raw) if isinstance(allow_raw, list) else []  # pyright: ignore[reportUnknownArgumentType]
+
+    merged = list(existing)
+    for rule in ALLOW_RULES:
+        if rule not in merged:
+            merged.append(rule)
+
+    perms["allow"] = merged
+    data["permissions"] = perms
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(data, indent=2) + "\n")
 
 
 def execute_init(plan: InitResult, *, override: bool = False) -> None:
@@ -134,8 +169,6 @@ def execute_init(plan: InitResult, *, override: bool = False) -> None:
     state_file = plan.plans_dir / STATE_FILE
     if not state_file.exists() or override:
         ProjectState().save(state_file)
-
-    install_skills(plan.project_root)
 
 
 def get_plans_dir(project_root: Path | None = None) -> Path:
@@ -181,6 +214,22 @@ def set_plan(plans_dir: Path, name: str) -> None:
     state = ProjectState.load(plans_dir / STATE_FILE)
     state.current_plan = name
     state.save(plans_dir / STATE_FILE)
+
+
+def set_plan_status(plans_dir: Path, name: str, status: PlanStatus) -> Path:
+    """Update the status in a plan's frontmatter. Returns the plan.md path."""
+    plan_dir = get_plan_dir(plans_dir, name)
+    path = plan_dir / PLAN_FILE
+    text = path.read_text()
+    lines = text.splitlines()
+    new_lines: list[str] = []
+    for line in lines:
+        if line.startswith("status:"):
+            new_lines.append(f"status: {status}")
+        else:
+            new_lines.append(line)
+    path.write_text("\n".join(new_lines) + "\n")
+    return path
 
 
 def show_plan(plans_dir: Path, name: str | None = None) -> PlanInfo:

@@ -27,6 +27,7 @@ theme = Theme(
         "muted": "dim",
         "path": "blue underline",
         "name": "bold magenta",
+        "active": "green",
     }
 )
 

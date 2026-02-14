@@ -26,11 +26,11 @@ You are creating a structured plan for a feature using machinate.
    - Any constraints or decisions?
    - What's in scope / out of scope?
 
-4. **Write plan.md**: Edit the generated plan.md file to include the discussion results. Keep the existing frontmatter and title, add content below.
+4. **Write plan.md**: Edit the generated plan.md file to include the discussion results. Keep the existing frontmatter and title, add content below. Add a `summary` to the frontmatter — a short one-line description of the plan.
 
-5. **Add context files** if the user has reference docs, specs, or research to include. Run `machi context add <name1> <name2> ...` and write content into each file.
+5. **Add context files** if the user has reference docs, specs, or research to include. Run `machi context add <name1> <name2> ...` and write content into each file. Add a `summary` to each file's frontmatter.
 
-6. **Break into tasks**: Discuss task breakdown with the user, then run `machi task add <name1> <name2> ...`. Write a description into each task file. Tasks should be concrete, one-session-sized units of work.
+6. **Break into tasks**: Discuss task breakdown with the user, then run `machi task add <name1> <name2> ...`. Write a description into each task file. Add a `summary` to each task's frontmatter — a short one-line description of what the task does. Tasks should be concrete, one-session-sized units of work.
 
 7. **Show the result**: Run `machi show` to display the final plan.
 

@@ -1,4 +1,6 @@
 from machinate.templating.frontmatter import (
+    PLAN_STATUS_ORDER,
+    TASK_STATUS_ORDER,
     ContextFrontmatter,
     PlanFrontmatter,
     PlanStatus,
@@ -17,6 +19,8 @@ from machinate.templating.templates import (
 
 __all__ = [
     "DEFAULT_TEMPLATE",
+    "PLAN_STATUS_ORDER",
+    "TASK_STATUS_ORDER",
     "ContextFrontmatter",
     "PlanFrontmatter",
     "PlanStatus",

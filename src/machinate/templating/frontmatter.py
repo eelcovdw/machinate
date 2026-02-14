@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, Field
 
 PlanStatus = Literal["draft", "active", "done"]
 TaskStatus = Literal["todo", "in-progress", "done"]
+PLAN_STATUS_ORDER: tuple[str, ...] = get_args(PlanStatus)
+TASK_STATUS_ORDER: tuple[str, ...] = get_args(TaskStatus)
 
 
 class PlanFrontmatter(BaseModel):

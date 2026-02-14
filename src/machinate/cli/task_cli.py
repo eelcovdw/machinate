@@ -6,8 +6,8 @@ from rich.padding import Padding
 from machinate.console import get_console, short_path
 from machinate.plan_service import get_plans_dir
 from machinate.settings import Settings
-from machinate.task_service import add_task, list_tasks
-from machinate.templating import parse_frontmatter
+from machinate.task_service import add_task, list_tasks, set_task_status
+from machinate.templating import TASK_STATUS_ORDER, TaskStatus, parse_frontmatter
 
 task_app = typer.Typer(
     pretty_exceptions_enable=False,
@@ -37,6 +37,22 @@ def task_add(
         print(short_path(path))  # noqa: T201
 
 
+@task_app.command(name="set")
+def task_set(
+    task: Annotated[str, typer.Argument(help="Task prefix (e.g. '01').")],
+    status: Annotated[TaskStatus, typer.Argument(help="New status: todo, in-progress, done.")],
+    plan: Annotated[
+        str | None,
+        typer.Option("--plan", "-p", help="Plan name. Defaults to current plan."),
+    ] = None,
+) -> None:
+    """Set a task's status."""
+    plans_dir = get_plans_dir()
+    path = set_task_status(plans_dir, task, status, plan)
+    console = get_console(Settings())
+    console.print(f"[path]{short_path(path)}[/path] → [muted]{status}[/muted]")
+
+
 @task_app.command(name="list")
 def task_list(
     plan: Annotated[
@@ -54,9 +70,11 @@ def task_list(
         summary = meta.get("summary", "")
         by_status.setdefault(status, []).append((short_path(f), summary))
     console = get_console(Settings())
-    for status, entries in by_status.items():
+    ordered = [s for s in TASK_STATUS_ORDER if s in by_status]
+    ordered += [s for s in by_status if s not in ordered]
+    for status in ordered:
         console.print(f"[muted]{status}[/muted]")
-        for path, summary in entries:
+        for path, summary in by_status[status]:
             console.print(f"  [path]{path}[/path]")
             if summary:
                 console.print(Padding(f"[muted]{summary}[/muted]", (0, 0, 0, 4)))

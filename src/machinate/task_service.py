@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import typer
+
 from machinate.project_state import get_plan_dir, resolve_current_plan
-from machinate.templating import render_task
+from machinate.templating import TaskStatus, render_task
 
 TASKS_DIR = "tasks"
 
@@ -36,3 +38,37 @@ def list_tasks(plans_dir: Path, name: str | None = None) -> list[Path]:
     if not tasks_dir.is_dir():
         return []
     return sorted(f for f in tasks_dir.iterdir() if f.is_file())
+
+
+def resolve_task_file(plans_dir: Path, prefix: str, name: str | None = None) -> Path:
+    """Find a task file by prefix match. Raises typer.Exit on no/ambiguous match."""
+    tasks = list_tasks(plans_dir, name)
+    matches = [t for t in tasks if t.stem.startswith(prefix)]
+    if len(matches) == 0:
+        msg = f"No task matching '{prefix}'"
+        raise typer.BadParameter(msg)
+    if len(matches) > 1:
+        names = ", ".join(m.stem for m in matches)
+        msg = f"Ambiguous prefix '{prefix}', matches: {names}"
+        raise typer.BadParameter(msg)
+    return matches[0]
+
+
+def set_task_status(
+    plans_dir: Path,
+    prefix: str,
+    status: TaskStatus,
+    name: str | None = None,
+) -> Path:
+    """Set the status of a task file matched by prefix. Returns the task path."""
+    path = resolve_task_file(plans_dir, prefix, name)
+    text = path.read_text()
+    lines = text.splitlines()
+    new_lines: list[str] = []
+    for line in lines:
+        if line.startswith("status:"):
+            new_lines.append(f"status: {status}")
+        else:
+            new_lines.append(line)
+    path.write_text("\n".join(new_lines) + "\n")
+    return path

@@ -27,7 +27,7 @@ You are updating the current plan to reflect work that's been done in this sessi
    - Tasks that were started → offer to mark `in-progress`
    - New decisions or scope changes → offer to update plan.md
    - New tasks discovered → offer to create them via `machi task add`
-   - Summaries that are missing → offer to add them
+   - Summaries missing from frontmatter → add them
 
 5. **Apply updates**: Edit frontmatter `status` fields and file content as confirmed by the user.
 
@@ -36,6 +36,6 @@ You are updating the current plan to reflect work that's been done in this sessi
 ## Guidelines
 
 - Only update what the user confirms — don't silently change things
-- When marking a task done, also add a `summary` to its frontmatter if it's missing
+- Always add a `summary` to frontmatter if it's missing — for plans, tasks, and context files
 - Keep edits minimal — update statuses and add notes, don't rewrite task descriptions
 - If the plan status should change (e.g. all tasks done → `status: done`), suggest it
