@@ -25,7 +25,38 @@ You are setting up machinate for this project and writing the project descriptio
    - Keep it short — this is a reference card, not documentation. Aim for 10-20 lines of content.
    - Add a `summary` to the frontmatter — a one-line description of the project.
 
-4. **Show the result**: Print the project file path so the user can review it.
+4. **Add machinate section to CLAUDE.md**: Read the project's `CLAUDE.md`. If it already contains `## Machinate`, skip this step. Otherwise, append the following block verbatim to `CLAUDE.md` (create the file if it doesn't exist). Replace `{project-name}` with the actual project name from `machi info`.
+
+````markdown
+## Machinate
+
+This project uses machinate for feature planning. Plans live in `.claude/plans/` as plain markdown. Use the `machi` CLI to browse and manage plans — prefer it over `ls`/`find`/`Glob` as it gives structured, richer output.
+
+- **Plans** — feature plans with goals, approach, and scope (`.claude/plans/{name}/plan-{name}.md`)
+- **Tasks** — concrete, one-session units of work (`.claude/plans/{name}/tasks/*.md`)
+- **Context** — reference docs, specs, research (`.claude/plans/{name}/context/*.md`)
+
+Project overview: @.claude/plans/project-{project-name}.md
+
+### Commands
+
+```
+machi init                          # initialize machinate for this project
+machi new <name>                    # create a new plan
+machi list                          # list all plans with progress
+machi show [name]                   # show plan details (current plan if no args)
+machi set <name>                    # set the current plan
+machi status [draft|active|done]    # print or set current plan's status
+machi info                          # show project status
+machi task add <name...>            # create task files
+machi task list                     # list tasks grouped by status
+machi task status <task> [status]   # print or set a task's status
+machi context add <name...>         # create context files
+machi context list                  # list context files
+```
+````
+
+5. **Show the result**: Print the project file path so the user can review it.
 
 ## CLI commands
 
