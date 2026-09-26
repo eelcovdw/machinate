@@ -9,13 +9,19 @@ from rich.table import Table
 from .models import (
     AddResult,
     CommandResult,
+    ContextAddResult,
+    ContextInfoResult,
+    ContextListResult,
+    ContextShowResult,
     ErrorResult,
+    InfoResult,
     InitResult,
     ListResult,
     SetResult,
     ShowResult,
     StatusResult,
     TaskAddResult,
+    TaskInfoResult,
     TaskListResult,
     TaskShowResult,
     TaskStatusResult,
@@ -38,12 +44,131 @@ def render_error(result: ErrorResult) -> str:
     return f"Error: {result.error}"
 
 
+def _counts[S: str](counts: Mapping[S, int]) -> str:
+    return ", ".join(f"{name}: {count}" for name, count in counts.items())
+
+
+@render_text.register
+def render_info(result: InfoResult) -> str:
+    overview = result.overview
+    if overview.kind == "plan":
+        plan = overview.info.plan
+        metadata = plan.metadata
+        lines = [
+            f"Plan {plan.name} ({metadata.status})",
+            f"Project: {result.project.name} — {result.project.directory}",
+            f"Path: {result.project.storage / plan.path}",
+            f"Created: {metadata.created.isoformat()}",
+            f"Updated: {plan.last_activity_at.isoformat()}",
+        ]
+        if metadata.summary:
+            lines.append(f"Summary: {metadata.summary}")
+        tasks = overview.info.task_counts
+        lines.append(f"Tasks: {sum(tasks.values())} ({_counts(tasks)})")
+        lines.append(f"Contexts: {overview.info.context_count}")
+        return "\n".join(lines)
+    current = overview.current_plan
+    if current is not None and not overview.selection_valid:
+        current = f"{current} (missing)"
+    lines = [
+        f"Project {result.project.name} — {result.project.directory}",
+        f"Storage: {result.project.storage}",
+        f"Current plan: {current or '(none)'}",
+        f"Plans: {overview.plan_count} ({_counts(overview.plans_by_status)})",
+        f"Tasks: {sum(overview.task_totals.values())} ({_counts(overview.task_totals)})",
+        f"Contexts: {overview.context_count}",
+    ]
+    if overview.recent_plans:
+        lines.append("Recent plans:")
+        for plan in overview.recent_plans:
+            summary = f" — {plan.metadata.summary}" if plan.metadata.summary else ""
+            lines.append(f"  {plan.name} ({plan.metadata.status}){summary}")
+    return "\n".join(lines)
+
+
 @render_text.register
 def render_add(result: AddResult) -> str:
     return (
         f"Created plan {result.plan.name} in {result.project.name}\n"
         f"Path: {result.project.storage / result.plan.path}"
     )
+
+
+@render_text.register
+def render_context_add(result: ContextAddResult) -> str:
+    count = len(result.contexts)
+    lines = [f"Created {count} context document(s) in {result.project.name}/{result.plan}"]
+    lines.extend(
+        f"- {context.name}: {result.project.storage / context.path}" for context in result.contexts
+    )
+    return "\n".join(lines)
+
+
+@render_text.register
+def render_context_list(result: ContextListResult) -> str:
+    output = StringIO()
+    console = Console(file=output, color_system=None, width=120, markup=False, highlight=False)
+    console.print(f"{result.project.name} / {result.plan}")
+    if not result.contexts:
+        console.print("No contexts found.")
+    else:
+        table = Table("Name", "Summary", "Updated")
+        for entry in result.contexts:
+            table.add_row(
+                entry.name,
+                entry.metadata.summary or "",
+                entry.last_activity_at.isoformat(),
+            )
+        console.print(table)
+    return output.getvalue().rstrip()
+
+
+@render_text.register
+def render_context_show(result: ContextShowResult) -> str:
+    metadata = result.context.document.metadata
+    lines = [
+        f"Context {result.context.name}",
+        f"Project: {result.project.name} / {result.plan}",
+        f"Path: {result.project.storage / result.context.path}",
+        f"Created: {metadata.created.isoformat()}",
+        f"Modified: {result.context.modified_at.isoformat()}",
+    ]
+    if metadata.summary:
+        lines.append(f"Summary: {metadata.summary}")
+    body = result.context.document.body.rstrip("\n")
+    if body:
+        lines.extend(("", body))
+    return "\n".join(lines)
+
+
+@render_text.register
+def render_context_info(result: ContextInfoResult) -> str:
+    metadata = result.context.metadata
+    lines = [
+        f"Context {result.context.name}",
+        f"Project: {result.project.name} / {result.plan}",
+        f"Path: {result.project.storage / result.context.path}",
+        f"Created: {metadata.created.isoformat()}",
+        f"Modified: {result.context.last_activity_at.isoformat()}",
+    ]
+    if metadata.summary:
+        lines.append(f"Summary: {metadata.summary}")
+    return "\n".join(lines)
+
+
+@render_text.register
+def render_task_info(result: TaskInfoResult) -> str:
+    metadata = result.task.metadata
+    lines = [
+        f"Task {result.task.name} ({metadata.status})",
+        f"Project: {result.project.name} / {result.plan}",
+        f"Path: {result.project.storage / result.task.path}",
+        f"Created: {metadata.created.isoformat()}",
+        f"Modified: {result.task.last_activity_at.isoformat()}",
+    ]
+    if metadata.summary:
+        lines.append(f"Summary: {metadata.summary}")
+    return "\n".join(lines)
 
 
 @render_text.register

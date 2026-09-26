@@ -12,6 +12,7 @@ from machinate.cli.formatting import Formatter, UnknownFormatError, select_forma
 from machinate.cli.models import (
     AddResult,
     ErrorResult,
+    InfoResult,
     ListResult,
     ProjectScope,
     SetResult,
@@ -120,6 +121,46 @@ def list_plans(  # noqa: PLR0913
     except (ProjectError, UnknownFormatError, StorageError, ValidationError, OSError) as exc:
         typer.echo(
             formatter.format(ErrorResult(error=describe_error(exc), project=scope)), err=True
+        )
+        raise typer.Exit(1) from exc
+    typer.echo(formatter.format(result))
+
+
+def info_command(
+    context: typer.Context,
+    plan: Annotated[
+        str | None,
+        typer.Option("--plan", "-p", help="Plan to overview; omit for a project overview."),
+    ] = None,
+    project: Annotated[
+        Path | None,
+        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
+    ] = None,
+    output_format: Annotated[
+        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
+    ] = None,
+) -> None:
+    """Show a project overview, or a plan overview when -p is given."""
+    dependencies = get_dependencies(context)
+    formatter = Formatter()  # Structured fallback if settings/format selection fails.
+    scope: ProjectScope | None = None
+    try:
+        settings = Settings()
+        format_name = output_format or settings.format
+        formatter = select_formatter(format_name, dependencies.formatters)
+        plan_name = None if plan is None else NameInput(name=plan).name
+        project_context = dependencies.prepare_project(project)
+        scope = project_context.project
+        overview = (
+            project_context.plans.project_overview()
+            if plan_name is None
+            else project_context.plans.plan_overview(plan_name)
+        )
+        result = InfoResult(project=scope, overview=overview)
+    except (ProjectError, UnknownFormatError, StorageError, ValidationError, OSError) as exc:
+        typer.echo(
+            formatter.format(ErrorResult(command="info", error=describe_error(exc), project=scope)),
+            err=True,
         )
         raise typer.Exit(1) from exc
     typer.echo(formatter.format(result))

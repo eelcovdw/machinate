@@ -42,6 +42,16 @@ class ContextService:
         )
 
     @validate_call
+    def info(self, plan: Name, name: ContextName) -> ContextSummary:
+        context = self.get(plan, name)
+        return ContextSummary(
+            name=context.name,
+            path=context.path,
+            metadata=context.document.metadata,
+            last_activity_at=context.modified_at,
+        )
+
+    @validate_call
     def update(self, plan: Name, name: ContextName, changes: ContextUpdate) -> Context:
         context = self.get(plan, name)
         if not changes.model_fields_set:

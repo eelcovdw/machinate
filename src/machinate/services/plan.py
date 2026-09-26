@@ -1,6 +1,13 @@
 from pydantic import validate_call
 
-from machinate.models.plan import Plan, PlanInfo, PlanSummary, PlanUpdate
+from machinate.models.plan import (
+    Plan,
+    PlanInfo,
+    PlanOverview,
+    PlanSummary,
+    PlanUpdate,
+    ProjectOverview,
+)
 from machinate.storage import (
     ContextMetadata,
     Document,
@@ -103,4 +110,35 @@ class PlanService:
             ),
             task_counts=task_counts,
             context_count=len(context_records),
+        )
+
+    @validate_call
+    def plan_overview(self, name: Name) -> PlanOverview:
+        return PlanOverview(
+            current=self.project_state_store.read().current_plan == name,
+            info=self.info(name),
+        )
+
+    def project_overview(self) -> ProjectOverview:
+        state = self.project_state_store.read()
+        plans = self.list()
+        plans_by_status: dict[PlanStatus, int] = {"draft": 0, "active": 0, "done": 0}
+        task_totals: dict[TaskStatus, int] = {"todo": 0, "in-progress": 0, "done": 0}
+        context_count = 0
+        for plan in plans:
+            plans_by_status[plan.metadata.status] += 1
+            info = self.info(plan.name)
+            context_count += info.context_count
+            for status, count in info.task_counts.items():
+                task_totals[status] += count
+        recent_plans = sorted(plans, key=lambda plan: plan.last_activity_at, reverse=True)[:5]
+        return ProjectOverview(
+            current_plan=state.current_plan,
+            selection_valid=state.current_plan is None
+            or any(plan.name == state.current_plan for plan in plans),
+            plan_count=len(plans),
+            plans_by_status=plans_by_status,
+            task_totals=task_totals,
+            context_count=context_count,
+            recent_plans=recent_plans,
         )

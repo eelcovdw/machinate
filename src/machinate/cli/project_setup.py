@@ -3,6 +3,7 @@ from pathlib import Path
 
 from upath import UPath
 
+from machinate.services.context import ContextService
 from machinate.services.plan import PlanService
 from machinate.services.task import TaskService
 from machinate.storage import DocumentStore, Layout, ProjectState, ProjectStateStore
@@ -20,6 +21,7 @@ class ProjectContext:
     project: ProjectScope
     plans: PlanService
     tasks: TaskService
+    contexts: ContextService
 
 
 def select_project_directory(explicit: Path | None) -> Path:
@@ -75,4 +77,5 @@ def prepare_project(explicit: Path | None = None) -> ProjectContext:
         project=ProjectScope(name=state.project_name, directory=directory, storage=storage),
         plans=PlanService(document_store, layout, state_store),
         tasks=TaskService(document_store, layout),
+        contexts=ContextService(document_store, layout),
     )

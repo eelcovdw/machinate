@@ -3,17 +3,42 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
-from machinate.cli.commands.plans import add_plan, list_plans, set_plan, show_plan, status_plan
+from machinate.cli.commands.contexts import (
+    context_add,
+    context_info,
+    context_list,
+    context_show,
+)
+from machinate.cli.commands.plans import (
+    add_plan,
+    info_command,
+    list_plans,
+    set_plan,
+    show_plan,
+    status_plan,
+)
 from machinate.cli.commands.projects import init_project
-from machinate.cli.commands.tasks import status_task, task_add, task_list, task_show
+from machinate.cli.commands.tasks import (
+    status_task,
+    task_add,
+    task_info,
+    task_list,
+    task_show,
+)
 from machinate.cli.models import (
     AddResult,
+    ContextAddResult,
+    ContextInfoResult,
+    ContextListResult,
+    ContextShowResult,
+    InfoResult,
     InitResult,
     ListResult,
     SetResult,
     ShowResult,
     StatusResult,
     TaskAddResult,
+    TaskInfoResult,
     TaskListResult,
     TaskShowResult,
     TaskStatusResult,
@@ -41,6 +66,7 @@ class CommandSpec:
 COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("init", init_project, InitResult),
     CommandSpec("add", add_plan, AddResult),
+    CommandSpec("info", info_command, InfoResult),
     CommandSpec("list", list_plans, ListResult),
     CommandSpec("show", show_plan, ShowResult),
     CommandSpec("set", set_plan, SetResult),
@@ -49,9 +75,19 @@ COMMANDS: tuple[CommandSpec, ...] = (
         "task",
         children=(
             CommandSpec("add", task_add, TaskAddResult),
+            CommandSpec("info", task_info, TaskInfoResult),
             CommandSpec("list", task_list, TaskListResult),
             CommandSpec("show", task_show, TaskShowResult),
             CommandSpec("status", status_task, TaskStatusResult),
+        ),
+    ),
+    CommandSpec(
+        "context",
+        children=(
+            CommandSpec("add", context_add, ContextAddResult),
+            CommandSpec("info", context_info, ContextInfoResult),
+            CommandSpec("list", context_list, ContextListResult),
+            CommandSpec("show", context_show, ContextShowResult),
         ),
     ),
 )

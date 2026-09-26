@@ -108,12 +108,14 @@ def test_schema_for_command() -> None:
 
 def test_schema_for_group() -> None:
     group = _GroupSchema.model_validate_json(runner.invoke(app, ["schema", "task"]).stdout)
-    assert set(group.commands) == {"add", "list", "show", "status"}
+    assert set(group.commands) == {"add", "info", "list", "show", "status"}
     assert group.commands["add"].ref == "#/$defs/TaskAddResult"
+    assert group.commands["info"].ref == "#/$defs/TaskInfoResult"
     assert group.commands["list"].ref == "#/$defs/TaskListResult"
     assert group.commands["show"].ref == "#/$defs/TaskShowResult"
     assert group.commands["status"].ref == "#/$defs/TaskStatusResult"
     assert "TaskAddResult" in group.defs
+    assert "TaskInfoResult" in group.defs
     assert "TaskListResult" in group.defs
     assert "TaskShowResult" in group.defs
     assert "TaskStatusResult" in group.defs

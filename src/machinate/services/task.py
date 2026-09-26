@@ -33,6 +33,16 @@ class TaskService:
         )
 
     @validate_call
+    def info(self, plan: Name, name: TaskName) -> TaskSummary:
+        task = self.get(plan, name)
+        return TaskSummary(
+            name=task.name,
+            path=task.path,
+            metadata=task.document.metadata,
+            last_activity_at=task.modified_at,
+        )
+
+    @validate_call
     def update(self, plan: Name, name: TaskName, changes: TaskUpdate) -> Task:
         task = self.get(plan, name)
         if not changes.model_fields_set:

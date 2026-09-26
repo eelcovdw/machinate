@@ -210,3 +210,6 @@ __marimo__/
 # Machinate local state and scratch design docs
 .machi/
 .dev-docs/
+
+# pi-lens editor tool config
+.pi-lens.json

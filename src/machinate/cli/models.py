@@ -1,9 +1,10 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from machinate.models.plan import Plan, PlanSummary
+from machinate.models.context import Context, ContextSummary
+from machinate.models.plan import Plan, PlanOverview, PlanSummary, ProjectOverview
 from machinate.models.task import Task, TaskSummary
 from machinate.storage import ProjectState
 
@@ -70,11 +71,52 @@ class TaskShowResult(BaseModel):
     task: Task
 
 
+class TaskInfoResult(BaseModel):
+    command: Literal["task info"] = "task info"
+    project: ProjectScope
+    plan: str
+    task: TaskSummary
+
+
 class TaskStatusResult(BaseModel):
     command: Literal["task status"] = "task status"
     project: ProjectScope
     plan: str
     task: Task
+
+
+class ContextAddResult(BaseModel):
+    command: Literal["context add"] = "context add"
+    project: ProjectScope
+    plan: str
+    contexts: list[Context]
+
+
+class ContextListResult(BaseModel):
+    command: Literal["context list"] = "context list"
+    project: ProjectScope
+    plan: str
+    contexts: list[ContextSummary]
+
+
+class ContextShowResult(BaseModel):
+    command: Literal["context show"] = "context show"
+    project: ProjectScope
+    plan: str
+    context: Context
+
+
+class ContextInfoResult(BaseModel):
+    command: Literal["context info"] = "context info"
+    project: ProjectScope
+    plan: str
+    context: ContextSummary
+
+
+class InfoResult(BaseModel):
+    command: Literal["info"] = "info"
+    project: ProjectScope
+    overview: ProjectOverview | PlanOverview = Field(discriminator="kind")
 
 
 class ErrorResult(BaseModel):
@@ -85,14 +127,20 @@ class ErrorResult(BaseModel):
 
 type CommandResult = (
     AddResult
+    | InfoResult
     | InitResult
     | ListResult
     | StatusResult
     | SetResult
     | ShowResult
     | TaskAddResult
+    | TaskInfoResult
     | TaskListResult
     | TaskShowResult
     | TaskStatusResult
+    | ContextAddResult
+    | ContextInfoResult
+    | ContextListResult
+    | ContextShowResult
     | ErrorResult
 )
