@@ -44,3 +44,43 @@ Verification for a change: targeted `pytest`, then the full suite, plus `ruff fo
   function, render a Pydantic result. Register commands via the `CommandSpec` catalog.
 - Add a `Result` model for each command and a matching `render_text` in `formatting.py`.
 - Tests with `pytest`.
+
+## Machinate
+
+machinate is a file-based planning tool for coding agents. It keeps a project's
+plans, tasks, and context as plain Markdown with TOML frontmatter under `.machi/`,
+with no server or database, and this project is planned with it.
+
+Prefer the `machi` CLI over `ls`/`find`/`Glob` — it returns structured output and
+keeps links consistent.
+
+### Commands
+
+```text
+machi init          Initialize a project directory.
+machi info          Show a project or plan overview.
+machi instructions  Print this block.
+machi schema        Print the JSON Schema for command results.
+machi plan          add, list, show, info, path, set, update
+machi task          add, list, show, info, path, update
+machi context       add, list, show, info, path, update
+```
+
+### Targeting
+
+- Target an existing plan with `-p NAME`; without it the current plan is used.
+- Non-interactive mode (`MACHI_INTERACTIVE=false`) requires `-p`.
+- `-P DIR` targets an exact project directory; otherwise machinate discovers the
+  nearest `.machi/` by walking upward.
+
+### Output
+
+- Use `--format text|json`. Precedence: `--format` > `MACHI_FORMAT` > default
+  (text, or json in non-interactive mode).
+- `machi schema` documents the exact JSON shape of every command result.
+
+### Editing
+
+- `machi plan path`, `machi task path NAME`, and `machi context path NAME` print
+  absolute editing paths; edit bodies with your own file tools.
+- Change status, tags, and summaries with `machi plan|task|context update`.

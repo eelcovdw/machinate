@@ -22,6 +22,7 @@ from .models import (
     ErrorResult,
     InfoResult,
     InitResult,
+    InstructionsResult,
     ListResult,
     PathResult,
     PlanInfoResult,
@@ -439,6 +440,11 @@ def render_set(result: SetResult) -> str:
     line.append(str(result.state.current_plan), style=HEADING)
     line.append(f" in {result.project.name}")
     return _render([line])
+
+
+@render_text.register
+def render_instructions(result: InstructionsResult) -> str:
+    return result.text
 
 
 @render_text.register

@@ -135,6 +135,11 @@ class InfoResult(BaseModel):
     overview: ProjectOverview
 
 
+class InstructionsResult(BaseModel):
+    command: Literal["instructions"] = "instructions"
+    text: str
+
+
 class PlanInfoResult(BaseModel):
     command: Literal["plan info"] = "plan info"
     project: ProjectScope
@@ -167,5 +172,6 @@ type CommandResult = (
     | ContextListResult
     | ContextShowResult
     | ContextUpdateResult
+    | InstructionsResult
     | ErrorResult
 )
