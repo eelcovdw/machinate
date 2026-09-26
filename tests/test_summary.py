@@ -1,0 +1,66 @@
+from datetime import UTC, datetime
+from pathlib import Path
+
+from upath import UPath
+
+from machinate.storage import ContextMetadata, Document, DocumentStore
+from machinate.storage.summary import derive_summary
+
+
+def test_no_prose_returns_none() -> None:
+    assert derive_summary("") is None
+    assert derive_summary("\n\n") is None
+    assert derive_summary("# Title\n\n## Section\n\n") is None
+
+
+def test_first_paragraph_is_summary() -> None:
+    assert derive_summary("# Plan: auth\n\nClose the gap.\n\nMore detail.") == "Close the gap."
+
+
+def test_heading_paragraph_before_prose() -> None:
+    assert derive_summary("## What\n\nText.") == "Text."
+
+
+def test_label_preamble_is_skipped() -> None:
+    assert derive_summary("Project: machinate\n\nDo the thing.") == "Do the thing."
+    assert derive_summary("# Plan: x\nProject: y\n\nDo the thing.") == "Do the thing."
+
+
+def test_markdown_is_stripped() -> None:
+    body = "Use `machi` with **bold** and [a link](https://example.com) here."
+    assert derive_summary(body) == "Use machi with bold and a link here."
+
+
+def test_multiline_paragraph_is_joined() -> None:
+    assert derive_summary("First line\nsecond line\n\nNext.") == "First line second line"
+
+
+def test_summary_is_not_persisted(tmp_path: Path) -> None:
+    store = DocumentStore(UPath(tmp_path))
+    store.create(
+        "note.md",
+        Document(metadata=ContextMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)), body="Hello"),
+    )
+    assert "summary" not in (tmp_path / "note.md").read_text()
+    assert store.read("note.md", ContextMetadata).get_or_derive_summary() == "Hello"
+
+
+def test_stored_summary_wins(tmp_path: Path) -> None:
+    (tmp_path / "note.md").write_text(
+        "---\ncreated: 2026-01-01T00:00:00Z\nsummary: Curated\n---\nBody paragraph.\n"
+    )
+    document = DocumentStore(UPath(tmp_path)).read("note.md", ContextMetadata)
+    assert document.metadata.summary == "Curated"
+
+
+def test_stored_summary_survives_rewrite(tmp_path: Path) -> None:
+    store = DocumentStore(UPath(tmp_path))
+    store.create(
+        "note.md",
+        Document(
+            metadata=ContextMetadata(created=datetime(2026, 1, 1, tzinfo=UTC), summary="Curated"),
+            body="Body paragraph.",
+        ),
+    )
+    assert "summary: Curated" in (tmp_path / "note.md").read_text()
+    assert store.read("note.md", ContextMetadata).metadata.summary == "Curated"

@@ -1,6 +1,18 @@
 # machinate
 
-File-based project planning for Claude Code. Plans live as markdown in `.claude/plans/`, browsable in Obsidian.
+File-based project planning for coding agents. Plans, tasks, and context as plain
+Markdown in a local folder.
+
+## Overview
+
+A **project** is a directory with a `.machi/` directory. Within it:
+
+- **plans** — units of work with a goal and a status (`draft` / `active` / `done`)
+- **tasks** — the concrete steps that make up a plan
+- **context** — background documents an agent needs while working
+
+Everything is plain Markdown with YAML frontmatter: diffable, greppable, and editable
+by hand, while the CLI provides structure and tracks things like the current plan.
 
 ## Install
 
@@ -11,15 +23,25 @@ uv tool install git+https://github.com/eelcovdw/machinate.git
 ## Usage
 
 ```bash
-machi init                    # set up plans dir + symlink
-machi new <name>              # create a new plan
-machi list                    # list plans
-machi show [name]             # show plan details (default: current)
-machi set <name>              # set current plan
-machi status [status]         # print or set current plan's status
-machi task add [name...]      # add tasks to current plan
-machi task list               # list tasks grouped by status
-machi task status <task> [s]  # print or set a task's status
-machi context add [name...]   # add context docs
-machi context list            # list context docs
+machi init                   # initialize a project
+machi plan add auth          # create a plan
+machi plan set auth          # select it as current active plan
+machi task add login logout  # add tasks on the active plan
+machi task list              # list all tasks on the active plan
+machi context add spec       # add context
+machi plan show              # read the current plan
+machi plan info              # progress overview
+machi plan list              # list all plans
+```
+
+`-p PLAN` targets a plan, `-P PROJECT_DIR` a project, `--format json` for agents.
+
+## Development
+
+Python 3.14 + [`uv`](https://docs.astral.sh/uv/).
+
+```bash
+uv sync && uv run pytest
+uv run ruff check && uv run ruff format
+uv run basedpyright
 ```

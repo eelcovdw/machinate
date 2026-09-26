@@ -11,13 +11,18 @@ dependencies = [
     "pydantic>=2.12.5",
     "pydantic-settings>=2.12.0",
     "rich>=14.3.2",
+    "ruamel-yaml>=0.18.16,<0.19",
+    "tantivy>=0.26.2",
     "tomli-w>=1.2.0",
+    "tomlkit>=0.13.3,<0.15",
     "typer>=0.23.1",
+    "universal-pathlib>=0.3.10",
+    "wcmatch>=11.0.1",
 ]
 
 [project.scripts]
-machinate = "machinate.cli:app"
-machi = "machinate.cli:app"
+machinate = "machinate.cli.cli:app"
+machi = "machinate.cli.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.9.25,<0.10.0"]
@@ -55,7 +60,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/machinate/cli/*.py" = [
+"src/machinate/cli/**/*.py" = [
     "FBT",     # Boolean positional args are fine for typer CLI flags
 ]
 "tests/*.py" = [
@@ -69,6 +74,13 @@ ignore = [
 ]
 
 [tool.basedpyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.14"
 reportUnusedCallResult = false
+
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+reportPrivateUsage = false
 
 [tool.pytest.ini_options]

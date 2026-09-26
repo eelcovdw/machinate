@@ -1,0 +1,84 @@
+from pathlib import PurePosixPath
+
+from .models import ContextNameInput, NameInput, TaskNameInput
+from .queries import DocumentCollection, DocumentKind, DocumentMembership, DocumentScope
+
+_PLANS_DIRECTORY = PurePosixPath("plans")
+_TASKS_DIRECTORY = PurePosixPath("tasks")
+_CONTEXT_DIRECTORY = PurePosixPath("context")
+_PLAN_DOCUMENT = PurePosixPath("plan.md")
+
+_COLLECTION_KINDS: dict[str, DocumentKind] = {
+    _TASKS_DIRECTORY.name: "task",
+    _CONTEXT_DIRECTORY.name: "context",
+}
+
+
+class Layout:
+    def project(self) -> PurePosixPath:
+        return PurePosixPath("project.md")
+
+    def plan(self, name: str) -> PurePosixPath:
+        name = NameInput(name=name).name
+        return _PLANS_DIRECTORY / name / _PLAN_DOCUMENT
+
+    def task(self, plan: str, name: str) -> PurePosixPath:
+        name = TaskNameInput(name=name).name
+        return self.plan(plan).parent / _TASKS_DIRECTORY / f"{name}.md"
+
+    def context(self, plan: str, name: str) -> PurePosixPath:
+        name = ContextNameInput(name=name).name
+        return self.plan(plan).parent / _CONTEXT_DIRECTORY / f"{name}.md"
+
+    def resolve(self, path: PurePosixPath) -> DocumentMembership:
+        """Reverse a storage-relative path to its kind and owning plan/name.
+
+        Mirrors the forward conventions: plans live at ``plans/{plan}/plan.md`` and are
+        flat, while tasks and context may be nested and keep their collection-relative
+        directory path as the name.
+        """
+        parts = path.parts
+        if parts[:1] != (_PLANS_DIRECTORY.name,):
+            return DocumentMembership(kind="unknown")
+
+        rest = parts[1:]
+        if not rest:
+            return DocumentMembership(kind="unknown")
+
+        plan, *tail = rest
+        if tail == [_PLAN_DOCUMENT.name]:
+            return DocumentMembership(kind="plan", plan=plan, name=plan)
+
+        kind = _COLLECTION_KINDS.get(tail[0]) if tail else None
+        if kind is not None and path.suffix == ".md":
+            name_parts = tail[1:]
+            if name_parts:
+                name = PurePosixPath(*name_parts).with_suffix("").as_posix()
+                return DocumentMembership(kind=kind, plan=plan, name=name)
+
+        return DocumentMembership(kind="unknown")
+
+    def plan_activity_scopes(self) -> tuple[DocumentScope, ...]:
+        """Return scopes relative to the plan document's directory."""
+        return (
+            DocumentScope(path=_TASKS_DIRECTORY, pattern=PurePosixPath("**/*.md")),
+            DocumentScope(path=_CONTEXT_DIRECTORY, pattern=PurePosixPath("**/*.md")),
+        )
+
+    def plan_collection(self) -> DocumentCollection:
+        return DocumentCollection(
+            path=_PLANS_DIRECTORY,
+            pattern=PurePosixPath("*/plan.md"),
+            name_source="parent",
+            activity_scopes=self.plan_activity_scopes(),
+        )
+
+    def task_collection(self, plan: str) -> DocumentCollection:
+        return DocumentCollection(
+            path=self.plan(plan).parent / _TASKS_DIRECTORY, pattern=PurePosixPath("**/*.md")
+        )
+
+    def context_collection(self, plan: str) -> DocumentCollection:
+        return DocumentCollection(
+            path=self.plan(plan).parent / _CONTEXT_DIRECTORY, pattern=PurePosixPath("**/*.md")
+        )
