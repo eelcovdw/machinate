@@ -29,6 +29,7 @@ machi init          Initialize a project directory.
 machi info          Show a project or plan overview.
 machi instructions  Print this block.
 machi schema        Print the JSON Schema for command results.
+machi find          Search files under .machi/ (glob + tantivy query language).
 machi plan          add, list, show, info, path, set, update
 machi task          add, list, show, info, path, update
 machi context       add, list, show, info, path, update

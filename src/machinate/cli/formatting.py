@@ -6,9 +6,11 @@ from functools import singledispatch
 from io import StringIO
 from typing import get_args, override
 
-from rich.console import Console
+from rich.console import Console, RenderableType
+from rich.table import Table
 from rich.text import Text
 
+from machinate.models.search import FindEntry, FindSnippet
 from machinate.storage import PlanStatus, TaskStatus
 
 from .models import (
@@ -20,6 +22,7 @@ from .models import (
     ContextShowResult,
     ContextUpdateResult,
     ErrorResult,
+    FindResult,
     InfoResult,
     InitResult,
     InstructionsResult,
@@ -87,13 +90,14 @@ def _console(output: StringIO) -> Console:
     )
 
 
-def _render(lines: Sequence[Text]) -> str:
+def _render(lines: Sequence[RenderableType]) -> str:
     """Join styled lines into one string; styling is only emitted when color is on."""
     output = StringIO()
     console = _console(output)
     for line in lines:
         console.print(line, soft_wrap=True)
-    return output.getvalue().rstrip()
+    rendered = output.getvalue().splitlines()
+    return "\n".join(line.rstrip() for line in rendered).rstrip()
 
 
 def _title(kind: str, name: str, status: str | None = None) -> Text:
@@ -440,6 +444,82 @@ def render_set(result: SetResult) -> str:
     line.append(str(result.state.current_plan), style=HEADING)
     line.append(f" in {result.project.name}")
     return _render([line])
+
+
+def _find_locator(entry: FindEntry) -> str:
+    path = entry.path.as_posix()
+    if not entry.snippets:
+        return path
+    snippet = entry.snippets[0]
+    if snippet.line == snippet.line_end:
+        return f"{path}:{snippet.line}"
+    return f"{path}:{snippet.line}-{snippet.line_end}"
+
+
+def _append_highlights(
+    line: Text, content: str, base: int, highlights: list[tuple[int, int]]
+) -> None:
+    position = 0
+    for start, end in sorted(highlights):
+        low = max(start - base, position)
+        high = min(end - base, len(content))
+        if high <= low:
+            continue
+        line.append(content[position:low])
+        line.append(content[low:high], style="bold")
+        position = high
+    line.append(content[position:])
+
+
+def _snippet_lines(snippet: FindSnippet) -> list[Text]:
+    width = len(str(snippet.line_end))
+    output: list[Text] = []
+    base = 0
+    for index, content in enumerate(snippet.text.split("\n")):
+        line = Text()
+        line.append(f"{snippet.line + index:>{width}} │ ", style=MUTED)
+        _append_highlights(line, content, base, snippet.highlights)
+        output.append(line)
+        base += len(content) + 1
+    return output
+
+
+def _find_owner(entry: FindEntry) -> str:
+    return f"[{entry.kind}{f' {entry.plan}' if entry.plan is not None else ''}]"
+
+
+@render_text.register
+def render_find(result: FindResult) -> str:
+    scope = result.plan if result.plan is not None else "all plans"
+    lines: list[RenderableType] = [Text(f"{result.project.name} / {scope}", style=PROJECT)]
+    if not result.entries:
+        lines.append(Text("No matches found.", style=MUTED))
+        return _render(lines)
+    ranked = any(entry.score is not None for entry in result.entries)
+    spaced = any(entry.snippets for entry in result.entries)
+    lines.append(Text())
+    table = Table.grid(padding=(0, 2))
+    if ranked:
+        table.add_column(justify="right", no_wrap=True, style=MUTED)
+    table.add_column()
+    for index, entry in enumerate(result.entries):
+        if index and spaced:
+            table.add_row(*["" for _ in range(2 if ranked else 1)])
+        block = Text()
+        block.append(_find_locator(entry), style=PATH)
+        block.append("  ")
+        block.append(_find_owner(entry), style=MUTED)
+        for snippet in entry.snippets:
+            for line in _snippet_lines(snippet):
+                block.append("\n")
+                block.append_text(line)
+        score = f"{entry.score:.1f}" if entry.score is not None else ""
+        if ranked:
+            table.add_row(score, block)
+        else:
+            table.add_row(block)
+    lines.append(table)
+    return _render(lines)
 
 
 @render_text.register

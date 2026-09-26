@@ -33,6 +33,15 @@ wheels = [
 ]
 
 [[package]]
+name = "bracex"
+version = "3.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ac/01/5f394b8bcd6e5b92f73130990960423bbb19711f906bd9fe9ea5557c667c/bracex-3.0.1.tar.gz", hash = "sha256:4e38e32392e4a4780fe15d644bfc7c8514057cfc3861e060b11814ce829c25e4", size = 44019, upload-time = "2026-07-20T13:43:00.335Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/8f/6f7273a7adb8d73fc8d21ede4376a3e475e52f98435c6007f69100dec8ca/bracex-3.0.1-py3-none-any.whl", hash = "sha256:6523ad83aeb5098a4ee597cff0f964442ff74e460bd3fafaffab6a013ff2288c", size = 11940, upload-time = "2026-07-20T13:42:59.268Z" },
+]
+
+[[package]]
 name = "click"
 version = "8.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -80,10 +89,12 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "rich" },
     { name = "ruamel-yaml" },
+    { name = "tantivy" },
     { name = "tomli-w" },
     { name = "tomlkit" },
     { name = "typer" },
     { name = "universal-pathlib" },
+    { name = "wcmatch" },
 ]
 
 [package.dev-dependencies]
@@ -100,10 +111,12 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "rich", specifier = ">=14.3.2" },
     { name = "ruamel-yaml", specifier = ">=0.18.16,<0.19" },
+    { name = "tantivy", specifier = ">=0.26.2" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "tomlkit", specifier = ">=0.13.3,<0.15" },
     { name = "typer", specifier = ">=0.23.1" },
     { name = "universal-pathlib", specifier = ">=0.3.10" },
+    { name = "wcmatch", specifier = ">=11.0.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -382,6 +395,19 @@ wheels = [
 ]
 
 [[package]]
+name = "tantivy"
+version = "0.26.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/33/e2/019c16b6f498d826c0458f4a40df86adfccbc8c9670f3e7c0f6dadce2f2d/tantivy-0.26.2.tar.gz", hash = "sha256:93519eb9f18c298a6779d132505d67f158741318413c181e9ec488381edf2721", size = 196884, upload-time = "2026-09-17T02:00:28.751Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3d/45/5ef1411d70223f07744cee652ba0816b76bd3345c2c60443fda29eb20c43/tantivy-0.26.2-cp314-cp314-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:46969fcc1d3fb93401c6eee5777b00e35b098630e4de9c30c1c6ed650ae03c0c", size = 8170463, upload-time = "2026-09-17T02:00:18.825Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/f7/e10af1292dc73d2017f45d2ca86bd56a03f37d0460baa8ef9b439946b4be/tantivy-0.26.2-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:7e3b53e5fb5717e1722abc8ad1145aa3f3717590dc2252673adb2652b8274aaa", size = 4207670, upload-time = "2026-09-17T02:00:20.979Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/08/5a5dd16149bd0a51e60526ec672109363f824ab3d7ae0ecc559fdb1d5f92/tantivy-0.26.2-cp314-cp314-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1c3c5ffbab74c5d318c59af52f6749ccf44972f85e282f01e84749c2d78a08a7", size = 4664509, upload-time = "2026-09-17T02:00:23.017Z" },
+    { url = "https://files.pythonhosted.org/packages/35/91/65549d5772c852f1fcf5d27764b3793a0b86edbe306783218bc355bad233/tantivy-0.26.2-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:04ff39f365840aa75977dbd823164c9324031fe62a0676d0f5a8f6ea9d8abf20", size = 4519057, upload-time = "2026-09-17T02:00:25.105Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/d3/3eec5b39bd4ae062c34121d8a06ba271d9d15c308dbd9b9b38dbc9f9cf00/tantivy-0.26.2-cp314-cp314-win_amd64.whl", hash = "sha256:0dfd17073890de5045d87fc12c7b28c5e427e4b1254619a8487bf651a3c5bf8e", size = 3732401, upload-time = "2026-09-17T02:00:27.209Z" },
+]
+
+[[package]]
 name = "tomli-w"
 version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -446,4 +472,16 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/3d/6e/d997a70ee8f4c61f9a7e2f4f8af721cf072a3326848fc881b05187e52558/universal_pathlib-0.3.10.tar.gz", hash = "sha256:4487cbc90730a48cfb64f811d99e14b6faed6d738420cd5f93f59f48e6930bfb", size = 261110, upload-time = "2026-02-22T14:40:58.87Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dd/1a/5d9a402b39ec892d856bbdd9db502ff73ce28cdf4aff72eb1ce1d6843506/universal_pathlib-0.3.10-py3-none-any.whl", hash = "sha256:dfaf2fb35683d2eb1287a3ed7b215e4d6016aa6eaf339c607023d22f90821c66", size = 83528, upload-time = "2026-02-22T14:40:57.316Z" },
+]
+
+[[package]]
+name = "wcmatch"
+version = "11.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "bracex" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/57/43/30e407989e313677dbb9d5f045f966549a7254834571e342eaa4b55cc67b/wcmatch-11.0.1.tar.gz", hash = "sha256:1ea2b4fa678b8ca268253798d5963935df39132d47c3e241c0a0732224005e7d", size = 144662, upload-time = "2026-08-14T15:20:40.477Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ce/77/7a02b0f05b3ffcdbef9719ce3ee0b508d6a29b58e95299f1580055671db3/wcmatch-11.0.1-py3-none-any.whl", hash = "sha256:fd149ecddb9f0a88ea780017d6dde17c994e494e7f7303d4e3c9d6251f978f4b", size = 43449, upload-time = "2026-08-14T15:20:39.379Z" },
 ]

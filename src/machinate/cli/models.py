@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from machinate.models.context import Context, ContextSummary
 from machinate.models.plan import Plan, PlanOverview, PlanSummary, ProjectOverview
+from machinate.models.search import FindEntry
 from machinate.models.task import Task, TaskSummary
 from machinate.storage import ProjectState
 
@@ -129,6 +130,15 @@ class PathResult(BaseModel):
     exists: bool
 
 
+class FindResult(BaseModel):
+    command: Literal["find"] = "find"
+    project: ProjectScope
+    plan: str | None = None
+    query: str | None = None
+    globs: list[str]
+    entries: list[FindEntry]
+
+
 class InfoResult(BaseModel):
     command: Literal["info"] = "info"
     project: ProjectScope
@@ -154,6 +164,7 @@ class ErrorResult(BaseModel):
 
 type CommandResult = (
     AddResult
+    | FindResult
     | InfoResult
     | InitResult
     | ListResult

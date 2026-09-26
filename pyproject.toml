@@ -12,10 +12,12 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "rich>=14.3.2",
     "ruamel-yaml>=0.18.16,<0.19",
+    "tantivy>=0.26.2",
     "tomli-w>=1.2.0",
     "tomlkit>=0.13.3,<0.15",
     "typer>=0.23.1",
     "universal-pathlib>=0.3.10",
+    "wcmatch>=11.0.1",
 ]
 
 [project.scripts]

@@ -1,0 +1,40 @@
+from pathlib import PurePosixPath
+
+import pytest
+
+from machinate.storage import DocumentMembership, Layout
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("plans/auth/plan.md", ("plan", "auth", "auth")),
+        ("plans/auth/tasks/login.md", ("task", "auth", "login")),
+        ("plans/auth/tasks/abcd/efg/h.md", ("task", "auth", "abcd/efg/h")),
+        ("plans/auth/context/notes.md", ("context", "auth", "notes")),
+        ("plans/auth/context/deep/nested/x.md", ("context", "auth", "deep/nested/x")),
+        ("machinate.toml", ("unknown", None, None)),
+        ("project.md", ("unknown", None, None)),
+        ("plans", ("unknown", None, None)),
+        ("plans/auth/tasks", ("unknown", None, None)),
+        ("plans/auth/tasks/readme.txt", ("unknown", None, None)),
+        ("plans/auth/other/x.md", ("unknown", None, None)),
+        ("plans/auth/plan.md/extra.md", ("unknown", None, None)),
+    ],
+)
+def test_resolve(path: str, expected: tuple[str, str | None, str | None]) -> None:
+    membership = Layout().resolve(PurePosixPath(path))
+    assert (membership.kind, membership.plan, membership.name) == expected
+
+
+def test_resolve_matches_forward_conventions() -> None:
+    layout = Layout()
+    assert layout.resolve(layout.plan("auth")) == DocumentMembership(
+        kind="plan", plan="auth", name="auth"
+    )
+    assert layout.resolve(layout.task("auth", "abcd/efg/h")) == DocumentMembership(
+        kind="task", plan="auth", name="abcd/efg/h"
+    )
+    assert layout.resolve(layout.context("auth", "deep/nested/x")) == DocumentMembership(
+        kind="context", plan="auth", name="deep/nested/x"
+    )

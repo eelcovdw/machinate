@@ -10,6 +10,7 @@ from machinate.cli.commands.contexts import (
     context_show,
     context_update,
 )
+from machinate.cli.commands.find import find_command
 from machinate.cli.commands.instructions import instructions_command
 from machinate.cli.commands.paths import context_path, plan_path, task_path
 from machinate.cli.commands.plans import (
@@ -36,6 +37,7 @@ from machinate.cli.models import (
     ContextListResult,
     ContextShowResult,
     ContextUpdateResult,
+    FindResult,
     InfoResult,
     InitResult,
     InstructionsResult,
@@ -75,6 +77,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("init", init_project, InitResult),
     CommandSpec("info", info_command, InfoResult),
     CommandSpec("instructions", instructions_command, InstructionsResult),
+    CommandSpec("find", find_command, FindResult),
     CommandSpec(
         "plan",
         children=(

@@ -17,6 +17,19 @@ class DocumentCollection(DocumentScope):
     activity_scopes: tuple[DocumentScope, ...] = ()
 
 
+type DocumentKind = Literal["plan", "task", "context", "unknown"]
+
+
+class DocumentMembership(BaseModel):
+    """Kind and owning plan/name for a storage-relative path."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    kind: DocumentKind
+    plan: str | None = None
+    name: str | None = None
+
+
 class DateTimeRange(BaseModel):
     """Inclusive timezone-aware timestamp bounds."""
 

@@ -5,6 +5,7 @@ from upath import UPath
 
 from machinate.services.context import ContextService
 from machinate.services.plan import PlanService
+from machinate.services.search import SearchService
 from machinate.services.task import TaskService
 from machinate.storage import DocumentStore, Layout, ProjectState, ProjectStateStore
 from machinate.storage.models import NameInput
@@ -22,6 +23,7 @@ class ProjectContext:
     plans: PlanService
     tasks: TaskService
     contexts: ContextService
+    search: SearchService
 
 
 def select_project_directory(explicit: Path | None) -> Path:
@@ -78,4 +80,5 @@ def prepare_project(explicit: Path | None = None) -> ProjectContext:
         plans=PlanService(document_store, layout, state_store),
         tasks=TaskService(document_store, layout),
         contexts=ContextService(document_store, layout),
+        search=SearchService(document_store, layout),
     )

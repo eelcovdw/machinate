@@ -17,6 +17,8 @@ from .project_state_store import ProjectStateStore
 from .queries import (
     DateTimeRange,
     DocumentCollection,
+    DocumentKind,
+    DocumentMembership,
     DocumentQuery,
     DocumentRecord,
     DocumentScope,
@@ -30,6 +32,8 @@ __all__ = [
     "Document",
     "DocumentCollection",
     "DocumentExistsError",
+    "DocumentKind",
+    "DocumentMembership",
     "DocumentQuery",
     "DocumentRecord",
     "DocumentScope",

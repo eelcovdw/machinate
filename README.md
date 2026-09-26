@@ -1,11 +1,11 @@
 # machinate
 
 File-based project planning for coding agents. Plans, tasks, and context as plain
-Markdown in `.machi/`.
+Markdown in a local folder.
 
 ## Overview
 
-A **project** is a directory with a `.machi/` store. Within it:
+A **project** is a directory with a `.machi/` directory. Within it:
 
 - **plans** — units of work with a goal and a status (`draft` / `active` / `done`)
 - **tasks** — the concrete steps that make up a plan
