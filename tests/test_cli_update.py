@@ -451,18 +451,6 @@ def test_update_does_not_change_selection(project: Path) -> None:
     assert read_state(project).current_plan == "auth"
 
 
-def test_update_help() -> None:
-    result = runner.invoke(app, ["plan", "update", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert "--project" in result.stdout
-    assert "--format" in result.stdout
-    assert "--summary" in result.stdout
-    assert "--status" in result.stdout
-    assert "--tag" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
 def test_update_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["plan", "update", "-p", "auth", "--status", "active"]

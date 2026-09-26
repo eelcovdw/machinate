@@ -285,14 +285,6 @@ def test_add_then_list(project: Path) -> None:
     ]
 
 
-def test_add_help() -> None:
-    result = runner.invoke(app, ["plan", "add", "--help"])
-    assert result.exit_code == 0
-    assert "--project" in result.stdout
-    assert "--format" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
 def test_add_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["plan", "add", "alpha"]

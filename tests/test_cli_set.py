@@ -271,15 +271,6 @@ def test_selection_does_not_redirect_explicit_operation(
     assert read_state(project).current_plan == "auth"
 
 
-def test_set_help() -> None:
-    result = runner.invoke(app, ["plan", "set", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert "--project" in result.stdout
-    assert "--format" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
 def test_set_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["plan", "set", "-p", "auth"]

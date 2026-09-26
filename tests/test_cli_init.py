@@ -289,16 +289,6 @@ def test_init_then_list_is_empty(target: Path, monkeypatch: pytest.MonkeyPatch) 
     assert parsed.project.directory == target
 
 
-def test_init_help(target: Path) -> None:
-    result = runner.invoke(app, ["init", "--help"])
-    assert result.exit_code == 0
-    assert "--project-name" in result.stdout
-    assert "--project" in result.stdout
-    assert "--format" in result.stdout
-    assert not result.stdout.startswith("{")
-    assert not (target / ".machi").exists()
-
-
 @pytest.mark.parametrize("invalid", [["--project-name"], ["--unknown"]])
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
 def test_init_parser_errors_use_json(

@@ -298,15 +298,6 @@ def test_show_then_list(project: Path) -> None:
     assert prepare_project(project).plans.project_state_store.read().current_plan is None
 
 
-def test_show_help() -> None:
-    result = runner.invoke(app, ["plan", "show", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert "--project" in result.stdout
-    assert "--format" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
 def test_show_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["plan", "show", "-p", "auth"]

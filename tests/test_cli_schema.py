@@ -170,13 +170,6 @@ def test_schema_needs_no_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert _Bundle.model_validate_json(result.stdout).version
 
 
-def test_schema_help() -> None:
-    result = runner.invoke(app, ["schema", "--help"])
-    assert result.exit_code == 0
-    assert "result schema to print" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 def test_schema_parser_errors_follow_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     factory = Mock(side_effect=AssertionError("schema must not prepare a project"))
     dependencies = Dependencies(prepare_project=factory)

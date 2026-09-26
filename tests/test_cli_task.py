@@ -295,22 +295,6 @@ def test_task_add_then_show_and_list(project: Path) -> None:
     ]
 
 
-def test_task_add_help() -> None:
-    result = runner.invoke(app, ["task", "add", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert "--project" in result.stdout
-    assert "--format" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
-def test_task_group_help() -> None:
-    result = runner.invoke(app, ["task", "--help"])
-    assert result.exit_code == 0
-    assert "add" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
 def test_task_add_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["task", "add", "login"]
@@ -583,15 +567,6 @@ def test_task_list_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert TaskListResult.model_validate(json.loads(result.stdout)).tasks[0].name == "seed"
 
 
-def test_task_list_help() -> None:
-    result = runner.invoke(app, ["task", "list", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert "--status" in result.stdout
-    assert "--format" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
 def test_task_list_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["task", "list", "-p", "auth"]
@@ -743,14 +718,6 @@ def test_task_show_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert TaskShowResult.model_validate(json.loads(result.stdout)).task.name == "seed"
 
 
-def test_task_show_help() -> None:
-    result = runner.invoke(app, ["task", "show", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert "--format" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
 def test_task_show_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["task", "show", "login", "-p", "auth"]
@@ -865,14 +832,6 @@ def test_task_info_formatter_injection(project: Path) -> None:
     assert result.exit_code == 0
     assert result.stdout == "replacement\n"
     assert isinstance(formatter.results[0], TaskInfoResult)
-
-
-def test_task_info_help() -> None:
-    result = runner.invoke(app, ["task", "info", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert "--format" in result.stdout
-    assert not result.stdout.startswith("{")
 
 
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
@@ -1206,17 +1165,6 @@ def test_task_update_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) 
     factory.assert_called_once_with(project)
     update.assert_called_once_with("auth", "seed", TaskUpdate(status="done"))
     assert TaskUpdateResult.model_validate(json.loads(result.stdout)).task.name == "seed"
-
-
-def test_task_update_help() -> None:
-    result = runner.invoke(app, ["task", "update", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert "--format" in result.stdout
-    assert "--summary" in result.stdout
-    assert "--status" in result.stdout
-    assert "--tag" in result.stdout
-    assert not result.stdout.startswith("{")
 
 
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])

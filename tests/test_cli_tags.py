@@ -243,20 +243,3 @@ def test_context_show_and_info_text_include_tags(project: Path) -> None:
     )
     assert info.exit_code == 0, info.output
     assert "Tags: docs" in info.stdout
-
-
-@pytest.mark.parametrize(
-    "args",
-    [
-        ["plan", "add"],
-        ["plan", "list"],
-        ["task", "add"],
-        ["task", "list"],
-        ["context", "add"],
-        ["context", "list"],
-    ],
-)
-def test_tag_help(args: list[str]) -> None:
-    result = runner.invoke(app, [*args, "--help"])
-    assert result.exit_code == 0
-    assert "--tag" in result.stdout

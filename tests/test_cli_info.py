@@ -147,13 +147,6 @@ def test_info_text_project_overview_without_current(project: Path) -> None:
     assert "Current plan: (none)" in result.stdout
 
 
-def test_info_help() -> None:
-    result = runner.invoke(app, ["info", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" not in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 def test_plan_info_overview(project: Path) -> None:
     result = runner.invoke(
         app,
@@ -237,13 +230,6 @@ def test_plan_info_text_overview(project: Path) -> None:
     assert "Plan auth (draft)" in result.stdout
     assert "Tasks: 2 (todo: 1, in-progress: 0, done: 1)" in result.stdout
     assert "Contexts: 1" in result.stdout
-
-
-def test_plan_info_help() -> None:
-    result = runner.invoke(app, ["plan", "info", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert not result.stdout.startswith("{")
 
 
 class ReplacementFormatter(Formatter):

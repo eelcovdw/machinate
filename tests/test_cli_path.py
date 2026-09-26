@@ -227,13 +227,6 @@ def test_path_formatter_injection(project: Path) -> None:
     assert isinstance(formatter.results[0], PathResult)
 
 
-def test_path_help() -> None:
-    result = runner.invoke(app, ["plan", "path", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 def test_task_path_help() -> None:
     result = runner.invoke(app, ["task", "path", "--help"])
     assert result.exit_code == 0

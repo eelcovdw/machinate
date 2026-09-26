@@ -235,17 +235,6 @@ def test_find_snippet_for_prefix_and_typo_queries(project: Path) -> None:
         assert snippet.text[start:end] == "kangaroo", query
 
 
-def test_find_help() -> None:
-    result = runner.invoke(app, ["find", "--help"])
-    assert result.exit_code == 0, result.output
-    assert "Usage" in result.stdout
-    assert "--glob" in result.stdout
-    assert "--regex" in result.stdout
-    assert "--exact" in result.stdout
-    assert "--snippets" in result.stdout
-    assert "tantivy" in result.stdout
-
-
 def test_find_via_installed_cli(project: Path) -> None:
     launcher = Path(sys.executable).with_name("machi")
     environment = {

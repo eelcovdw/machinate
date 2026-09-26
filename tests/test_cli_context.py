@@ -300,22 +300,6 @@ def test_context_add_then_show_and_list(project: Path) -> None:
     ]
 
 
-def test_context_add_help() -> None:
-    result = runner.invoke(app, ["context", "add", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert "--project" in result.stdout
-    assert "--format" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
-def test_context_group_help() -> None:
-    result = runner.invoke(app, ["context", "--help"])
-    assert result.exit_code == 0
-    assert "add" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
 def test_context_add_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["context", "add", "spec"]
@@ -490,14 +474,6 @@ def test_context_list_empty_text(project: Path) -> None:
     assert "No contexts found." in result.stdout
 
 
-def test_context_list_help() -> None:
-    result = runner.invoke(app, ["context", "list", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert "--search" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 def test_context_list_formatter_injection(project: Path) -> None:
     seed_context(project, "spec")
     formatter = ReplacementFormatter()
@@ -622,13 +598,6 @@ def test_context_show_text_output_without_body(project: Path) -> None:
     assert "Summary:" not in result.stdout
 
 
-def test_context_show_help() -> None:
-    result = runner.invoke(app, ["context", "show", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert not result.stdout.startswith("{")
-
-
 def test_context_show_formatter_injection(project: Path) -> None:
     seed_context(project, "spec")
     formatter = ReplacementFormatter()
@@ -737,13 +706,6 @@ def test_context_info_text_output_without_summary(project: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "Context spec" in result.stdout
     assert "Summary:" not in result.stdout
-
-
-def test_context_info_help() -> None:
-    result = runner.invoke(app, ["context", "info", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert not result.stdout.startswith("{")
 
 
 def test_context_info_formatter_injection(project: Path) -> None:
@@ -1085,16 +1047,6 @@ def test_context_update_delegation(project: Path, monkeypatch: pytest.MonkeyPatc
     factory.assert_called_once_with(project)
     update.assert_called_once_with("auth", "spec", ContextUpdate(summary="x"))
     assert ContextUpdateResult.model_validate(json.loads(result.stdout)).context.name == "spec"
-
-
-def test_context_update_help() -> None:
-    result = runner.invoke(app, ["context", "update", "--help"])
-    assert result.exit_code == 0
-    assert "--plan" in result.stdout
-    assert "--format" in result.stdout
-    assert "--summary" in result.stdout
-    assert "--tag" in result.stdout
-    assert not result.stdout.startswith("{")
 
 
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])

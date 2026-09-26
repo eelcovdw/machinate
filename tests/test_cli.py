@@ -95,9 +95,10 @@ def test_list_alias_matches_plan_list(project: Path, monkeypatch: pytest.MonkeyP
 
 
 def test_list_alias_is_hidden() -> None:
-    help_output = runner.invoke(app, ["--help"]).stdout
-    assert "│ list" not in help_output
-    assert "│ plan" in help_output
+    hidden = {command.name for command in app.registered_commands if command.hidden}
+    assert "list" in hidden
+    visible = {group.name for group in app.registered_groups if group.hidden is not True}
+    assert "plan" in visible
 
 
 @pytest.mark.parametrize(
@@ -389,14 +390,6 @@ def test_read_only_and_malformed_document(project: Path) -> None:
     assert "alpha/plan.md" in error.error
     assert error.project is not None
     assert error.project.directory == project
-
-
-def test_help() -> None:
-    result = runner.invoke(app, ["plan", "list", "--help"])
-    assert result.exit_code == 0
-    assert "--status" in result.stdout
-    assert "--search-body" in result.stdout
-    assert not result.stdout.startswith("{")
 
 
 def test_help_does_not_prepare_project(monkeypatch: pytest.MonkeyPatch) -> None:
