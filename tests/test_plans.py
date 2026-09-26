@@ -1,0 +1,291 @@
+import os
+from datetime import UTC, datetime
+from pathlib import Path, PurePosixPath
+from typing import override
+from unittest.mock import Mock
+
+import pytest
+from pydantic import ValidationError
+from upath import UPath
+
+from machinate.models.plan import PlanUpdate
+from machinate.services.plan import PlanService
+from machinate.storage import (
+    ContextMetadata,
+    DateTimeRange,
+    Document,
+    DocumentCollection,
+    DocumentExistsError,
+    DocumentRecord,
+    DocumentScope,
+    DocumentStore,
+    InvalidDocumentError,
+    Layout,
+    MissingDocumentError,
+    PlanMetadata,
+    PlanQuery,
+    ProjectState,
+    ProjectStateStore,
+    TaskMetadata,
+)
+from machinate.storage.models import NameInput
+
+
+@pytest.fixture
+def service(tmp_path: Path) -> PlanService:
+    state = ProjectStateStore(UPath(tmp_path / "state.toml"))
+    state.write(ProjectState(project_name="demo"))
+    return PlanService(DocumentStore(UPath(tmp_path / "docs")), Layout(), state)
+
+
+@pytest.fixture
+def metadata() -> PlanMetadata:
+    return PlanMetadata.model_validate(
+        {"created": "2026-09-22T00:00:00Z", "summary": "Original", "custom": {"owner": "Alice"}}
+    )
+
+
+def test_create_get_and_duplicate(service: PlanService, metadata: PlanMetadata) -> None:
+    plan = service.create("alpha", metadata, "Body\n")
+    assert plan == service.get("alpha")
+    assert plan.name == "alpha"
+    assert plan.path == PurePosixPath("alpha/plan.md")
+    assert plan.document == Document(metadata=metadata, body="Body\n")
+    assert service.get_current() is None
+    assert service.project_state_store.read() == ProjectState(project_name="demo")
+    assert '"created":"2026-09-22T00:00:00Z"' in plan.model_dump_json()
+    with pytest.raises(DocumentExistsError):
+        service.create("alpha", metadata)
+
+
+def test_patch_preserves_omitted_fields_and_extra_metadata(
+    service: PlanService, metadata: PlanMetadata
+) -> None:
+    service.create("alpha", metadata, "Body")
+    result = service.update("alpha", PlanUpdate(summary="Changed"))
+    assert result.document.body == "Body"
+    assert result.document.metadata.status == "draft"
+    result = service.set_status("alpha", "active")
+    assert result.document.metadata.summary == "Changed"
+    assert result.document.metadata.status == "active"
+    result = service.update("alpha", PlanUpdate(summary="", body=""))
+    assert result.document.metadata.summary == ""
+    assert result.document.body == ""
+    assert result.document.metadata.status == "active"
+    assert result.document.metadata.created == metadata.created
+    assert result.document.metadata.model_extra == metadata.model_extra
+    assert service.update("alpha", PlanUpdate(summary=None)).document.metadata.summary is None
+
+
+def test_empty_patch_never_writes(
+    service: PlanService, metadata: PlanMetadata, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service.create("alpha", metadata, "Body")
+    target = service.document_store.root / "alpha/plan.md"
+    os.utime(target.path, ns=(1234567890123456789, 1234567890123456789))
+    before = target.read_bytes(), target.stat().st_mtime_ns
+    write = Mock(side_effect=AssertionError("empty patch must not write"))
+    monkeypatch.setattr(service.document_store, "write", write)
+    result = service.update("alpha", PlanUpdate())
+    assert (target.read_bytes(), target.stat().st_mtime_ns) == before
+    assert result.modified_at == datetime.fromtimestamp(target.stat().st_mtime, UTC)
+    write.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [{"body": None}, {"status": None}, {"status": "bad"}, {"created": "2026-01-01T00:00:00Z"}],
+)
+def test_patch_validation(patch: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        PlanUpdate.model_validate(patch)
+
+
+def test_method_validation(service: PlanService, metadata: PlanMetadata) -> None:
+    with pytest.raises(ValidationError):
+        service.create("../bad", metadata)
+    with pytest.raises(ValidationError):
+        service.create("alpha", metadata, None)  # pyright: ignore[reportArgumentType]
+    with pytest.raises(ValidationError):
+        service.create("alpha", {"summary": "missing date"})  # pyright: ignore[reportArgumentType]
+    with pytest.raises(ValidationError):
+        service.set_status("alpha", "invalid")  # pyright: ignore[reportArgumentType]
+    with pytest.raises(ValidationError):
+        service.list({"limit": 0})  # pyright: ignore[reportArgumentType]
+    for operation in (service.get, service.set_current, service.info):
+        with pytest.raises(ValidationError):
+            operation("../bad")
+    with pytest.raises(ValidationError):
+        service.update("../bad", PlanUpdate())
+
+
+def test_missing_operations_and_dangling_selection(service: PlanService) -> None:
+    for operation in (service.get, service.set_current, service.info):
+        with pytest.raises(MissingDocumentError):
+            operation("missing")
+    with pytest.raises(MissingDocumentError):
+        service.update("missing", PlanUpdate())
+    with pytest.raises(MissingDocumentError):
+        service.set_status("missing", "done")
+    assert service.get_current() is None
+    service.project_state_store.write(ProjectState(project_name="demo", current_plan="missing"))
+    with pytest.raises(MissingDocumentError):
+        service.get_current()
+
+
+def test_selection_does_not_retarget_explicit_operations(
+    service: PlanService, metadata: PlanMetadata
+) -> None:
+    service.create("alpha", metadata)
+    assert service.set_current("alpha") == ProjectState(project_name="demo", current_plan="alpha")
+    service.create("beta", metadata)
+    assert service.get_current() == service.get("alpha")
+    service.set_current("beta")
+    service.update("alpha", PlanUpdate(body="only alpha"))
+    service.set_status("alpha", "done")
+    assert service.get("alpha").document.body == "only alpha"
+    assert service.get("beta").document.body == ""
+    assert service.get_current() == service.get("beta")
+    assert service.info("alpha").plan.metadata.status == "done"
+    assert service.project_state_store.read().project_name == "demo"
+
+
+def test_list_delegates_query_and_preserves_storage_results(
+    service: PlanService, metadata: PlanMetadata, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    records = [
+        DocumentRecord(
+            name=name,
+            path=PurePosixPath(name, "plan.md"),
+            metadata=metadata,
+            last_activity_at=datetime(2026, 9, 22, tzinfo=UTC),
+        )
+        for name in ("zulu", "alpha")
+    ]
+    query = PlanQuery(search="not present", statuses=set(), descending=True, limit=1)
+    listing = Mock(return_value=records)
+    info = Mock(side_effect=AssertionError("listing must not request counts"))
+    monkeypatch.setattr(service.document_store, "list", listing)
+    monkeypatch.setattr(service, "info", info)
+    summaries = service.list(query)
+    listing.assert_called_once_with(service.layout.plan_collection(), PlanMetadata, query)
+    assert [summary.name for summary in summaries] == ["zulu", "alpha"]
+    assert [summary.metadata for summary in summaries] == [metadata, metadata]
+    assert all("body" not in summary.model_dump() for summary in summaries)
+    info.assert_not_called()
+
+
+def test_set_status_uses_update(service: PlanService, monkeypatch: pytest.MonkeyPatch) -> None:
+    update = Mock()
+    monkeypatch.setattr(service, "update", update)
+    service.set_status("alpha", "done")
+    update.assert_called_once_with("alpha", PlanUpdate(status="done"))
+
+
+def test_info_counts_and_list_ignores_malformed_children(
+    service: PlanService, metadata: PlanMetadata
+) -> None:
+    service.create("alpha", metadata)
+    empty = service.info("alpha")
+    assert empty.task_counts == {"todo": 0, "in-progress": 0, "done": 0}
+    assert empty.context_count == 0
+    for name, status in [
+        ("one", "todo"),
+        ("nested/two", "done"),
+        ("three", "in-progress"),
+        ("four", "todo"),
+    ]:
+        service.document_store.create(
+            PurePosixPath("alpha/tasks", f"{name}.md"),
+            Document(
+                metadata=TaskMetadata.model_validate(
+                    {"created": datetime(2026, 9, 22, tzinfo=UTC), "status": status}
+                ),
+                body="",
+            ),
+        )
+    service.document_store.create(
+        PurePosixPath("alpha/context/nested/note.md"),
+        Document(metadata=ContextMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""),
+    )
+    info = service.info("alpha")
+    assert info.task_counts == {"todo": 2, "in-progress": 1, "done": 1}
+    assert info.context_count == 1
+    assert info.plan == service.list()[0]
+    bad = service.document_store.root / "alpha/tasks/bad.md"
+    bad.write_text("invalid")
+    assert len(service.list()) == 1
+    with pytest.raises(InvalidDocumentError):
+        service.info("alpha")
+
+
+class AlternateLayout(Layout):
+    @override
+    def plan(self, name: str) -> PurePosixPath:
+        return PurePosixPath("registry", NameInput(name=name).name, "index.md")
+
+    @override
+    def plan_activity_scopes(self) -> tuple[DocumentScope, ...]:
+        return (
+            DocumentScope(path=PurePosixPath("work"), pattern=PurePosixPath("**/*.task")),
+            DocumentScope(path=PurePosixPath("notes"), pattern=PurePosixPath("**/*.note")),
+        )
+
+    @override
+    def plan_collection(self) -> DocumentCollection:
+        return DocumentCollection(
+            path=PurePosixPath("registry"),
+            pattern=PurePosixPath("*/index.md"),
+            name_source="parent",
+            activity_scopes=self.plan_activity_scopes(),
+        )
+
+    @override
+    def task_collection(self, plan: str) -> DocumentCollection:
+        return DocumentCollection(
+            path=PurePosixPath("registry", NameInput(name=plan).name, "work"),
+            pattern=PurePosixPath("**/*.task"),
+        )
+
+    @override
+    def context_collection(self, plan: str) -> DocumentCollection:
+        return DocumentCollection(
+            path=PurePosixPath("registry", NameInput(name=plan).name, "notes"),
+            pattern=PurePosixPath("**/*.note"),
+        )
+
+
+def test_replacement_layout_controls_query_and_activity(
+    service: PlanService, metadata: PlanMetadata
+) -> None:
+    service = PlanService(service.document_store, AlternateLayout(), service.project_state_store)
+    service.create("alpha", metadata)
+    service.create("beta", metadata)
+    for name in ("alpha", "beta"):
+        os.utime((service.document_store.root / service.layout.plan(name)).path, (100, 100))
+    child = PurePosixPath("registry/alpha/work/nested/one.task")
+    service.document_store.create(
+        child, Document(metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body="")
+    )
+    os.utime((service.document_store.root / child).path, (300, 300))
+    service.document_store.create(
+        PurePosixPath("registry/alpha/notes/one.note"),
+        Document(metadata=ContextMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""),
+    )
+    os.utime((service.document_store.root / "registry/alpha/notes/one.note").path, (200, 200))
+    # A document in the default layout must not enter this layout's results.
+    service.document_store.create(Layout().plan("ignored"), Document(metadata=metadata, body=""))
+    records = service.list(
+        PlanQuery(
+            updated_range=DateTimeRange(gte=datetime.fromtimestamp(300, UTC)),
+            sort="updated",
+            descending=True,
+            limit=1,
+        )
+    )
+    assert [record.name for record in records] == ["alpha"]
+    assert records[0].path == service.layout.plan("alpha")
+    info = service.info("alpha")
+    assert info.plan == records[0]
+    assert info.task_counts == {"todo": 1, "in-progress": 0, "done": 0}
+    assert info.context_count == 1
