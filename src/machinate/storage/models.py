@@ -12,6 +12,8 @@ from pydantic import (
     field_validator,
 )
 
+from .summary import derive_summary
+
 
 def validate_name(value: str) -> str:
     if (
@@ -88,6 +90,8 @@ class Metadata(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow", validate_assignment=True)
 
     created: AwareDatetime
+    # Optional authored summary; readers fall back to a derived one
+    # (see Document.get_or_derive_summary).
     summary: str | None = None
     tags: list[Tag] = Field(default_factory=list)
 
@@ -129,6 +133,12 @@ class Document[M: Metadata](BaseModel):
 
     metadata: M
     body: str
+
+    def get_or_derive_summary(self) -> str | None:
+        """Return the authored summary, or one derived from the body."""
+        if self.metadata.summary is not None:
+            return self.metadata.summary
+        return derive_summary(self.body)
 
 
 class FileMetadata(BaseModel):

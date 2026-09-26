@@ -17,10 +17,12 @@ from machinate.cli.models import (
     ContextInfoResult,
     ContextListResult,
     ContextShowResult,
+    ContextUpdateResult,
     ErrorResult,
     ListResult,
 )
 from machinate.cli.project_setup import prepare_project
+from machinate.models.context import ContextUpdate
 from machinate.storage import ContextMetadata, PlanMetadata, ProjectState, ProjectStateStore
 
 runner = CliRunner()
@@ -350,9 +352,9 @@ def seed_context(
     body: str = "",
     created: datetime = _DEFAULT_CREATED,
 ) -> None:
-    prepare_project(project).contexts.create(
-        "auth", name, ContextMetadata(created=created, summary=summary), body
-    )
+    if summary is not None and not body:
+        body = summary
+    prepare_project(project).contexts.create("auth", name, ContextMetadata(created=created), body)
 
 
 def test_context_list_explicit_plan(project: Path) -> None:
@@ -536,7 +538,7 @@ def test_context_show_explicit_plan(project: Path) -> None:
     assert parsed.plan == "auth"
     assert parsed.context.name == "spec"
     assert parsed.context.path.as_posix() == "plans/auth/context/spec.md"
-    assert parsed.context.document.metadata.summary == "The spec"
+    assert parsed.context.document.get_or_derive_summary() == "Details."
     assert parsed.context.document.body == "# Spec\n\nDetails.\n"
     assert parsed.context.document.metadata.created.tzinfo is not None
 
@@ -608,7 +610,7 @@ def test_context_show_text_output(project: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "Context spec" in result.stdout
     assert "example / auth" in result.stdout
-    assert "Summary: The spec" in result.stdout
+    assert "Summary: Details." in result.stdout
     assert "# Spec\n\nDetails." in result.stdout
 
 
@@ -668,7 +670,7 @@ def test_context_info_explicit_plan(project: Path) -> None:
     assert parsed.plan == "auth"
     assert parsed.context.name == "spec"
     assert parsed.context.path.as_posix() == "plans/auth/context/spec.md"
-    assert parsed.context.metadata.summary == "The spec"
+    assert parsed.context.summary == "Details."
     assert parsed.context.last_activity_at.tzinfo is not None
 
 
@@ -725,7 +727,7 @@ def test_context_info_text_output(project: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "Context spec" in result.stdout
     assert "example / auth" in result.stdout
-    assert "Summary: The spec" in result.stdout
+    assert "Summary: Details." in result.stdout
     assert "# Spec" not in result.stdout
 
 
@@ -771,4 +773,346 @@ def test_context_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, so
     assert result.exit_code == 2, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.command == "context info"
+    factory.assert_not_called()
+
+
+def test_context_update_sets_summary(project: Path) -> None:
+    seed_context(project, "spec")
+    result = runner.invoke(
+        app,
+        [
+            "context",
+            "update",
+            "spec",
+            "--summary",
+            "The spec",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = ContextUpdateResult.model_validate(json.loads(result.stdout))
+    assert parsed.context.document.metadata.summary == "The spec"
+
+
+def test_context_update_clears_summary(project: Path) -> None:
+    seed_context(project, "spec", summary="The spec")
+    result = runner.invoke(
+        app,
+        [
+            "context",
+            "update",
+            "spec",
+            "--summary",
+            "",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = ContextUpdateResult.model_validate(json.loads(result.stdout))
+    assert parsed.context.document.metadata.summary is None
+
+
+def test_context_update_replaces_tags(project: Path) -> None:
+    seed_context(project, "spec")
+    prepare_project(project).contexts.update("auth", "spec", ContextUpdate(tags=["old"]))
+    result = runner.invoke(
+        app,
+        [
+            "context",
+            "update",
+            "spec",
+            "--tag",
+            "new",
+            "--tag",
+            "backend",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = ContextUpdateResult.model_validate(json.loads(result.stdout))
+    assert parsed.context.document.metadata.tags == ["new", "backend"]
+
+
+def test_context_update_current_plan(project: Path) -> None:
+    seed_context(project, "spec")
+    prepare_project(project).plans.set_current("auth")
+    result = runner.invoke(
+        app,
+        ["context", "update", "spec", "--summary", "New", "-P", str(project), "--format", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    assert ContextUpdateResult.model_validate(json.loads(result.stdout)).plan == "auth"
+
+
+def test_context_update_does_not_change_selection(project: Path) -> None:
+    seed_context(project, "spec")
+    prepare_project(project).plans.set_current("auth")
+    result = runner.invoke(
+        app,
+        [
+            "context",
+            "update",
+            "spec",
+            "--summary",
+            "New",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert read_state(project).current_plan == "auth"
+
+
+def test_context_update_nothing_to_change(project: Path) -> None:
+    seed_context(project, "spec")
+    before = snapshot(project)
+    result = runner.invoke(
+        app, ["context", "update", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
+    )
+    assert result.exit_code == 1, result.output
+    error = ErrorResult.model_validate_json(result.stderr)
+    assert error.command == "context update"
+    assert "Nothing to update" in error.error
+    assert snapshot(project) == before
+
+
+def test_context_update_unknown_context(project: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "context",
+            "update",
+            "missing",
+            "--summary",
+            "x",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert ErrorResult.model_validate_json(result.stderr).command == "context update"
+
+
+def test_context_update_unknown_plan(project: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "context",
+            "update",
+            "spec",
+            "--summary",
+            "x",
+            "-p",
+            "nope",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert ErrorResult.model_validate_json(result.stderr).command == "context update"
+
+
+def test_context_update_non_interactive_requires_plan(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seed_context(project, "spec")
+    prepare_project(project).plans.set_current("auth")
+    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    result = runner.invoke(app, ["context", "update", "spec", "--summary", "x", "-P", str(project)])
+    assert result.exit_code == 1, result.output
+    assert ErrorResult.model_validate_json(result.stderr).command == "context update"
+
+
+def test_context_update_no_current_plan(project: Path) -> None:
+    seed_context(project, "spec")
+    result = runner.invoke(
+        app, ["context", "update", "spec", "--summary", "x", "-P", str(project), "--format", "json"]
+    )
+    assert result.exit_code == 1, result.output
+    assert ErrorResult.model_validate_json(result.stderr).command == "context update"
+
+
+@pytest.mark.parametrize("invalid", ["", "../bad"])
+def test_context_update_invalid_name_preserves_target(project: Path, invalid: str) -> None:
+    seed_context(project, "spec")
+    before = snapshot(project)
+    result = runner.invoke(
+        app,
+        [
+            "context",
+            "update",
+            invalid,
+            "--summary",
+            "x",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert snapshot(project) == before
+
+
+def test_context_update_text_output(project: Path) -> None:
+    seed_context(project, "spec")
+    result = runner.invoke(
+        app,
+        [
+            "context",
+            "update",
+            "spec",
+            "--summary",
+            "New",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "text",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Updated context spec in example/auth" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("interactive", "env_format", "flag", "expected"),
+    [
+        (None, None, None, "text"),
+        ("false", None, None, "json"),
+        (None, "json", None, "json"),
+        ("false", "json", "text", "text"),
+    ],
+)
+def test_context_update_format_precedence(  # noqa: PLR0913
+    project: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    interactive: str | None,
+    env_format: str | None,
+    flag: str | None,
+    expected: str,
+) -> None:
+    seed_context(project, "spec")
+    if interactive is not None:
+        monkeypatch.setenv("MACHI_INTERACTIVE", interactive)
+    if env_format is not None:
+        monkeypatch.setenv("MACHI_FORMAT", env_format)
+    args = ["context", "update", "spec", "--summary", "x", "-p", "auth", "-P", str(project)]
+    if flag is not None:
+        args.extend(["--format", flag])
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert result.stdout.startswith("{") == (expected == "json")
+
+
+def test_context_update_formatter_injection(project: Path) -> None:
+    seed_context(project, "spec")
+    formatter = ReplacementFormatter()
+    custom = create_cli(Dependencies(formatters={"custom": formatter}))
+    result = runner.invoke(
+        custom,
+        [
+            "context",
+            "update",
+            "spec",
+            "--summary",
+            "x",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "custom",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert result.stdout == "replacement\n"
+    assert isinstance(formatter.results[0], ContextUpdateResult)
+
+
+def test_context_update_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seed_context(project, "spec")
+    application = prepare_project(project)
+    record = application.contexts.get("auth", "spec")
+    update = Mock(return_value=record)
+    monkeypatch.setattr(application.contexts, "update", update)
+    factory = Mock(return_value=application)
+    result = runner.invoke(
+        create_cli(Dependencies(prepare_project=factory)),
+        [
+            "context",
+            "update",
+            "spec",
+            "--summary",
+            "x",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    factory.assert_called_once_with(project)
+    update.assert_called_once_with("auth", "spec", ContextUpdate(summary="x"))
+    assert ContextUpdateResult.model_validate(json.loads(result.stdout)).context.name == "spec"
+
+
+def test_context_update_help() -> None:
+    result = runner.invoke(app, ["context", "update", "--help"])
+    assert result.exit_code == 0
+    assert "--plan" in result.stdout
+    assert "--format" in result.stdout
+    assert "--summary" in result.stdout
+    assert "--tag" in result.stdout
+    assert not result.stdout.startswith("{")
+
+
+@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+def test_context_update_parser_errors_use_json(
+    monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    args = ["context", "update", "spec", "-p", "auth"]
+    if source == "flag":
+        args.extend(["--format", "json"])
+    elif source == "environment":
+        monkeypatch.setenv("MACHI_FORMAT", "json")
+    else:
+        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
+    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
+    assert result.exit_code == 2, result.output
+    assert result.stdout == ""
+    error = ErrorResult.model_validate_json(result.stderr)
+    assert error.command == "context update"
+    assert "--unknown" in error.error
     factory.assert_not_called()

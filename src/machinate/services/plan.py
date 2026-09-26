@@ -51,12 +51,12 @@ class PlanService:
         if not changes.model_fields_set:
             return plan
         document = plan.document
-        if "summary" in changes.model_fields_set:
-            document.metadata.summary = changes.summary
         if "status" in changes.model_fields_set:
             document.metadata.status = changes.status
         if "body" in changes.model_fields_set:
             document.body = changes.body
+        if "summary" in changes.model_fields_set:
+            document.metadata.summary = changes.summary or None
         if "tags" in changes.model_fields_set:
             document.metadata.tags = changes.tags if changes.tags is not None else []
         self.document_store.write(plan.path, document)
@@ -74,6 +74,7 @@ class PlanService:
                 name=record.name,
                 path=record.path,
                 metadata=record.metadata,
+                summary=record.summary,
                 last_activity_at=record.last_activity_at,
             )
             for record in plan_records
@@ -106,6 +107,7 @@ class PlanService:
                 name=plan.name,
                 path=plan.path,
                 metadata=plan.document.metadata,
+                summary=plan.document.get_or_derive_summary(),
                 last_activity_at=self.document_store.get_last_activity_at(
                     plan.path, self.layout.plan_activity_scopes()
                 ),

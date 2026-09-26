@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
@@ -21,6 +22,7 @@ from machinate.storage import (
     StorageError,
     TaskMetadata,
 )
+from machinate.storage.summary import derive_summary
 
 
 @pytest.fixture
@@ -41,6 +43,7 @@ def test_document_round_trip(store: DocumentStore, body: str) -> None:
         {"created": "2026-09-22T00:00:00Z", "status": "in-progress", "custom": {"tags": ["one", 2]}}
     )
     document = Document(metadata=metadata, body=body)
+    document.metadata.summary = derive_summary(body)
     store.create("auth/tasks/login.md", document)
     assert store.read("auth/tasks/login.md", TaskMetadata) == document
     document.metadata.status = "done"
@@ -136,7 +139,6 @@ def test_duplicate_and_missing(store: DocumentStore, document: Document[TaskMeta
 @pytest.mark.parametrize(
     "content",
     [
-        "no header",
         "---\ncreated: 2026-09-22T00:00:00Z",
         "---\nsummary: missing date\n---\n",
         "---\n[\n---\n",
@@ -150,6 +152,40 @@ def test_invalid_documents(store: DocumentStore, tmp_path: Path, content: str) -
         store.read("bad.md", TaskMetadata)
     assert error.value.path == PurePosixPath("bad.md")
     assert error.value.__cause__ is error.value.reason
+
+
+def test_missing_frontmatter_uses_defaults(store: DocumentStore, tmp_path: Path) -> None:
+    (tmp_path / "bare.md").write_text("just a body\n")
+    document = store.read("bare.md", TaskMetadata)
+    assert document.body == "just a body\n"
+    assert document.metadata.status == "todo"
+    assert document.metadata.tags == []
+    assert document.metadata.summary is None
+
+
+def test_missing_frontmatter_logs_debug(
+    store: DocumentStore, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    (tmp_path / "bare.md").write_text("body")
+    with caplog.at_level(logging.DEBUG, logger="machinate.storage.document_store"):
+        store.read("bare.md", TaskMetadata)
+    assert "Missing YAML frontmatter in bare.md; using defaults" in caplog.text
+
+
+def test_missing_frontmatter_created_from_mtime(store: DocumentStore, tmp_path: Path) -> None:
+    target = tmp_path / "bare.md"
+    target.write_text("body")
+    expected = datetime.fromtimestamp(target.stat().st_mtime, UTC)
+    document = store.read("bare.md", PlanMetadata)
+    assert document.metadata.created == expected
+    assert document.metadata.status == "draft"
+
+
+def test_empty_file_is_treated_as_body(store: DocumentStore, tmp_path: Path) -> None:
+    (tmp_path / "empty.md").write_text("")
+    document = store.read("empty.md", ContextMetadata)
+    assert document.body == ""
+    assert document.metadata.tags == []
 
 
 @pytest.mark.parametrize(

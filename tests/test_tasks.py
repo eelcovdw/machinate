@@ -38,7 +38,7 @@ def service(tmp_path: Path) -> TaskService:
 @pytest.fixture
 def metadata() -> TaskMetadata:
     return TaskMetadata.model_validate(
-        {"created": "2026-09-22T00:00:00Z", "summary": "Original", "custom": {"owner": "Alice"}}
+        {"created": "2026-09-22T00:00:00Z", "custom": {"owner": "Alice"}}
     )
 
 
@@ -60,20 +60,16 @@ def test_create_get_duplicates_and_exact_names(
 
 def test_patches(service: TaskService, metadata: TaskMetadata) -> None:
     service.create("alpha", "login", metadata, "Body")
-    task = service.update("alpha", "login", TaskUpdate(summary="Changed"))
-    assert task.document.body == "Body"
-    assert task.document.metadata.status == "todo"
     task = service.set_status("alpha", "login", "in-progress")
-    assert task.document.metadata.summary == "Changed"
     assert task.document.body == "Body"
-    task = service.update("alpha", "login", TaskUpdate(summary="", body=""))
-    assert task.document.metadata.summary == ""
+    assert task.document.metadata.status == "in-progress"
+    assert task.document.get_or_derive_summary() == "Body"
+    task = service.update("alpha", "login", TaskUpdate(body=""))
     assert task.document.body == ""
     assert task.document.metadata.status == "in-progress"
+    assert task.document.get_or_derive_summary() is None
     assert task.document.metadata.created == metadata.created
     assert task.document.metadata.model_extra == metadata.model_extra
-    task = service.update("alpha", "login", TaskUpdate(summary=None))
-    assert task.document.metadata.summary is None
 
 
 def test_empty_patch(
@@ -182,10 +178,12 @@ def test_explicit_plan_isolation(
     service.create("beta", "login", metadata, "Beta")
     plans.set_current("beta")
     service.create("alpha", "login", metadata, "Alpha")
-    service.update("alpha", "login", TaskUpdate(summary="Alpha only"))
+    service.update("alpha", "login", TaskUpdate(body="Alpha only"))
     service.set_status("alpha", "login", "done")
     assert service.get("beta", "login").document.body == "Beta"
-    assert service.list("beta")[0].metadata == metadata
+    assert service.list("beta")[0].metadata.model_dump(exclude={"summary"}) == metadata.model_dump(
+        exclude={"summary"}
+    )
     assert service.list("alpha")[0].metadata.status == "done"
     assert state.read().current_plan == "beta"
 

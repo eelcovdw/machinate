@@ -44,8 +44,8 @@ class SetResult(BaseModel):
     state: ProjectState
 
 
-class StatusResult(BaseModel):
-    command: Literal["plan status"] = "plan status"
+class UpdateResult(BaseModel):
+    command: Literal["plan update"] = "plan update"
     project: ProjectScope
     plan: Plan
 
@@ -78,8 +78,8 @@ class TaskInfoResult(BaseModel):
     task: TaskSummary
 
 
-class TaskStatusResult(BaseModel):
-    command: Literal["task status"] = "task status"
+class TaskUpdateResult(BaseModel):
+    command: Literal["task update"] = "task update"
     project: ProjectScope
     plan: str
     task: Task
@@ -111,6 +111,13 @@ class ContextInfoResult(BaseModel):
     project: ProjectScope
     plan: str
     context: ContextSummary
+
+
+class ContextUpdateResult(BaseModel):
+    command: Literal["context update"] = "context update"
+    project: ProjectScope
+    plan: str
+    context: Context
 
 
 class PathResult(BaseModel):
@@ -147,17 +154,18 @@ type CommandResult = (
     | ListResult
     | PlanInfoResult
     | PathResult
-    | StatusResult
+    | UpdateResult
     | SetResult
     | ShowResult
     | TaskAddResult
     | TaskInfoResult
     | TaskListResult
     | TaskShowResult
-    | TaskStatusResult
+    | TaskUpdateResult
     | ContextAddResult
     | ContextInfoResult
     | ContextListResult
     | ContextShowResult
+    | ContextUpdateResult
     | ErrorResult
 )

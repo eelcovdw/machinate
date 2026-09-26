@@ -10,8 +10,8 @@ from machinate.storage.queries import DocumentRecord
 class ContextUpdate(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", validate_assignment=True)
 
-    summary: str | None = None
     body: str = ""
+    summary: str | None = None
     tags: list[Tag] | None = None
 
 

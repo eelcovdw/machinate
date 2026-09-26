@@ -8,6 +8,7 @@ from machinate.cli.commands.contexts import (
     context_info,
     context_list,
     context_show,
+    context_update,
 )
 from machinate.cli.commands.paths import context_path, plan_path, task_path
 from machinate.cli.commands.plans import (
@@ -17,15 +18,15 @@ from machinate.cli.commands.plans import (
     plan_info_command,
     set_plan,
     show_plan,
-    status_plan,
+    update_plan,
 )
 from machinate.cli.commands.projects import init_project
 from machinate.cli.commands.tasks import (
-    status_task,
     task_add,
     task_info,
     task_list,
     task_show,
+    update_task,
 )
 from machinate.cli.models import (
     AddResult,
@@ -33,6 +34,7 @@ from machinate.cli.models import (
     ContextInfoResult,
     ContextListResult,
     ContextShowResult,
+    ContextUpdateResult,
     InfoResult,
     InitResult,
     ListResult,
@@ -40,12 +42,12 @@ from machinate.cli.models import (
     PlanInfoResult,
     SetResult,
     ShowResult,
-    StatusResult,
     TaskAddResult,
     TaskInfoResult,
     TaskListResult,
     TaskShowResult,
-    TaskStatusResult,
+    TaskUpdateResult,
+    UpdateResult,
 )
 
 
@@ -79,7 +81,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
             CommandSpec("list", list_plans, ListResult),
             CommandSpec("show", show_plan, ShowResult),
             CommandSpec("set", set_plan, SetResult),
-            CommandSpec("status", status_plan, StatusResult),
+            CommandSpec("update", update_plan, UpdateResult),
         ),
     ),
     CommandSpec(
@@ -90,7 +92,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
             CommandSpec("path", task_path, PathResult),
             CommandSpec("list", task_list, TaskListResult),
             CommandSpec("show", task_show, TaskShowResult),
-            CommandSpec("status", status_task, TaskStatusResult),
+            CommandSpec("update", update_task, TaskUpdateResult),
         ),
     ),
     CommandSpec(
@@ -101,6 +103,11 @@ COMMANDS: tuple[CommandSpec, ...] = (
             CommandSpec("path", context_path, PathResult),
             CommandSpec("list", context_list, ContextListResult),
             CommandSpec("show", context_show, ContextShowResult),
+            CommandSpec("update", context_update, ContextUpdateResult),
         ),
     ),
 )
+
+# Hidden top-level conveniences that reuse an existing handler. Kept out of COMMANDS
+# so they are neither listed in help nor emitted in the schema bundle.
+ALIASES: tuple[CommandSpec, ...] = (CommandSpec("list", list_plans, ListResult),)

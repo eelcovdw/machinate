@@ -41,7 +41,7 @@ def service(tmp_path: Path) -> PlanService:
 @pytest.fixture
 def metadata() -> PlanMetadata:
     return PlanMetadata.model_validate(
-        {"created": "2026-09-22T00:00:00Z", "summary": "Original", "custom": {"owner": "Alice"}}
+        {"created": "2026-09-22T00:00:00Z", "custom": {"owner": "Alice"}}
     )
 
 
@@ -62,19 +62,16 @@ def test_patch_preserves_omitted_fields_and_extra_metadata(
     service: PlanService, metadata: PlanMetadata
 ) -> None:
     service.create("alpha", metadata, "Body")
-    result = service.update("alpha", PlanUpdate(summary="Changed"))
-    assert result.document.body == "Body"
-    assert result.document.metadata.status == "draft"
     result = service.set_status("alpha", "active")
-    assert result.document.metadata.summary == "Changed"
+    assert result.document.body == "Body"
     assert result.document.metadata.status == "active"
-    result = service.update("alpha", PlanUpdate(summary="", body=""))
-    assert result.document.metadata.summary == ""
+    assert result.document.get_or_derive_summary() == "Body"
+    result = service.update("alpha", PlanUpdate(body=""))
     assert result.document.body == ""
     assert result.document.metadata.status == "active"
+    assert result.document.get_or_derive_summary() is None
     assert result.document.metadata.created == metadata.created
     assert result.document.metadata.model_extra == metadata.model_extra
-    assert service.update("alpha", PlanUpdate(summary=None)).document.metadata.summary is None
 
 
 def test_empty_patch_never_writes(
@@ -213,7 +210,7 @@ def test_info_counts_and_list_ignores_malformed_children(
     assert info.context_count == 1
     assert info.plan == service.list()[0]
     bad = service.document_store.root / "plans/alpha/tasks/bad.md"
-    bad.write_text("invalid")
+    bad.write_text("---\nsummary: missing date\n---\n")
     assert len(service.list()) == 1
     with pytest.raises(InvalidDocumentError):
         service.info("alpha")

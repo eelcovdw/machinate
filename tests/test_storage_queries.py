@@ -25,10 +25,10 @@ from machinate.storage import (
 @pytest.fixture
 def store(tmp_path: Path) -> DocumentStore:
     store = DocumentStore(UPath(tmp_path))
-    for name, day, status, summary, body, stamp, tags in [
-        ("alpha", 1, "active", "OAuth", "", 100, ["frontend"]),
-        ("beta", 2, "draft", "Other", "OAuth body", 200, ["backend", "v2"]),
-        ("gamma", 2, "done", "OAuth", "", 200, ["frontend", "v2"]),
+    for name, day, status, body, stamp, tags in [
+        ("alpha", 1, "active", "OAuth", 100, ["frontend"]),
+        ("beta", 2, "draft", "Other\n\nOAuth body", 200, ["backend", "v2"]),
+        ("gamma", 2, "done", "OAuth", 200, ["frontend", "v2"]),
     ]:
         path = Layout().plan(name)
         store.create(
@@ -38,7 +38,6 @@ def store(tmp_path: Path) -> DocumentStore:
                     {
                         "created": datetime(2026, 9, day, tzinfo=UTC),
                         "status": status,
-                        "summary": summary,
                         "tags": tags,
                     }
                 ),
@@ -176,11 +175,11 @@ def test_discovery_empty_scopes_and_malformed_documents(
     assert store.list(Layout().task_collection("alpha"), TaskMetadata) == []
     bad = tmp_path / "plans" / "alpha" / "tasks" / "nested" / "bad.md"
     bad.parent.mkdir()
-    bad.write_text("invalid")
+    bad.write_text("---\nsummary: missing date\n---\n")
     with pytest.raises(InvalidDocumentError) as error:
         store.list(Layout().task_collection("alpha"), TaskMetadata)
     assert error.value.path == PurePosixPath("plans/alpha/tasks/nested/bad.md")
-    (tmp_path / "plans" / "alpha" / "plan.md").write_text("invalid")
+    (tmp_path / "plans" / "alpha" / "plan.md").write_text("---\nsummary: missing date\n---\n")
     with pytest.raises(InvalidDocumentError):
         store.list(Layout().plan_collection(), PlanMetadata)
 

@@ -1,3 +1,4 @@
+import logging
 import stat
 import sys
 import tempfile
@@ -14,6 +15,8 @@ from .errors import DocumentExistsError, InvalidDocumentError, MissingDocumentEr
 from .models import Document, FileMetadata, Metadata, PathInput, StatusMetadata
 from .queries import DocumentCollection, DocumentQuery, DocumentRecord, DocumentScope, StatusQuery
 
+logger = logging.getLogger(__name__)
+
 
 class DocumentStore:
     def __init__(self, root: UPath) -> None:
@@ -28,27 +31,42 @@ class DocumentStore:
             text = (self.root / relative).read_bytes().decode("utf-8")
             lines = text.splitlines(keepends=True)
             if not lines or lines[0].rstrip("\r\n") != "---":
-                raise ValueError("Missing YAML frontmatter")  # noqa: TRY301
-            end = next((i for i in range(1, len(lines)) if lines[i].rstrip("\r\n") == "---"), None)
-            if end is None:
-                raise ValueError("Unterminated YAML frontmatter")  # noqa: TRY301
-            data: object = YAML(typ="safe").load("".join(lines[1:end]))  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
-            return Document[metadata_type](
-                metadata=metadata_type.model_validate(data), body="".join(lines[end + 1 :])
-            )
+                document = self._without_frontmatter(relative, text, metadata_type)
+            else:
+                end = next(
+                    (i for i in range(1, len(lines)) if lines[i].rstrip("\r\n") == "---"), None
+                )
+                if end is None:
+                    raise ValueError("Unterminated YAML frontmatter")  # noqa: TRY301
+                data: object = YAML(typ="safe").load("".join(lines[1:end]))  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+                document = Document[metadata_type](
+                    metadata=metadata_type.model_validate(data), body="".join(lines[end + 1 :])
+                )
         except FileNotFoundError as exc:
             raise MissingDocumentError(relative, exc) from exc
         except (ValueError, YAMLError) as exc:
             raise InvalidDocumentError(relative, exc) from exc
         except OSError as exc:
             raise StorageError(relative, exc) from exc
+        else:
+            return document
+
+    def _without_frontmatter[M: Metadata](
+        self, relative: PurePosixPath, text: str, metadata_type: type[M]
+    ) -> Document[M]:
+        """Treat a file with no frontmatter block as a bare body with default metadata."""
+        logger.debug("Missing YAML frontmatter in %s; using defaults", relative)
+        modified = (self.root / relative).stat().st_mtime
+        metadata = metadata_type.model_validate({"created": datetime.fromtimestamp(modified, UTC)})
+        return Document[metadata_type](metadata=metadata, body=text)
 
     def _encode[M: Metadata](self, path: PurePosixPath, document: Document[M]) -> bytes:
         try:
             output = StringIO()
             yaml = YAML(typ="safe")
             yaml.default_flow_style = False
-            yaml.dump(document.metadata.model_dump(), output)  # pyright: ignore[reportUnknownMemberType]
+            # Only an authored summary is stored; derived ones are computed on demand.
+            yaml.dump(document.metadata.model_dump(exclude_none=True), output)  # pyright: ignore[reportUnknownMemberType]
             return f"---\n{output.getvalue()}---\n{document.body}".encode()
         except (ValueError, YAMLError) as exc:
             raise InvalidDocumentError(path, exc) from exc
@@ -177,6 +195,7 @@ class DocumentStore:
                         path=file_metadata.path,
                         metadata=document.metadata,
                         last_activity_at=last_activity_at,
+                        summary=document.get_or_derive_summary(),
                     )
                 )
         matching_documents.sort(key=lambda record: record.name)
@@ -219,7 +238,7 @@ class DocumentStore:
             ):
                 return False
         if query.search:
-            values = [name, metadata.summary or "", *metadata.tags]
+            values = [name, document.get_or_derive_summary() or "", *metadata.tags]
             if query.search_body:
                 values.append(document.body)
             return any(query.search.casefold() in value.casefold() for value in values)

@@ -77,4 +77,8 @@ venv = ".venv"
 pythonVersion = "3.14"
 reportUnusedCallResult = false
 
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+reportPrivateUsage = false
+
 [tool.pytest.ini_options]

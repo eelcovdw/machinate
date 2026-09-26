@@ -1,11 +1,13 @@
-from typing import override
+import logging
+from contextlib import suppress
+from typing import TextIO, override
 
 import click
 import typer
 from pydantic import ValidationError
 from typer.core import TyperCommand
 
-from .commands.catalog import COMMANDS, CommandSpec
+from .commands.catalog import ALIASES, COMMANDS, CommandSpec
 from .commands.schema import schema_command
 from .dependencies import Dependencies, get_dependencies
 from .errors import describe_error
@@ -59,8 +61,29 @@ def _command_label(ctx: click.Context) -> str:
     return " ".join(reversed(names)) or "plan"
 
 
+class _DiagnosticHandler(logging.StreamHandler[TextIO]):
+    """stderr handler for opt-in diagnostics; the subclass prevents duplicates."""
+
+
+def configure_logging(settings: Settings) -> None:
+    """Route Machinate logs to stderr when MACHI_LOG_LEVEL is set."""
+    if settings.log_level is None:
+        return
+    logger = logging.getLogger("machinate")
+    for handler in list(logger.handlers):
+        if isinstance(handler, _DiagnosticHandler):
+            logger.removeHandler(handler)
+    handler = _DiagnosticHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(settings.log_level)
+
+
 def root() -> None:
     """Work with Machinate projects."""
+    # Invalid settings are reported by the command handler through its formatter.
+    with suppress(ValidationError):
+        configure_logging(Settings())
 
 
 def _register(parent: typer.Typer, spec: CommandSpec) -> None:
@@ -81,6 +104,9 @@ def create_cli(dependencies: Dependencies | None = None) -> typer.Typer:
     cli.callback()(root)
     for spec in COMMANDS:
         _register(cli, spec)
+    for alias in ALIASES:
+        if alias.handler is not None:
+            cli.command(alias.name, cls=Command, hidden=True)(alias.handler)
     cli.command("schema", cls=Command)(schema_command)
     return cli
 

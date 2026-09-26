@@ -37,10 +37,7 @@ def seed_plan(project: Path, name: str = "auth", *, current: bool = False) -> No
     application = prepare_project(project)
     application.plans.create(
         name,
-        PlanMetadata(
-            created=datetime(2026, 1, 1, tzinfo=UTC),
-            summary="Authentication",
-        ),
+        PlanMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)),
         body="# Auth\n\nDetails",
     )
     if current:
@@ -64,7 +61,7 @@ def test_show_explicit_plan(project: Path) -> None:
     assert parsed.plan.name == "auth"
     assert parsed.plan.path.as_posix() == "plans/auth/plan.md"
     assert parsed.plan.document.metadata.status == "draft"
-    assert parsed.plan.document.metadata.summary == "Authentication"
+    assert parsed.plan.document.get_or_derive_summary() == "Details"
     assert parsed.plan.document.body == "# Auth\n\nDetails"
 
 

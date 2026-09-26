@@ -8,7 +8,7 @@ from pydantic.json_schema import JsonSchemaValue
 from typer.testing import CliRunner
 
 from machinate.cli.cli import app, create_cli
-from machinate.cli.commands.catalog import COMMANDS
+from machinate.cli.commands.catalog import ALIASES, COMMANDS
 from machinate.cli.commands.schema import SCHEMA_RESULTS
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import CommandResult, ErrorResult
@@ -79,8 +79,10 @@ def test_catalog_is_the_single_source_of_truth() -> None:
     cli = create_cli()
     registered = {command.name for command in cli.registered_commands}
     groups = {group.name for group in cli.registered_groups}
-    assert registered == {spec.name for spec in COMMANDS if not spec.children} | {"schema"}
+    hidden = {spec.name for spec in ALIASES}
+    assert registered == {spec.name for spec in COMMANDS if not spec.children} | hidden | {"schema"}
     assert groups == {spec.name for spec in COMMANDS if spec.children}
+    assert hidden.isdisjoint(spec.name for spec in COMMANDS)
 
 
 def test_schema_map_covers_the_command_result_union() -> None:
@@ -108,7 +110,7 @@ def test_schema_for_command() -> None:
 
 def test_schema_for_plan_group() -> None:
     group = _GroupSchema.model_validate_json(runner.invoke(app, ["schema", "plan"]).stdout)
-    assert set(group.commands) == {"add", "info", "list", "path", "set", "show", "status"}
+    assert set(group.commands) == {"add", "info", "list", "path", "set", "show", "update"}
     assert group.commands["info"].ref == "#/$defs/PlanInfoResult"
     assert group.commands["show"].ref == "#/$defs/ShowResult"
     assert "PlanInfoResult" in group.defs
@@ -116,18 +118,18 @@ def test_schema_for_plan_group() -> None:
 
 def test_schema_for_group() -> None:
     group = _GroupSchema.model_validate_json(runner.invoke(app, ["schema", "task"]).stdout)
-    assert set(group.commands) == {"add", "info", "list", "path", "show", "status"}
+    assert set(group.commands) == {"add", "info", "list", "path", "show", "update"}
     assert group.commands["add"].ref == "#/$defs/TaskAddResult"
     assert group.commands["info"].ref == "#/$defs/TaskInfoResult"
     assert group.commands["list"].ref == "#/$defs/TaskListResult"
     assert group.commands["path"].ref == "#/$defs/PathResult"
     assert group.commands["show"].ref == "#/$defs/TaskShowResult"
-    assert group.commands["status"].ref == "#/$defs/TaskStatusResult"
+    assert group.commands["update"].ref == "#/$defs/TaskUpdateResult"
     assert "TaskAddResult" in group.defs
     assert "TaskInfoResult" in group.defs
     assert "TaskListResult" in group.defs
     assert "TaskShowResult" in group.defs
-    assert "TaskStatusResult" in group.defs
+    assert "TaskUpdateResult" in group.defs
 
 
 def test_schema_for_nested_command() -> None:

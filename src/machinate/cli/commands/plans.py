@@ -18,10 +18,11 @@ from machinate.cli.models import (
     ProjectScope,
     SetResult,
     ShowResult,
-    StatusResult,
+    UpdateResult,
 )
 from machinate.cli.project_setup import ProjectError
 from machinate.cli.settings import Settings
+from machinate.models.plan import PlanUpdate
 from machinate.storage import PlanMetadata, PlanStatus
 from machinate.storage.errors import StorageError
 from machinate.storage.models import NameInput
@@ -30,6 +31,10 @@ from machinate.storage.queries import PlanQuery
 
 class InvalidStatusError(Exception):
     """Raised when a status value is not one of the accepted plan statuses."""
+
+
+class PlanUpdateError(Exception):
+    """Raised when an update is requested with no fields to change."""
 
 
 def plan_status(value: str) -> PlanStatus:
@@ -41,7 +46,22 @@ def plan_status(value: str) -> PlanStatus:
     return cast("PlanStatus", value)
 
 
-def add_plan(
+def plan_changes(summary: str | None, status: str | None, tags: list[str] | None) -> PlanUpdate:
+    """Validate provided options and build a plan update with only the changed fields."""
+    changes: dict[str, object] = {}
+    if summary is not None:
+        changes["summary"] = summary
+    if status is not None:
+        changes["status"] = plan_status(status)
+    if tags is not None:
+        changes["tags"] = tags
+    if not changes:
+        msg = "Nothing to update; pass --summary, --status, or --tag."
+        raise PlanUpdateError(msg)
+    return PlanUpdate.model_validate(changes)
+
+
+def add_plan(  # noqa: PLR0913
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the plan to create.")],
     project: Annotated[
@@ -51,6 +71,10 @@ def add_plan(
     tags: Annotated[
         list[str] | None,
         typer.Option("--tag", help="Tag(s) to apply. Repeat for multiple tags."),
+    ] = None,
+    summary: Annotated[str | None, typer.Option("--summary", help="Initial summary text.")] = None,
+    status: Annotated[
+        str | None, typer.Option("--status", help="Initial status: draft, active, or done.")
     ] = None,
     output_format: Annotated[
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
@@ -68,10 +92,23 @@ def add_plan(
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
         plan = project_context.plans.create(
-            plan_name, PlanMetadata(created=datetime.now(UTC), tags=tags or [])
+            plan_name,
+            PlanMetadata(
+                created=datetime.now(UTC),
+                tags=tags or [],
+                summary=summary,
+                status="draft" if status is None else plan_status(status),
+            ),
         )
         result = AddResult(project=scope, plan=plan)
-    except (ProjectError, UnknownFormatError, StorageError, ValidationError, OSError) as exc:
+    except (
+        InvalidStatusError,
+        ProjectError,
+        UnknownFormatError,
+        StorageError,
+        ValidationError,
+        OSError,
+    ) as exc:
         typer.echo(
             formatter.format(
                 ErrorResult(command="plan add", error=describe_error(exc), project=scope)
@@ -265,25 +302,32 @@ def set_plan(
     typer.echo(formatter.format(result))
 
 
-def status_plan(
+def update_plan(  # noqa: PLR0913
     context: typer.Context,
-    status: Annotated[
-        str | None,
-        typer.Argument(help="New status: draft, active, or done. Omit to read the status."),
-    ] = None,
     plan: Annotated[
         str | None,
-        typer.Option("--plan", "-p", help="Plan to inspect or update; otherwise the current plan."),
+        typer.Option("--plan", "-p", help="Plan to update; otherwise the current plan."),
     ] = None,
     project: Annotated[
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
     ] = None,
+    summary: Annotated[
+        str | None,
+        typer.Option("--summary", help="New summary; pass an empty string to clear it."),
+    ] = None,
+    status: Annotated[
+        str | None, typer.Option("--status", help="New status: draft, active, or done.")
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="Replace the plan's tags. Repeat for multiple tags."),
+    ] = None,
     output_format: Annotated[
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Read or update a plan's status."""
+    """Update a plan's summary, status, or tags without changing selection."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -291,17 +335,15 @@ def status_plan(
         settings = Settings()
         format_name = output_format or settings.format
         formatter = select_formatter(format_name, dependencies.formatters)
-        plan_name = None if plan is None else NameInput(name=plan).name
+        changes = plan_changes(summary, status, tags)
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan_name, interactive=settings.interactive)
-        if status is None:
-            result = StatusResult(project=scope, plan=selected)
-        else:
-            updated = project_context.plans.set_status(selected.name, plan_status(status))
-            result = StatusResult(project=scope, plan=updated)
+        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        updated = project_context.plans.update(selected.name, changes)
+        result = UpdateResult(project=scope, plan=updated)
     except (
         InvalidStatusError,
+        PlanUpdateError,
         PlanSelectionError,
         ProjectError,
         UnknownFormatError,
@@ -311,7 +353,7 @@ def status_plan(
     ) as exc:
         typer.echo(
             formatter.format(
-                ErrorResult(command="plan status", error=describe_error(exc), project=scope)
+                ErrorResult(command="plan update", error=describe_error(exc), project=scope)
             ),
             err=True,
         )

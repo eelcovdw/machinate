@@ -62,3 +62,5 @@ class DocumentRecord[M: Metadata](BaseModel):
     path: RelativePath
     metadata: M
     last_activity_at: datetime
+    # Effective summary: the authored one, otherwise derived from the body.
+    summary: str | None = None

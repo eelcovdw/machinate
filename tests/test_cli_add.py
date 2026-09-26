@@ -64,6 +64,48 @@ def test_add_current_directory(project: Path, monkeypatch: pytest.MonkeyPatch) -
     assert AddResult.model_validate(json.loads(result.stdout)).project.directory == project
 
 
+def test_add_sets_summary_and_status(project: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "plan",
+            "add",
+            "alpha",
+            "-P",
+            str(project),
+            "--summary",
+            "Does the thing",
+            "--status",
+            "active",
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    metadata = AddResult.model_validate(json.loads(result.stdout)).plan.document.metadata
+    assert metadata.summary == "Does the thing"
+    assert metadata.status == "active"
+
+
+def test_add_defaults_status_to_draft(project: Path) -> None:
+    result = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
+    assert result.exit_code == 0, result.output
+    metadata = AddResult.model_validate(json.loads(result.stdout)).plan.document.metadata
+    assert metadata.summary is None
+    assert metadata.status == "draft"
+
+
+def test_add_invalid_status_preserves_target(project: Path) -> None:
+    before = snapshot(project)
+    result = runner.invoke(
+        app,
+        ["plan", "add", "alpha", "-P", str(project), "--status", "nonsense", "--format", "json"],
+    )
+    assert result.exit_code == 1, result.output
+    assert "Unknown status" in ErrorResult.model_validate_json(result.stderr).error
+    assert snapshot(project) == before
+
+
 def test_add_never_changes_selection(project: Path) -> None:
     prepare_project(project).plans.create(
         "existing", PlanMetadata(created=datetime(2026, 1, 1, tzinfo=UTC))

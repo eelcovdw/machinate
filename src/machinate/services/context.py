@@ -50,6 +50,7 @@ class ContextService:
             name=context.name,
             path=context.path,
             metadata=context.document.metadata,
+            summary=context.document.get_or_derive_summary(),
             last_activity_at=context.modified_at,
         )
 
@@ -64,10 +65,10 @@ class ContextService:
         if not changes.model_fields_set:
             return context
         document = context.document
-        if "summary" in changes.model_fields_set:
-            document.metadata.summary = changes.summary
         if "body" in changes.model_fields_set:
             document.body = changes.body
+        if "summary" in changes.model_fields_set:
+            document.metadata.summary = changes.summary or None
         if "tags" in changes.model_fields_set:
             document.metadata.tags = changes.tags if changes.tags is not None else []
         self.document_store.write(context.path, document)
@@ -84,6 +85,7 @@ class ContextService:
                 name=record.name,
                 path=record.path,
                 metadata=record.metadata,
+                summary=record.summary,
                 last_activity_at=record.last_activity_at,
             )
             for record in records

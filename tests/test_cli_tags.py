@@ -172,11 +172,12 @@ def test_plan_info_text_includes_tags(project: Path) -> None:
     assert "Tags: frontend" in result.stdout
 
 
-def test_plan_list_text_includes_tags_column(project: Path) -> None:
+def test_plan_list_text_includes_tags(project: Path) -> None:
     plan_add(project, "alpha", "frontend")
     result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "text"])
     assert result.exit_code == 0, result.output
-    assert "Tags" in result.stdout
+    assert "draft (1)" in result.stdout
+    assert "alpha" in result.stdout
     assert "frontend" in result.stdout
 
 

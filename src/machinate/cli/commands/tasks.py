@@ -16,10 +16,11 @@ from machinate.cli.models import (
     TaskInfoResult,
     TaskListResult,
     TaskShowResult,
-    TaskStatusResult,
+    TaskUpdateResult,
 )
 from machinate.cli.project_setup import ProjectError
 from machinate.cli.settings import Settings
+from machinate.models.task import TaskUpdate
 from machinate.storage import TaskMetadata
 from machinate.storage.errors import StorageError
 from machinate.storage.models import NameInput, TaskNameInput, TaskStatus
@@ -30,6 +31,10 @@ class InvalidTaskStatusError(Exception):
     """Raised when a status value is not one of the accepted task statuses."""
 
 
+class TaskUpdateError(Exception):
+    """Raised when an update is requested with no fields to change."""
+
+
 def task_status(value: str) -> TaskStatus:
     """Validate a task status string."""
     allowed = get_args(TaskStatus.__value__)  # pyright: ignore[reportAny]
@@ -37,6 +42,21 @@ def task_status(value: str) -> TaskStatus:
         msg = f"Unknown status {value!r}; expected one of: {', '.join(allowed)}."
         raise InvalidTaskStatusError(msg)
     return cast("TaskStatus", value)
+
+
+def task_changes(summary: str | None, status: str | None, tags: list[str] | None) -> TaskUpdate:
+    """Validate provided options and build a task update with only the changed fields."""
+    changes: dict[str, object] = {}
+    if summary is not None:
+        changes["summary"] = summary
+    if status is not None:
+        changes["status"] = task_status(status)
+    if tags is not None:
+        changes["tags"] = tags
+    if not changes:
+        msg = "Nothing to update; pass --summary, --status, or --tag."
+        raise TaskUpdateError(msg)
+    return TaskUpdate.model_validate(changes)
 
 
 def task_add(  # noqa: PLR0913
@@ -266,13 +286,9 @@ def task_info(
     typer.echo(formatter.format(result))
 
 
-def status_task(  # noqa: PLR0913
+def update_task(  # noqa: PLR0913
     context: typer.Context,
-    name: Annotated[str, typer.Argument(help="Name of the task to inspect or update.")],
-    status: Annotated[
-        str | None,
-        typer.Argument(help="New status: todo, in-progress, or done. Omit to read the status."),
-    ] = None,
+    name: Annotated[str, typer.Argument(help="Name of the task to update.")],
     plan: Annotated[
         str | None,
         typer.Option(
@@ -283,11 +299,22 @@ def status_task(  # noqa: PLR0913
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
     ] = None,
+    summary: Annotated[
+        str | None,
+        typer.Option("--summary", help="New summary; pass an empty string to clear it."),
+    ] = None,
+    status: Annotated[
+        str | None, typer.Option("--status", help="New status: todo, in-progress, or done.")
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="Replace the task's tags. Repeat for multiple tags."),
+    ] = None,
     output_format: Annotated[
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Read or update a task's status."""
+    """Update a task's summary, status, or tags without changing selection."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -296,17 +323,15 @@ def status_task(  # noqa: PLR0913
         formatter = select_formatter(output_format or settings.format, dependencies.formatters)
         task_name = TaskNameInput(name=name).name
         plan_name = None if plan is None else NameInput(name=plan).name
+        changes = task_changes(summary, status, tags)
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
         selected = select_plan(project_context.plans, plan_name, interactive=settings.interactive)
-        task = (
-            project_context.tasks.get(selected.name, task_name)
-            if status is None
-            else project_context.tasks.set_status(selected.name, task_name, task_status(status))
-        )
-        result = TaskStatusResult(project=scope, plan=selected.name, task=task)
+        updated = project_context.tasks.update(selected.name, task_name, changes)
+        result = TaskUpdateResult(project=scope, plan=selected.name, task=updated)
     except (
         InvalidTaskStatusError,
+        TaskUpdateError,
         ProjectError,
         UnknownFormatError,
         PlanSelectionError,
@@ -316,7 +341,7 @@ def status_task(  # noqa: PLR0913
     ) as exc:
         message = describe_error(exc)
         typer.echo(
-            formatter.format(ErrorResult(command="task status", error=message, project=scope)),
+            formatter.format(ErrorResult(command="task update", error=message, project=scope)),
             err=True,
         )
         raise typer.Exit(1) from exc

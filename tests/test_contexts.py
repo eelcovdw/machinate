@@ -43,7 +43,6 @@ def metadata() -> ContextMetadata:
     return ContextMetadata.model_validate(
         {
             "created": "2026-09-22T12:34:56.123456+02:00",
-            "summary": "Original",
             "custom": {"owner": "Alice"},
             "status": "custom status",
         }
@@ -71,18 +70,14 @@ def test_create_get_duplicates_and_exact_names(
 
 def test_patches(service: ContextService, metadata: ContextMetadata) -> None:
     service.create("alpha", "research", metadata, "Body")
-    context = service.update("alpha", "research", ContextUpdate(summary="Changed"))
-    assert context.document.body == "Body"
     context = service.update("alpha", "research", ContextUpdate(body="New body"))
-    assert context.document.metadata.summary == "Changed"
     assert context.document.body == "New body"
-    context = service.update("alpha", "research", ContextUpdate(summary="", body=""))
-    assert context.document.metadata.summary == ""
+    assert context.document.get_or_derive_summary() == "New body"
+    context = service.update("alpha", "research", ContextUpdate(body=""))
     assert context.document.body == ""
+    assert context.document.get_or_derive_summary() is None
     assert context.document.metadata.created.isoformat() == metadata.created.isoformat()
     assert context.document.metadata.model_extra == metadata.model_extra
-    context = service.update("alpha", "research", ContextUpdate(summary=None))
-    assert context.document.metadata.summary is None
 
 
 def test_empty_patch(
@@ -206,11 +201,13 @@ def test_explicit_plan_isolation(
     service.create("beta", "research", metadata, "Beta")
     plans.set_current("beta")
     service.create("alpha", "research", metadata, "Alpha")
-    service.update("alpha", "research", ContextUpdate(summary="Alpha only"))
+    service.update("alpha", "research", ContextUpdate(body="Alpha only"))
     assert service.get("beta", "research").document.body == "Beta"
-    assert service.get("alpha", "research").document.body == "Alpha"
-    assert service.list("beta")[0].metadata == metadata
-    assert service.list("alpha")[0].metadata.summary == "Alpha only"
+    assert service.get("alpha", "research").document.body == "Alpha only"
+    assert service.list("beta")[0].metadata.model_dump(exclude={"summary"}) == metadata.model_dump(
+        exclude={"summary"}
+    )
+    assert service.list("alpha")[0].summary == "Alpha only"
     assert state.read().current_plan == "beta"
 
 

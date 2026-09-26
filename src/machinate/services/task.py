@@ -41,6 +41,7 @@ class TaskService:
             name=task.name,
             path=task.path,
             metadata=task.document.metadata,
+            summary=task.document.get_or_derive_summary(),
             last_activity_at=task.modified_at,
         )
 
@@ -55,12 +56,12 @@ class TaskService:
         if not changes.model_fields_set:
             return task
         document = task.document
-        if "summary" in changes.model_fields_set:
-            document.metadata.summary = changes.summary
         if "status" in changes.model_fields_set:
             document.metadata.status = changes.status
         if "body" in changes.model_fields_set:
             document.body = changes.body
+        if "summary" in changes.model_fields_set:
+            document.metadata.summary = changes.summary or None
         if "tags" in changes.model_fields_set:
             document.metadata.tags = changes.tags if changes.tags is not None else []
         self.document_store.write(task.path, document)
@@ -79,6 +80,7 @@ class TaskService:
                 name=record.name,
                 path=record.path,
                 metadata=record.metadata,
+                summary=record.summary,
                 last_activity_at=record.last_activity_at,
             )
             for record in records

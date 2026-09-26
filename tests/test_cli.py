@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import override
@@ -28,7 +29,7 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_LOG_LEVEL", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -82,6 +83,21 @@ def test_nearest_project(project: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.chdir(nested)
     result = runner.invoke(app, ["plan", "list", "--format", "json"])
     assert ListResult.model_validate(json.loads(result.stdout)).project.name == "inner"
+
+
+def test_list_alias_matches_plan_list(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    populate(project)
+    monkeypatch.chdir(project)
+    alias = runner.invoke(app, ["list", "--format", "json"])
+    canonical = runner.invoke(app, ["plan", "list", "--format", "json"])
+    assert alias.exit_code == 0, alias.output
+    assert alias.stdout == canonical.stdout
+
+
+def test_list_alias_is_hidden() -> None:
+    help_output = runner.invoke(app, ["--help"]).stdout
+    assert "│ list" not in help_output
+    assert "│ plan" in help_output
 
 
 @pytest.mark.parametrize(
@@ -333,6 +349,24 @@ def test_formatter_injection(project: Path) -> None:
     assert isinstance(formatter.results[1], ErrorResult)
 
 
+def test_log_level_env_enables_debug_diagnostics(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    logger = logging.getLogger("machinate")
+    monkeypatch.setenv("MACHI_LOG_LEVEL", "debug")
+    target = project / ".machi/plans/bare/plan.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("no frontmatter here")
+    try:
+        result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
+        assert result.exit_code == 0
+        assert "Missing YAML frontmatter in plans/bare/plan.md" in result.stderr
+    finally:
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+        logger.setLevel(logging.NOTSET)
+
+
 def test_read_only_and_malformed_document(project: Path) -> None:
     populate(project)
 
@@ -348,7 +382,7 @@ def test_read_only_and_malformed_document(project: Path) -> None:
         assert result.exit_code == 0
     assert snapshot() == before
     assert prepare_project(project).plans.project_state_store.read().current_plan == "dangling"
-    (project / ".machi/plans/alpha/plan.md").write_text("malformed")
+    (project / ".machi/plans/alpha/plan.md").write_text("---\nsummary: missing date\n---\n")
     result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
     assert result.exit_code == 1
     error = ErrorResult.model_validate_json(result.stderr)

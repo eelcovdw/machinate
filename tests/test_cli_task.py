@@ -19,9 +19,10 @@ from machinate.cli.models import (
     TaskInfoResult,
     TaskListResult,
     TaskShowResult,
-    TaskStatusResult,
+    TaskUpdateResult,
 )
 from machinate.cli.project_setup import prepare_project
+from machinate.models.task import TaskUpdate
 from machinate.storage import PlanMetadata, ProjectState, ProjectStateStore, TaskMetadata
 from machinate.storage.queries import TaskQuery
 
@@ -339,11 +340,10 @@ def test_task_add_parser_error_formatter_injection() -> None:
 
 
 def seed_task(project: Path, name: str, summary: str | None = None, body: str = "") -> None:
+    if summary is not None:
+        body = summary if not body else f"{summary}\n\n{body}"
     prepare_project(project).tasks.create(
-        "auth",
-        name,
-        TaskMetadata(created=datetime(2026, 1, 1, tzinfo=UTC), summary=summary),
-        body=body,
+        "auth", name, TaskMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)), body=body
     )
 
 
@@ -360,7 +360,7 @@ def test_task_list_explicit_plan(project: Path) -> None:
     assert parsed.plan == "auth"
     assert [task.name for task in parsed.tasks] == ["login", "logout"]
     assert parsed.tasks[0].path.as_posix() == "plans/auth/tasks/login.md"
-    assert parsed.tasks[0].metadata.summary == "Sign in"
+    assert parsed.tasks[0].summary == "Sign in"
     assert parsed.tasks[0].metadata.status == "todo"
     assert read_state(project).current_plan is None
 
@@ -394,7 +394,7 @@ def test_task_list_empty(project: Path) -> None:
 def test_task_list_status_search_and_body(project: Path) -> None:
     seed_task(project, "alpha", summary="first")
     seed_task(project, "beta", summary="second")
-    seed_task(project, "gamma", body="secret needle")
+    seed_task(project, "gamma", body="gamma notes\n\nsecret needle")
     prepare_project(project).tasks.set_status("auth", "beta", "done")
 
     by_status = runner.invoke(
@@ -623,8 +623,8 @@ def test_task_show_explicit_plan(project: Path) -> None:
     assert parsed.plan == "auth"
     assert parsed.task.name == "login"
     assert parsed.task.path.as_posix() == "plans/auth/tasks/login.md"
-    assert parsed.task.document.metadata.summary == "Sign in"
-    assert parsed.task.document.body == "Detailed notes"
+    assert parsed.task.document.get_or_derive_summary() == "Sign in"
+    assert parsed.task.document.body == "Sign in\n\nDetailed notes"
     assert read_state(project).current_plan is None
 
 
@@ -782,7 +782,7 @@ def test_task_info_explicit_plan(project: Path) -> None:
     assert parsed.plan == "auth"
     assert parsed.task.name == "login"
     assert parsed.task.path.as_posix() == "plans/auth/tasks/login.md"
-    assert parsed.task.metadata.summary == "Sign in"
+    assert parsed.task.summary == "Sign in"
     assert read_state(project).current_plan is None
 
 
@@ -894,25 +894,15 @@ def test_task_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, sourc
     factory.assert_not_called()
 
 
-def test_task_status_read(project: Path) -> None:
+def test_task_update_set_status_persists(project: Path) -> None:
     seed_task(project, "login")
     result = runner.invoke(
-        app, ["task", "status", "login", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 0, result.output
-    parsed = TaskStatusResult.model_validate(json.loads(result.stdout))
-    assert parsed.task.name == "login"
-    assert parsed.task.document.metadata.status == "todo"
-
-
-def test_task_status_set_persists(project: Path) -> None:
-    seed_task(project, "login")
-    set_result = runner.invoke(
         app,
         [
             "task",
-            "status",
+            "update",
             "login",
+            "--status",
             "in-progress",
             "-p",
             "auth",
@@ -922,96 +912,231 @@ def test_task_status_set_persists(project: Path) -> None:
             "json",
         ],
     )
-    assert set_result.exit_code == 0, set_result.output
-    changed = TaskStatusResult.model_validate(json.loads(set_result.stdout))
+    assert result.exit_code == 0, result.output
+    changed = TaskUpdateResult.model_validate(json.loads(result.stdout))
     assert changed.task.document.metadata.status == "in-progress"
-    read_result = runner.invoke(
-        app, ["task", "status", "login", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    persisted = TaskStatusResult.model_validate(json.loads(read_result.stdout))
-    assert persisted.task.document.metadata.status == "in-progress"
 
 
-def test_task_status_current_plan(project: Path) -> None:
-    prepare_project(project).plans.set_current("auth")
-    seed_task(project, "login")
-    result = runner.invoke(
-        app, ["task", "status", "login", "done", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 0, result.output
-    assert TaskStatusResult.model_validate(json.loads(result.stdout)).plan == "auth"
-
-
-def test_task_status_does_not_change_selection(project: Path) -> None:
-    prepare_project(project).plans.set_current("auth")
-    seed_task(project, "login")
-    result = runner.invoke(
-        app,
-        ["task", "status", "login", "done", "-p", "auth", "-P", str(project), "--format", "json"],
-    )
-    assert result.exit_code == 0, result.output
-    assert read_state(project).current_plan == "auth"
-
-
-def test_task_status_invalid_status_preserves_task(project: Path) -> None:
-    seed_task(project, "login")
-    before = snapshot(project)
-    result = runner.invoke(
-        app,
-        ["task", "status", "login", "bogus", "-p", "auth", "-P", str(project), "--format", "json"],
-    )
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "task status"
-    assert "bogus" in error.error
-    assert snapshot(project) == before
-
-
-def test_task_status_unknown_task(project: Path) -> None:
-    result = runner.invoke(
-        app,
-        ["task", "status", "missing", "-p", "auth", "-P", str(project), "--format", "json"],
-    )
-    assert result.exit_code == 1, result.output
-    assert ErrorResult.model_validate_json(result.stderr).command == "task status"
-
-
-def test_task_status_unknown_plan(project: Path) -> None:
-    result = runner.invoke(
-        app,
-        ["task", "status", "login", "-p", "nope", "-P", str(project), "--format", "json"],
-    )
-    assert result.exit_code == 1, result.output
-    assert ErrorResult.model_validate_json(result.stderr).command == "task status"
-
-
-def test_task_status_non_interactive_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    prepare_project(project).plans.set_current("auth")
-    seed_task(project, "login")
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
-    result = runner.invoke(app, ["task", "status", "login", "-P", str(project)])
-    assert result.exit_code == 1, result.output
-    assert ErrorResult.model_validate_json(result.stderr).command == "task status"
-
-
-def test_task_status_no_current_plan(project: Path) -> None:
-    seed_task(project, "login")
-    result = runner.invoke(app, ["task", "status", "login", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 1, result.output
-    assert ErrorResult.model_validate_json(result.stderr).command == "task status"
-
-
-@pytest.mark.parametrize("format_name", ["text", "json"])
-def test_task_status_output(project: Path, format_name: str) -> None:
+def test_task_update_sets_summary_and_tags(project: Path) -> None:
     seed_task(project, "login")
     result = runner.invoke(
         app,
         [
             "task",
-            "status",
+            "update",
             "login",
+            "--summary",
+            "Log in flow",
+            "--tag",
+            "v2",
+            "--tag",
+            "backend",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    metadata = TaskUpdateResult.model_validate(json.loads(result.stdout)).task.document.metadata
+    assert metadata.summary == "Log in flow"
+    assert metadata.tags == ["v2", "backend"]
+
+
+def test_task_update_clears_summary(project: Path) -> None:
+    seed_task(project, "login")
+    prepare_project(project).tasks.update("auth", "login", TaskUpdate(summary="Authored"))
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "update",
+            "login",
+            "--summary",
+            "",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = TaskUpdateResult.model_validate(json.loads(result.stdout))
+    assert parsed.task.document.metadata.summary is None
+
+
+def test_task_update_replaces_tags(project: Path) -> None:
+    seed_task(project, "login")
+    prepare_project(project).tasks.update("auth", "login", TaskUpdate(tags=["old"]))
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "update",
+            "login",
+            "--tag",
+            "new",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = TaskUpdateResult.model_validate(json.loads(result.stdout))
+    assert parsed.task.document.metadata.tags == ["new"]
+
+
+def test_task_update_current_plan(project: Path) -> None:
+    prepare_project(project).plans.set_current("auth")
+    seed_task(project, "login")
+    result = runner.invoke(
+        app, ["task", "update", "login", "--status", "done", "-P", str(project), "--format", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    assert TaskUpdateResult.model_validate(json.loads(result.stdout)).plan == "auth"
+
+
+def test_task_update_does_not_change_selection(project: Path) -> None:
+    prepare_project(project).plans.set_current("auth")
+    seed_task(project, "login")
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "update",
+            "login",
+            "--status",
+            "done",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert read_state(project).current_plan == "auth"
+
+
+def test_task_update_nothing_to_change(project: Path) -> None:
+    seed_task(project, "login")
+    before = snapshot(project)
+    result = runner.invoke(
+        app, ["task", "update", "login", "-p", "auth", "-P", str(project), "--format", "json"]
+    )
+    assert result.exit_code == 1, result.output
+    error = ErrorResult.model_validate_json(result.stderr)
+    assert error.command == "task update"
+    assert "Nothing to update" in error.error
+    assert snapshot(project) == before
+
+
+def test_task_update_invalid_status_preserves_task(project: Path) -> None:
+    seed_task(project, "login")
+    before = snapshot(project)
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "update",
+            "login",
+            "--status",
+            "bogus",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    error = ErrorResult.model_validate_json(result.stderr)
+    assert error.command == "task update"
+    assert "bogus" in error.error
+    assert snapshot(project) == before
+
+
+def test_task_update_unknown_task(project: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "update",
+            "missing",
+            "--status",
+            "done",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert ErrorResult.model_validate_json(result.stderr).command == "task update"
+
+
+def test_task_update_unknown_plan(project: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "update",
+            "login",
+            "--status",
+            "done",
+            "-p",
+            "nope",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert ErrorResult.model_validate_json(result.stderr).command == "task update"
+
+
+def test_task_update_non_interactive_requires_plan(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prepare_project(project).plans.set_current("auth")
+    seed_task(project, "login")
+    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    result = runner.invoke(app, ["task", "update", "login", "--status", "done", "-P", str(project)])
+    assert result.exit_code == 1, result.output
+    assert ErrorResult.model_validate_json(result.stderr).command == "task update"
+
+
+def test_task_update_no_current_plan(project: Path) -> None:
+    seed_task(project, "login")
+    result = runner.invoke(
+        app, ["task", "update", "login", "--status", "done", "-P", str(project), "--format", "json"]
+    )
+    assert result.exit_code == 1, result.output
+    assert ErrorResult.model_validate_json(result.stderr).command == "task update"
+
+
+@pytest.mark.parametrize("format_name", ["text", "json"])
+def test_task_update_output(project: Path, format_name: str) -> None:
+    seed_task(project, "login")
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "update",
+            "login",
+            "--status",
             "done",
             "-p",
             "auth",
@@ -1023,53 +1148,80 @@ def test_task_status_output(project: Path, format_name: str) -> None:
     )
     assert result.exit_code == 0, result.output
     if format_name == "json":
-        parsed = TaskStatusResult.model_validate(json.loads(result.stdout))
+        parsed = TaskUpdateResult.model_validate(json.loads(result.stdout))
         assert parsed.task.document.metadata.status == "done"
     else:
-        assert "Task login is done in example/auth" in result.stdout
+        assert "Updated task login in example/auth (done)" in result.stdout
 
 
-def test_task_status_formatter_injection(project: Path) -> None:
+def test_task_update_formatter_injection(project: Path) -> None:
     seed_task(project, "login")
     formatter = ReplacementFormatter()
     custom = create_cli(Dependencies(formatters={"custom": formatter}))
     result = runner.invoke(
         custom,
-        ["task", "status", "login", "done", "-p", "auth", "-P", str(project), "--format", "custom"],
+        [
+            "task",
+            "update",
+            "login",
+            "--status",
+            "done",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "custom",
+        ],
     )
     assert result.exit_code == 0
     assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], TaskStatusResult)
+    assert isinstance(formatter.results[0], TaskUpdateResult)
 
 
-def test_task_status_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_task_update_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     application = prepare_project(project)
     seed_task(project, "seed")
     record = application.tasks.get("auth", "seed")
-    set_status = Mock(return_value=record)
-    monkeypatch.setattr(application.tasks, "set_status", set_status)
+    update = Mock(return_value=record)
+    monkeypatch.setattr(application.tasks, "update", update)
     factory = Mock(return_value=application)
     result = runner.invoke(
         create_cli(Dependencies(prepare_project=factory)),
-        ["task", "status", "seed", "done", "-p", "auth", "-P", str(project), "--format", "json"],
+        [
+            "task",
+            "update",
+            "seed",
+            "--status",
+            "done",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
     )
     assert result.exit_code == 0, result.output
     factory.assert_called_once_with(project)
-    set_status.assert_called_once_with("auth", "seed", "done")
-    assert TaskStatusResult.model_validate(json.loads(result.stdout)).task.name == "seed"
+    update.assert_called_once_with("auth", "seed", TaskUpdate(status="done"))
+    assert TaskUpdateResult.model_validate(json.loads(result.stdout)).task.name == "seed"
 
 
-def test_task_status_help() -> None:
-    result = runner.invoke(app, ["task", "status", "--help"])
+def test_task_update_help() -> None:
+    result = runner.invoke(app, ["task", "update", "--help"])
     assert result.exit_code == 0
     assert "--plan" in result.stdout
     assert "--format" in result.stdout
+    assert "--summary" in result.stdout
+    assert "--status" in result.stdout
+    assert "--tag" in result.stdout
     assert not result.stdout.startswith("{")
 
 
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
-def test_task_status_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
-    args = ["task", "status", "login", "-p", "auth"]
+def test_task_update_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
+    args = ["task", "update", "login", "-p", "auth"]
     if source == "flag":
         args.extend(["--format", "json"])
     elif source == "environment":
@@ -1081,6 +1233,6 @@ def test_task_status_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, sou
     assert result.exit_code == 2, result.output
     assert result.stdout == ""
     error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "task status"
+    assert error.command == "task update"
     assert "--unknown" in error.error
     factory.assert_not_called()
