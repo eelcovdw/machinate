@@ -19,8 +19,8 @@ dependencies = [
 ]
 
 [project.scripts]
-machinate = "machinate.cli:app"
-machi = "machinate.cli:app"
+machinate = "machinate.cli.cli:app"
+machi = "machinate.cli.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.9.25,<0.10.0"]
@@ -58,7 +58,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"src/machinate/cli/*.py" = [
+"src/machinate/cli/**/*.py" = [
     "FBT",     # Boolean positional args are fine for typer CLI flags
 ]
 "tests/*.py" = [
