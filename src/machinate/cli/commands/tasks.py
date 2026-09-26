@@ -5,43 +5,46 @@ from typing import Annotated, cast, get_args
 import typer
 from pydantic import ValidationError
 
-from machinate.cli.commands.selection import PlanSelectionError, explicit_plan_name, select_plan
+from machinate.cli.commands.selection import PlanSelectionError, select_plan
 from machinate.cli.dependencies import get_dependencies
 from machinate.cli.errors import describe_error
 from machinate.cli.formatting import Formatter, UnknownFormatError, select_formatter
 from machinate.cli.models import (
-    AddResult,
     ErrorResult,
-    ListResult,
     ProjectScope,
-    SetResult,
-    ShowResult,
-    StatusResult,
+    TaskAddResult,
+    TaskListResult,
+    TaskShowResult,
+    TaskStatusResult,
 )
 from machinate.cli.project_setup import ProjectError
 from machinate.cli.settings import Settings
-from machinate.storage import PlanMetadata, PlanStatus
+from machinate.storage import TaskMetadata
 from machinate.storage.errors import StorageError
-from machinate.storage.models import NameInput
-from machinate.storage.queries import PlanQuery
+from machinate.storage.models import NameInput, TaskNameInput, TaskStatus
+from machinate.storage.queries import TaskQuery
 
 
-class InvalidStatusError(Exception):
-    """Raised when a status value is not one of the accepted plan statuses."""
+class InvalidTaskStatusError(Exception):
+    """Raised when a status value is not one of the accepted task statuses."""
 
 
-def plan_status(value: str) -> PlanStatus:
-    """Validate a plan status string."""
-    allowed = get_args(PlanStatus.__value__)  # pyright: ignore[reportAny]
+def task_status(value: str) -> TaskStatus:
+    """Validate a task status string."""
+    allowed = get_args(TaskStatus.__value__)  # pyright: ignore[reportAny]
     if value not in allowed:
         msg = f"Unknown status {value!r}; expected one of: {', '.join(allowed)}."
-        raise InvalidStatusError(msg)
-    return cast("PlanStatus", value)
+        raise InvalidTaskStatusError(msg)
+    return cast("TaskStatus", value)
 
 
-def add_plan(
+def task_add(
     context: typer.Context,
-    name: Annotated[str, typer.Argument(help="Name of the plan to create.")],
+    names: Annotated[list[str], typer.Argument(help="Name(s) of the task(s) to create.")],
+    plan: Annotated[
+        str | None,
+        typer.Option("--plan", "-p", help="Plan to add tasks to; defaults to the current plan."),
+    ] = None,
     project: Annotated[
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
@@ -50,30 +53,49 @@ def add_plan(
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Create a plan without changing the selected plan."""
+    """Create one or more tasks in a plan without changing selection."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
     try:
         settings = Settings()
-        format_name = output_format or settings.format
-        formatter = select_formatter(format_name, dependencies.formatters)
-        plan_name = NameInput(name=name).name
+        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
+        task_names = [TaskNameInput(name=name).name for name in names]
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        plan = project_context.plans.create(plan_name, PlanMetadata(created=datetime.now(UTC)))
-        result = AddResult(project=scope, plan=plan)
-    except (ProjectError, UnknownFormatError, StorageError, ValidationError, OSError) as exc:
+        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        created = [
+            project_context.tasks.create(
+                selected.name, name, TaskMetadata(created=datetime.now(UTC))
+            )
+            for name in task_names
+        ]
+        result = TaskAddResult(project=scope, plan=selected.name, tasks=created)
+    except (
+        ProjectError,
+        UnknownFormatError,
+        PlanSelectionError,
+        StorageError,
+        ValidationError,
+        OSError,
+    ) as exc:
+        message = describe_error(exc)
         typer.echo(
-            formatter.format(ErrorResult(command="add", error=describe_error(exc), project=scope)),
+            formatter.format(ErrorResult(command="task add", error=message, project=scope)),
             err=True,
         )
         raise typer.Exit(1) from exc
     typer.echo(formatter.format(result))
 
 
-def list_plans(  # noqa: PLR0913
+def task_list(  # noqa: PLR0913
     context: typer.Context,
+    plan: Annotated[
+        str | None,
+        typer.Option(
+            "--plan", "-p", help="Plan whose tasks to list; defaults to the current plan."
+        ),
+    ] = None,
     project: Annotated[
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
@@ -89,22 +111,21 @@ def list_plans(  # noqa: PLR0913
         list[str] | None,
         typer.Option(
             "--status",
-            help="Match any status: draft, active, done. Repeat for multiple statuses.",
+            help="Match any status: todo, in-progress, done. Repeat for multiple statuses.",
         ),
     ] = None,
     sort: Annotated[str, typer.Option(help="Sort by name, created, or updated.")] = "name",
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
     limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
 ) -> None:
-    """List plans across the selected project without changing selection."""
+    """List tasks in a plan without changing selection."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
     try:
         settings = Settings()
-        name = output_format or settings.format
-        formatter = select_formatter(name, dependencies.formatters)
-        query = PlanQuery.model_validate(
+        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
+        query = TaskQuery.model_validate(
             {
                 "search": search,
                 "search_body": search_body,
@@ -116,20 +137,37 @@ def list_plans(  # noqa: PLR0913
         )
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        result = ListResult(project=scope, plans=project_context.plans.list(query))
-    except (ProjectError, UnknownFormatError, StorageError, ValidationError, OSError) as exc:
+        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        result = TaskListResult(
+            project=scope,
+            plan=selected.name,
+            tasks=project_context.tasks.list(selected.name, query),
+        )
+    except (
+        ProjectError,
+        UnknownFormatError,
+        PlanSelectionError,
+        StorageError,
+        ValidationError,
+        OSError,
+    ) as exc:
+        message = describe_error(exc)
         typer.echo(
-            formatter.format(ErrorResult(error=describe_error(exc), project=scope)), err=True
+            formatter.format(ErrorResult(command="task list", error=message, project=scope)),
+            err=True,
         )
         raise typer.Exit(1) from exc
     typer.echo(formatter.format(result))
 
 
-def set_plan(
+def task_show(
     context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Name of the task to show.")],
     plan: Annotated[
         str | None,
-        typer.Option("--plan", "-p", help="Plan to select as the current plan."),
+        typer.Option(
+            "--plan", "-p", help="Plan containing the task; defaults to the current plan."
+        ),
     ] = None,
     project: Annotated[
         Path | None,
@@ -139,44 +177,48 @@ def set_plan(
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Select an explicit plan as the project's current plan."""
+    """Show a task without changing selection."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
     try:
         settings = Settings()
-        format_name = output_format or settings.format
-        formatter = select_formatter(format_name, dependencies.formatters)
-        plan_name = explicit_plan_name(plan)
+        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
+        task_name = TaskNameInput(name=name).name
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        state = project_context.plans.set_current(plan_name)
-        result = SetResult(project=scope, state=state)
+        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        task = project_context.tasks.get(selected.name, task_name)
+        result = TaskShowResult(project=scope, plan=selected.name, task=task)
     except (
-        PlanSelectionError,
         ProjectError,
         UnknownFormatError,
+        PlanSelectionError,
         StorageError,
         ValidationError,
         OSError,
     ) as exc:
+        message = describe_error(exc)
         typer.echo(
-            formatter.format(ErrorResult(command="set", error=describe_error(exc), project=scope)),
+            formatter.format(ErrorResult(command="task show", error=message, project=scope)),
             err=True,
         )
         raise typer.Exit(1) from exc
     typer.echo(formatter.format(result))
 
 
-def status_plan(
+def status_task(  # noqa: PLR0913
     context: typer.Context,
+    name: Annotated[str, typer.Argument(help="Name of the task to inspect or update.")],
     status: Annotated[
         str | None,
-        typer.Argument(help="New status: draft, active, or done. Omit to read the status."),
+        typer.Argument(help="New status: todo, in-progress, or done. Omit to read the status."),
     ] = None,
     plan: Annotated[
         str | None,
-        typer.Option("--plan", "-p", help="Plan to inspect or update; otherwise the current plan."),
+        typer.Option(
+            "--plan", "-p", help="Plan containing the task; defaults to the current plan."
+        ),
     ] = None,
     project: Annotated[
         Path | None,
@@ -186,79 +228,36 @@ def status_plan(
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Read or update a plan's status."""
+    """Read or update a task's status."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
     try:
         settings = Settings()
-        format_name = output_format or settings.format
-        formatter = select_formatter(format_name, dependencies.formatters)
+        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
+        task_name = TaskNameInput(name=name).name
         plan_name = None if plan is None else NameInput(name=plan).name
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
         selected = select_plan(project_context.plans, plan_name, interactive=settings.interactive)
-        if status is None:
-            result = StatusResult(project=scope, plan=selected)
-        else:
-            updated = project_context.plans.set_status(selected.name, plan_status(status))
-            result = StatusResult(project=scope, plan=updated)
-    except (
-        InvalidStatusError,
-        PlanSelectionError,
-        ProjectError,
-        UnknownFormatError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        typer.echo(
-            formatter.format(
-                ErrorResult(command="status", error=describe_error(exc), project=scope)
-            ),
-            err=True,
+        task = (
+            project_context.tasks.get(selected.name, task_name)
+            if status is None
+            else project_context.tasks.set_status(selected.name, task_name, task_status(status))
         )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
-
-
-def show_plan(
-    context: typer.Context,
-    plan: Annotated[
-        str | None,
-        typer.Option("--plan", "-p", help="Plan to show; otherwise the current plan."),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
-) -> None:
-    """Show a plan without changing selection."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        format_name = output_format or settings.format
-        formatter = select_formatter(format_name, dependencies.formatters)
-        plan_name = None if plan is None else NameInput(name=plan).name
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan_name, interactive=settings.interactive)
-        result = ShowResult(project=scope, plan=selected)
+        result = TaskStatusResult(project=scope, plan=selected.name, task=task)
     except (
-        PlanSelectionError,
+        InvalidTaskStatusError,
         ProjectError,
         UnknownFormatError,
+        PlanSelectionError,
         StorageError,
         ValidationError,
         OSError,
     ) as exc:
+        message = describe_error(exc)
         typer.echo(
-            formatter.format(ErrorResult(command="show", error=describe_error(exc), project=scope)),
+            formatter.format(ErrorResult(command="task status", error=message, project=scope)),
             err=True,
         )
         raise typer.Exit(1) from exc

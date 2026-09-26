@@ -74,6 +74,7 @@ ignore = [
 [tool.basedpyright]
 venvPath = "."
 venv = ".venv"
+pythonVersion = "3.14"
 reportUnusedCallResult = false
 
 [tool.pytest.ini_options]

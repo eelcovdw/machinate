@@ -13,7 +13,7 @@ from upath import UPath
 from machinate.cli.cli import app, create_cli
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.formatting import Formatter
-from machinate.cli.models import CommandResult, ErrorResult, ListResult
+from machinate.cli.models import CommandResult, ErrorResult, InitResult, ListResult
 from machinate.cli.project_setup import prepare_project
 from machinate.storage import (
     Document,
@@ -30,7 +30,7 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION_MODE", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -86,7 +86,10 @@ def test_nearest_project(project: Path, monkeypatch: pytest.MonkeyPatch) -> None
     assert ListResult.model_validate(json.loads(result.stdout)).project.name == "inner"
 
 
-@pytest.mark.parametrize("kind", ["missing", "file", "empty", "bad-toml", "bad-state", "symlink"])
+@pytest.mark.parametrize(
+    "kind",
+    ["missing", "file", "empty", "bad-toml", "bad-state", "symlink-file", "symlink-dangling"],
+)
 def test_invalid_projects_no_fallback(
     project: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -97,8 +100,12 @@ def test_invalid_projects_no_fallback(
     storage = nested / ".machi"
     if kind == "file":
         storage.write_text("bad")
-    elif kind == "symlink":
-        storage.symlink_to(project / ".machi", target_is_directory=True)
+    elif kind == "symlink-file":
+        target = nested / "target-file"
+        target.write_text("x")
+        storage.symlink_to(target)
+    elif kind == "symlink-dangling":
+        storage.symlink_to(nested / "nowhere", target_is_directory=True)
     elif kind != "missing":
         storage.mkdir()
         if kind in {"bad-toml", "bad-state"}:
@@ -122,6 +129,23 @@ def test_missing_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert "No initialized project" in ErrorResult.model_validate_json(result.stderr).error
 
 
+def test_symlinked_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    real = tmp_path / "real"
+    ProjectStateStore(UPath(real / ".machi/machinate.toml")).write(
+        ProjectState(project_name="linked")
+    )
+    linked = tmp_path / "linked"
+    linked.mkdir()
+    (linked / ".machi").symlink_to(real / ".machi", target_is_directory=True)
+    monkeypatch.chdir(linked)
+    for args in (["-P", str(linked)], []):
+        result = runner.invoke(app, ["list", *args, "--format", "json"])
+        assert result.exit_code == 0, result.output
+        parsed = ListResult.model_validate(json.loads(result.stdout))
+        assert parsed.project.name == "linked"
+        assert parsed.project.storage == linked / ".machi"
+
+
 def test_query_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     populate(project)
     application = prepare_project(project)
@@ -140,9 +164,9 @@ def test_query_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> Non
             "--search",
             "absent",
             "--search-body",
-            "--statuses",
+            "--status",
             "active",
-            "--statuses",
+            "--status",
             "done",
             "--sort",
             "updated",
@@ -179,7 +203,7 @@ def test_query_integration(project: Path) -> None:
             "--search",
             "needle",
             "--search-body",
-            "--statuses",
+            "--status",
             "done",
         ],
     )
@@ -205,27 +229,26 @@ def test_output(project: Path, populated: bool, format_name: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("automation", "env_format", "flag", "expected"),
+    ("interactive", "env_format", "flag", "expected"),
     [
         (None, None, None, "text"),
-        ("true", None, None, "json"),
-        ("false", None, None, "text"),
-        ("1", "text", None, "text"),
+        ("false", None, None, "json"),
+        ("true", None, None, "text"),
+        ("false", "text", None, "text"),
         (None, "json", None, "json"),
-        ("true", "json", "text", "text"),
-        (None, "invalid", "json", "json"),
+        ("false", "json", "text", "text"),
     ],
 )
 def test_format_precedence(  # noqa: PLR0913
     project: Path,
     monkeypatch: pytest.MonkeyPatch,
-    automation: str | None,
+    interactive: str | None,
     env_format: str | None,
     flag: str | None,
     expected: str,
 ) -> None:
-    if automation is not None:
-        monkeypatch.setenv("MACHI_AUTOMATION_MODE", automation)
+    if interactive is not None:
+        monkeypatch.setenv("MACHI_INTERACTIVE", interactive)
     if env_format is not None:
         monkeypatch.setenv("MACHI_FORMAT", env_format)
     monkeypatch.setenv("MACHI_AGENT", "true")
@@ -241,7 +264,7 @@ def test_format_precedence(  # noqa: PLR0913
     "args",
     [
         ["--format", "human"],
-        ["--statuses", "bad"],
+        ["--status", "bad"],
         ["--sort", "bad"],
         ["--limit", "0"],
         ["--limit", "abc"],
@@ -256,11 +279,33 @@ def test_invalid_options(project: Path, args: list[str]) -> None:
         assert "Available formats: json, text" in error.error
 
 
-def test_invalid_settings(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHI_AUTOMATION_MODE", "perhaps")
+@pytest.mark.parametrize(
+    ("env_name", "env_value", "field"),
+    [
+        ("MACHI_INTERACTIVE", "perhaps", "interactive"),
+        ("MACHI_FORMAT", "human", "format"),
+    ],
+)
+def test_invalid_settings(
+    project: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    env_name: str,
+    env_value: str,
+    field: str,
+) -> None:
+    monkeypatch.setenv(env_name, env_value)
     result = runner.invoke(app, ["list", "-P", str(project)])
     assert result.exit_code == 1
-    assert "automation_mode" in ErrorResult.model_validate_json(result.stderr).error
+    assert field in ErrorResult.model_validate_json(result.stderr).error
+
+
+def test_invalid_env_format_is_not_ignored_by_flag(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MACHI_FORMAT", "human")
+    result = runner.invoke(app, ["list", "-P", str(project), "--format", "json"])
+    assert result.exit_code == 1
+    assert "format" in ErrorResult.model_validate_json(result.stderr).error
 
 
 class ReplacementFormatter(Formatter):
@@ -313,7 +358,7 @@ def test_read_only_and_malformed_document(project: Path) -> None:
 def test_help() -> None:
     result = runner.invoke(app, ["list", "--help"])
     assert result.exit_code == 0
-    assert "--statuses" in result.stdout
+    assert "--status" in result.stdout
     assert "--search-body" in result.stdout
     assert not result.stdout.startswith("{")
 
@@ -321,7 +366,7 @@ def test_help() -> None:
 def test_help_does_not_prepare_project(monkeypatch: pytest.MonkeyPatch) -> None:
     factory = Mock(side_effect=AssertionError("help must not prepare a project"))
     custom = create_cli(Dependencies(prepare_project=factory))
-    monkeypatch.setenv("MACHI_AUTOMATION_MODE", "invalid")
+    monkeypatch.setenv("MACHI_INTERACTIVE", "invalid")
     for args in (["--help"], ["list", "--help"]):
         result = runner.invoke(custom, args)
         assert result.exit_code == 0, result.output
@@ -337,14 +382,14 @@ def test_repeated_invocations_reload_settings(
     first = runner.invoke(custom, args)
     assert first.exit_code == 0
     assert "No plans found." in first.stdout
-    monkeypatch.setenv("MACHI_AUTOMATION_MODE", "true")
+    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
     second = runner.invoke(custom, args)
     assert second.exit_code == 0
     assert ListResult.model_validate_json(second.stdout).plans == []
 
 
 @pytest.mark.parametrize("invalid", [["--limit"], ["--unknown"]])
-@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
+@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
 def test_parser_errors_use_json(
     invalid: list[str],
     source: str,
@@ -356,7 +401,7 @@ def test_parser_errors_use_json(
     elif source == "environment":
         monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_AUTOMATION_MODE", "true")
+        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, *invalid])
     assert result.exit_code == 2
@@ -411,4 +456,24 @@ def test_checkout_executable(project: Path, executable: str) -> None:
         check=False,
     )
     assert help_result.returncode == 0
-    assert "--statuses" in help_result.stdout
+    assert "--status" in help_result.stdout
+    fresh = project.parent / "fresh"
+    fresh.mkdir()
+    initialized = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
+        [str(launcher), "init", "-P", str(fresh), "--format", "json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert initialized.returncode == 0, initialized.stderr
+    scope = InitResult.model_validate(json.loads(initialized.stdout)).project
+    assert scope.directory == fresh
+    assert (fresh / ".machi/machinate.toml").exists()
+    empty = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
+        [str(launcher), "list", "-P", str(fresh), "--format", "json"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert empty.returncode == 0, empty.stderr
+    assert ListResult.model_validate(json.loads(empty.stdout)).plans == []
