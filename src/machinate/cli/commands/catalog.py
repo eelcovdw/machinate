@@ -14,6 +14,7 @@ from machinate.cli.commands.plans import (
     add_plan,
     info_command,
     list_plans,
+    plan_info_command,
     set_plan,
     show_plan,
     status_plan,
@@ -36,6 +37,7 @@ from machinate.cli.models import (
     InitResult,
     ListResult,
     PathResult,
+    PlanInfoResult,
     SetResult,
     ShowResult,
     StatusResult,
@@ -67,13 +69,19 @@ class CommandSpec:
 
 COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("init", init_project, InitResult),
-    CommandSpec("add", add_plan, AddResult),
     CommandSpec("info", info_command, InfoResult),
-    CommandSpec("path", plan_path, PathResult),
-    CommandSpec("list", list_plans, ListResult),
-    CommandSpec("show", show_plan, ShowResult),
-    CommandSpec("set", set_plan, SetResult),
-    CommandSpec("status", status_plan, StatusResult),
+    CommandSpec(
+        "plan",
+        children=(
+            CommandSpec("add", add_plan, AddResult),
+            CommandSpec("info", plan_info_command, PlanInfoResult),
+            CommandSpec("path", plan_path, PathResult),
+            CommandSpec("list", list_plans, ListResult),
+            CommandSpec("show", show_plan, ShowResult),
+            CommandSpec("set", set_plan, SetResult),
+            CommandSpec("status", status_plan, StatusResult),
+        ),
+    ),
     CommandSpec(
         "task",
         children=(

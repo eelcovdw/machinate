@@ -2,7 +2,15 @@ from datetime import datetime
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Annotated, ClassVar, Literal
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, BeforeValidator, ConfigDict
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    field_validator,
+)
 
 
 def validate_name(value: str) -> str:
@@ -66,11 +74,34 @@ class PathInput(BaseModel):
     path: RelativePath
 
 
+def validate_tag(value: str) -> str:
+    tag = value.strip()
+    if not tag or any(not char.isprintable() for char in tag):
+        raise ValueError("Expected a nonempty tag without control characters")
+    return tag
+
+
+Tag = Annotated[str, AfterValidator(validate_tag)]
+
+
 class Metadata(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow", validate_assignment=True)
 
     created: AwareDatetime
     summary: str | None = None
+    tags: list[Tag] = Field(default_factory=list)
+
+    @field_validator("tags", mode="after")
+    @classmethod
+    def _dedupe_tags(cls, tags: list[str]) -> list[str]:
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for tag in tags:
+            key = tag.casefold()
+            if key not in seen:
+                seen.add(key)
+                deduped.append(tag)
+        return deduped
 
 
 type PlanStatus = Literal["draft", "active", "done"]

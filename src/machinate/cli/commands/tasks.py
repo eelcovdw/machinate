@@ -39,7 +39,7 @@ def task_status(value: str) -> TaskStatus:
     return cast("TaskStatus", value)
 
 
-def task_add(
+def task_add(  # noqa: PLR0913
     context: typer.Context,
     names: Annotated[list[str], typer.Argument(help="Name(s) of the task(s) to create.")],
     plan: Annotated[
@@ -49,6 +49,12 @@ def task_add(
     project: Annotated[
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--tag", help="Tag(s) to apply to every created task. Repeat for multiple tags."
+        ),
     ] = None,
     output_format: Annotated[
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
@@ -67,7 +73,7 @@ def task_add(
         selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
         created = [
             project_context.tasks.create(
-                selected.name, name, TaskMetadata(created=datetime.now(UTC))
+                selected.name, name, TaskMetadata(created=datetime.now(UTC), tags=tags or [])
             )
             for name in task_names
         ]
@@ -108,6 +114,10 @@ def task_list(  # noqa: PLR0913
         str | None, typer.Option(help="Substring search in name and summary.")
     ] = None,
     search_body: Annotated[bool, typer.Option(help="Include document body in search.")] = False,
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
+    ] = None,
     statuses: Annotated[
         list[str] | None,
         typer.Option(
@@ -130,6 +140,7 @@ def task_list(  # noqa: PLR0913
             {
                 "search": search,
                 "search_body": search_body,
+                "tags": tags,
                 "statuses": statuses,
                 "sort": sort,
                 "descending": descending,

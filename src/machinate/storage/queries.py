@@ -3,7 +3,7 @@ from typing import ClassVar, Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, PositiveInt, model_validator
 
-from .models import Metadata, PlanStatus, RelativePath, TaskStatus
+from .models import Metadata, PlanStatus, RelativePath, Tag, TaskStatus
 
 
 class DocumentScope(BaseModel):
@@ -37,6 +37,7 @@ class DocumentQuery(BaseModel):
 
     search: str | None = None
     search_body: bool = False
+    tags: set[Tag] | None = None
     created_range: DateTimeRange | None = None
     updated_range: DateTimeRange | None = None
     sort: Literal["name", "created", "updated"] = "name"

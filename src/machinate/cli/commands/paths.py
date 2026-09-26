@@ -44,7 +44,7 @@ def plan_path(
         scope = project_context.project
         selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
         result = PathResult(
-            command="path",
+            command="plan path",
             project=scope,
             plan=selected.name,
             path=scope.storage / selected.path,
@@ -61,7 +61,8 @@ def plan_path(
     ) as exc:
         message = describe_error(exc)
         typer.echo(
-            formatter.format(ErrorResult(command="path", error=message, project=scope)), err=True
+            formatter.format(ErrorResult(command="plan path", error=message, project=scope)),
+            err=True,
         )
         raise typer.Exit(1) from exc
     typer.echo(formatter.format(result))

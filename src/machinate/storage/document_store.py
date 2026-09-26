@@ -198,6 +198,10 @@ class DocumentStore:
         name: str, document: Document[M], last_activity_at: datetime, query: DocumentQuery
     ) -> bool:
         metadata = document.metadata
+        if query.tags is not None:
+            document_tags = {tag.casefold() for tag in metadata.tags}
+            if document_tags.isdisjoint(tag.casefold() for tag in query.tags):
+                return False
         if isinstance(query, StatusQuery):
             statuses = cast("StatusQuery[str]", query).statuses
             if statuses is not None and (
@@ -215,7 +219,7 @@ class DocumentStore:
             ):
                 return False
         if query.search:
-            values = [name, metadata.summary or ""]
+            values = [name, metadata.summary or "", *metadata.tags]
             if query.search_body:
                 values.append(document.body)
             return any(query.search.casefold() in value.casefold() for value in values)

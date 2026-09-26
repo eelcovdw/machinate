@@ -25,7 +25,7 @@ from machinate.storage.models import ContextNameInput
 from machinate.storage.queries import DocumentQuery
 
 
-def context_add(
+def context_add(  # noqa: PLR0913
     context: typer.Context,
     names: Annotated[
         list[str], typer.Argument(help="Name(s) of the context document(s) to create.")
@@ -37,6 +37,12 @@ def context_add(
     project: Annotated[
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
+    ] = None,
+    tags: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--tag", help="Tag(s) to apply to every created context. Repeat for multiple tags."
+        ),
     ] = None,
     output_format: Annotated[
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
@@ -55,7 +61,7 @@ def context_add(
         selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
         created = [
             project_context.contexts.create(
-                selected.name, name, ContextMetadata(created=datetime.now(UTC))
+                selected.name, name, ContextMetadata(created=datetime.now(UTC), tags=tags or [])
             )
             for name in context_names
         ]
@@ -96,6 +102,10 @@ def context_list(  # noqa: PLR0913
         str | None, typer.Option(help="Substring search in name and summary.")
     ] = None,
     search_body: Annotated[bool, typer.Option(help="Include document body in search.")] = False,
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
+    ] = None,
     sort: Annotated[str, typer.Option(help="Sort by name, created, or updated.")] = "name",
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
     limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
@@ -111,6 +121,7 @@ def context_list(  # noqa: PLR0913
             {
                 "search": search,
                 "search_body": search_body,
+                "tags": tags,
                 "sort": sort,
                 "descending": descending,
                 "limit": limit,

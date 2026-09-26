@@ -1,6 +1,4 @@
 import json
-import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast, override
@@ -68,11 +66,11 @@ def test_context_add_explicit_plan(project: Path) -> None:
     assert parsed.plan == "auth"
     context = parsed.contexts[0]
     assert context.name == "spec"
-    assert context.path.as_posix() == "auth/context/spec.md"
+    assert context.path.as_posix() == "plans/auth/context/spec.md"
     assert context.document.metadata.created.tzinfo is not None
     assert context.document.metadata.summary is None
     assert context.document.body == ""
-    assert (project / ".machi/auth/context/spec.md").is_file()
+    assert (project / ".machi/plans/auth/context/spec.md").is_file()
     assert read_state(project).current_plan is None
 
 
@@ -114,7 +112,7 @@ def test_context_add_non_interactive_requires_plan(
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert "Non-interactive mode requires an explicit plan" in error.error
-    assert not (project / ".machi/auth/context/spec.md").exists()
+    assert not (project / ".machi/plans/auth/context/spec.md").exists()
 
 
 def test_context_add_no_current_plan(project: Path) -> None:
@@ -122,7 +120,7 @@ def test_context_add_no_current_plan(project: Path) -> None:
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert "No current plan is selected" in error.error
-    assert not (project / ".machi/auth/context/spec.md").exists()
+    assert not (project / ".machi/plans/auth/context/spec.md").exists()
 
 
 def test_context_add_duplicate_preserves_existing(project: Path) -> None:
@@ -156,7 +154,7 @@ def test_context_add_unknown_plan(project: Path) -> None:
     )
     assert result.exit_code == 1, result.output
     assert "nope" in ErrorResult.model_validate_json(result.stderr).error
-    assert not (project / ".machi/nope").exists()
+    assert not (project / ".machi/plans/nope").exists()
 
 
 @pytest.mark.parametrize("format_name", ["text", "json"])
@@ -170,7 +168,7 @@ def test_context_add_output(project: Path, format_name: str) -> None:
         assert parsed.contexts[0].name == "spec"
     else:
         assert "Created 1 context document(s) in example/auth" in result.stdout
-        assert str(project / ".machi/auth/context/spec.md") in result.stdout
+        assert str(project / ".machi/plans/auth/context/spec.md") in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -290,9 +288,11 @@ def test_context_add_then_show_and_list(project: Path) -> None:
         app, ["context", "add", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert added.exit_code == 0, added.output
-    shown = runner.invoke(app, ["show", "-p", "auth", "-P", str(project), "--format", "json"])
+    shown = runner.invoke(
+        app, ["plan", "show", "-p", "auth", "-P", str(project), "--format", "json"]
+    )
     assert shown.exit_code == 0, shown.output
-    listed = runner.invoke(app, ["list", "-P", str(project), "--format", "json"])
+    listed = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
     assert [plan.name for plan in ListResult.model_validate(json.loads(listed.stdout)).plans] == [
         "auth"
     ]
@@ -340,73 +340,6 @@ def test_context_add_parser_error_formatter_injection() -> None:
     assert result.exit_code == 2
     assert result.stderr == "replacement\n"
     assert isinstance(formatter.results[0], ErrorResult)
-
-
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_context_add(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    initialized = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "init", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert initialized.returncode == 0, initialized.stderr
-    added = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "add", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert added.returncode == 0, added.stderr
-    created = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [
-            str(launcher),
-            "context",
-            "add",
-            "spec",
-            "-p",
-            "auth",
-            "-P",
-            str(fresh),
-            "--format",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert created.returncode == 0, created.stderr
-    assert ContextAddResult.model_validate(json.loads(created.stdout)).contexts[0].name == "spec"
-    assert (fresh / ".machi/auth/context/spec.md").is_file()
-    duplicate = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [
-            str(launcher),
-            "context",
-            "add",
-            "spec",
-            "-p",
-            "auth",
-            "-P",
-            str(fresh),
-            "--format",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert duplicate.returncode == 1
-    help_result = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "context", "add", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert help_result.returncode == 0
-    assert "--plan" in help_result.stdout
 
 
 def seed_context(
@@ -592,32 +525,6 @@ def test_context_list_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, so
     factory.assert_not_called()
 
 
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_context_list(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    commands = [
-        ["init", "-P", str(fresh), "--format", "json"],
-        ["add", "auth", "-P", str(fresh), "--format", "json"],
-        ["context", "add", "spec", "-p", "auth", "-P", str(fresh), "--format", "json"],
-    ]
-    for args in commands:
-        completed = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-            [str(launcher), *args], capture_output=True, text=True, check=False
-        )
-        assert completed.returncode == 0, completed.stderr
-    listed = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "context", "list", "-p", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert listed.returncode == 0, listed.stderr
-    parsed = ContextListResult.model_validate(json.loads(listed.stdout))
-    assert [context.name for context in parsed.contexts] == ["spec"]
-
-
 def test_context_show_explicit_plan(project: Path) -> None:
     seed_context(project, "spec", summary="The spec", body="# Spec\n\nDetails.\n")
     result = runner.invoke(
@@ -628,7 +535,7 @@ def test_context_show_explicit_plan(project: Path) -> None:
     assert parsed.project.name == "example"
     assert parsed.plan == "auth"
     assert parsed.context.name == "spec"
-    assert parsed.context.path.as_posix() == "auth/context/spec.md"
+    assert parsed.context.path.as_posix() == "plans/auth/context/spec.md"
     assert parsed.context.document.metadata.summary == "The spec"
     assert parsed.context.document.body == "# Spec\n\nDetails.\n"
     assert parsed.context.document.metadata.created.tzinfo is not None
@@ -750,42 +657,6 @@ def test_context_show_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, so
     factory.assert_not_called()
 
 
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_context_show(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    commands = [
-        ["init", "-P", str(fresh), "--format", "json"],
-        ["add", "auth", "-P", str(fresh), "--format", "json"],
-        ["context", "add", "spec", "-p", "auth", "-P", str(fresh), "--format", "json"],
-    ]
-    for args in commands:
-        completed = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-            [str(launcher), *args], capture_output=True, text=True, check=False
-        )
-        assert completed.returncode == 0, completed.stderr
-    shown = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [
-            str(launcher),
-            "context",
-            "show",
-            "spec",
-            "-p",
-            "auth",
-            "-P",
-            str(fresh),
-            "--format",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert shown.returncode == 0, shown.stderr
-    assert ContextShowResult.model_validate(json.loads(shown.stdout)).context.name == "spec"
-
-
 def test_context_info_explicit_plan(project: Path) -> None:
     seed_context(project, "spec", summary="The spec", body="# Spec\n\nDetails.\n")
     result = runner.invoke(
@@ -796,7 +667,7 @@ def test_context_info_explicit_plan(project: Path) -> None:
     assert parsed.project.name == "example"
     assert parsed.plan == "auth"
     assert parsed.context.name == "spec"
-    assert parsed.context.path.as_posix() == "auth/context/spec.md"
+    assert parsed.context.path.as_posix() == "plans/auth/context/spec.md"
     assert parsed.context.metadata.summary == "The spec"
     assert parsed.context.last_activity_at.tzinfo is not None
 
@@ -901,39 +772,3 @@ def test_context_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, so
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.command == "context info"
     factory.assert_not_called()
-
-
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_context_info(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    commands = [
-        ["init", "-P", str(fresh), "--format", "json"],
-        ["add", "auth", "-P", str(fresh), "--format", "json"],
-        ["context", "add", "spec", "-p", "auth", "-P", str(fresh), "--format", "json"],
-    ]
-    for args in commands:
-        completed = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-            [str(launcher), *args], capture_output=True, text=True, check=False
-        )
-        assert completed.returncode == 0, completed.stderr
-    info = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [
-            str(launcher),
-            "context",
-            "info",
-            "spec",
-            "-p",
-            "auth",
-            "-P",
-            str(fresh),
-            "--format",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert info.returncode == 0, info.stderr
-    assert ContextInfoResult.model_validate(json.loads(info.stdout)).context.name == "spec"

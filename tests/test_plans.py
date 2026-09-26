@@ -49,7 +49,7 @@ def test_create_get_and_duplicate(service: PlanService, metadata: PlanMetadata) 
     plan = service.create("alpha", metadata, "Body\n")
     assert plan == service.get("alpha")
     assert plan.name == "alpha"
-    assert plan.path == PurePosixPath("alpha/plan.md")
+    assert plan.path == PurePosixPath("plans/alpha/plan.md")
     assert plan.document == Document(metadata=metadata, body="Body\n")
     assert service.get_current() is None
     assert service.project_state_store.read() == ProjectState(project_name="demo")
@@ -81,7 +81,7 @@ def test_empty_patch_never_writes(
     service: PlanService, metadata: PlanMetadata, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     service.create("alpha", metadata, "Body")
-    target = service.document_store.root / "alpha/plan.md"
+    target = service.document_store.root / "plans/alpha/plan.md"
     os.utime(target.path, ns=(1234567890123456789, 1234567890123456789))
     before = target.read_bytes(), target.stat().st_mtime_ns
     write = Mock(side_effect=AssertionError("empty patch must not write"))
@@ -196,7 +196,7 @@ def test_info_counts_and_list_ignores_malformed_children(
         ("four", "todo"),
     ]:
         service.document_store.create(
-            PurePosixPath("alpha/tasks", f"{name}.md"),
+            PurePosixPath("plans/alpha/tasks", f"{name}.md"),
             Document(
                 metadata=TaskMetadata.model_validate(
                     {"created": datetime(2026, 9, 22, tzinfo=UTC), "status": status}
@@ -205,14 +205,14 @@ def test_info_counts_and_list_ignores_malformed_children(
             ),
         )
     service.document_store.create(
-        PurePosixPath("alpha/context/nested/note.md"),
+        PurePosixPath("plans/alpha/context/nested/note.md"),
         Document(metadata=ContextMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""),
     )
     info = service.info("alpha")
     assert info.task_counts == {"todo": 2, "in-progress": 1, "done": 1}
     assert info.context_count == 1
     assert info.plan == service.list()[0]
-    bad = service.document_store.root / "alpha/tasks/bad.md"
+    bad = service.document_store.root / "plans/alpha/tasks/bad.md"
     bad.write_text("invalid")
     assert len(service.list()) == 1
     with pytest.raises(InvalidDocumentError):

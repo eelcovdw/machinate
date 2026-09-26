@@ -18,6 +18,7 @@ from .models import (
     InitResult,
     ListResult,
     PathResult,
+    PlanInfoResult,
     SetResult,
     ShowResult,
     StatusResult,
@@ -50,24 +51,29 @@ def _counts[S: str](counts: Mapping[S, int]) -> str:
 
 
 @render_text.register
+def render_plan_info(result: PlanInfoResult) -> str:
+    plan = result.overview.info.plan
+    metadata = plan.metadata
+    lines = [
+        f"Plan {plan.name} ({metadata.status})",
+        f"Project: {result.project.name} — {result.project.directory}",
+        f"Path: {result.project.storage / plan.path}",
+        f"Created: {metadata.created.isoformat()}",
+        f"Updated: {plan.last_activity_at.isoformat()}",
+    ]
+    if metadata.summary:
+        lines.append(f"Summary: {metadata.summary}")
+    if metadata.tags:
+        lines.append(f"Tags: {', '.join(metadata.tags)}")
+    tasks = result.overview.info.task_counts
+    lines.append(f"Tasks: {sum(tasks.values())} ({_counts(tasks)})")
+    lines.append(f"Contexts: {result.overview.info.context_count}")
+    return "\n".join(lines)
+
+
+@render_text.register
 def render_info(result: InfoResult) -> str:
     overview = result.overview
-    if overview.kind == "plan":
-        plan = overview.info.plan
-        metadata = plan.metadata
-        lines = [
-            f"Plan {plan.name} ({metadata.status})",
-            f"Project: {result.project.name} — {result.project.directory}",
-            f"Path: {result.project.storage / plan.path}",
-            f"Created: {metadata.created.isoformat()}",
-            f"Updated: {plan.last_activity_at.isoformat()}",
-        ]
-        if metadata.summary:
-            lines.append(f"Summary: {metadata.summary}")
-        tasks = overview.info.task_counts
-        lines.append(f"Tasks: {sum(tasks.values())} ({_counts(tasks)})")
-        lines.append(f"Contexts: {overview.info.context_count}")
-        return "\n".join(lines)
     current = overview.current_plan
     if current is not None and not overview.selection_valid:
         current = f"{current} (missing)"
@@ -113,10 +119,11 @@ def render_context_list(result: ContextListResult) -> str:
     if not result.contexts:
         console.print("No contexts found.")
     else:
-        table = Table("Name", "Summary", "Updated")
+        table = Table("Name", "Tags", "Summary", "Updated")
         for entry in result.contexts:
             table.add_row(
                 entry.name,
+                ", ".join(entry.metadata.tags),
                 entry.metadata.summary or "",
                 entry.last_activity_at.isoformat(),
             )
@@ -136,6 +143,8 @@ def render_context_show(result: ContextShowResult) -> str:
     ]
     if metadata.summary:
         lines.append(f"Summary: {metadata.summary}")
+    if metadata.tags:
+        lines.append(f"Tags: {', '.join(metadata.tags)}")
     body = result.context.document.body.rstrip("\n")
     if body:
         lines.extend(("", body))
@@ -159,6 +168,8 @@ def render_context_info(result: ContextInfoResult) -> str:
     ]
     if metadata.summary:
         lines.append(f"Summary: {metadata.summary}")
+    if metadata.tags:
+        lines.append(f"Tags: {', '.join(metadata.tags)}")
     return "\n".join(lines)
 
 
@@ -174,6 +185,8 @@ def render_task_info(result: TaskInfoResult) -> str:
     ]
     if metadata.summary:
         lines.append(f"Summary: {metadata.summary}")
+    if metadata.tags:
+        lines.append(f"Tags: {', '.join(metadata.tags)}")
     return "\n".join(lines)
 
 
@@ -192,11 +205,12 @@ def render_task_list(result: TaskListResult) -> str:
     if not result.tasks:
         console.print("No tasks found.")
     else:
-        table = Table("Name", "Status", "Summary", "Updated")
+        table = Table("Name", "Status", "Tags", "Summary", "Updated")
         for task in result.tasks:
             table.add_row(
                 task.name,
                 task.metadata.status,
+                ", ".join(task.metadata.tags),
                 task.metadata.summary or "",
                 task.last_activity_at.isoformat(),
             )
@@ -222,6 +236,8 @@ def render_task_show(result: TaskShowResult) -> str:
     ]
     if metadata.summary:
         lines.append(f"Summary: {metadata.summary}")
+    if metadata.tags:
+        lines.append(f"Tags: {', '.join(metadata.tags)}")
     body = result.task.document.body.rstrip("\n")
     if body:
         lines.extend(("", body))
@@ -240,6 +256,8 @@ def render_show(result: ShowResult) -> str:
     ]
     if metadata.summary:
         lines.append(f"Summary: {metadata.summary}")
+    if metadata.tags:
+        lines.append(f"Tags: {', '.join(metadata.tags)}")
     body = result.plan.document.body.rstrip("\n")
     if body:
         lines.extend(("", body))
@@ -275,11 +293,12 @@ def render_list(result: ListResult) -> str:
     if not result.plans:
         console.print("No plans found.")
     else:
-        table = Table("Name", "Status", "Summary", "Updated")
+        table = Table("Name", "Status", "Tags", "Summary", "Updated")
         for plan in result.plans:
             table.add_row(
                 plan.name,
                 plan.metadata.status,
+                ", ".join(plan.metadata.tags),
                 plan.metadata.summary or "",
                 plan.last_activity_at.isoformat(),
             )

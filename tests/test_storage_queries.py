@@ -25,10 +25,10 @@ from machinate.storage import (
 @pytest.fixture
 def store(tmp_path: Path) -> DocumentStore:
     store = DocumentStore(UPath(tmp_path))
-    for name, day, status, summary, body, stamp in [
-        ("alpha", 1, "active", "OAuth", "", 100),
-        ("beta", 2, "draft", "Other", "OAuth body", 200),
-        ("gamma", 2, "done", "OAuth", "", 200),
+    for name, day, status, summary, body, stamp, tags in [
+        ("alpha", 1, "active", "OAuth", "", 100, ["frontend"]),
+        ("beta", 2, "draft", "Other", "OAuth body", 200, ["backend", "v2"]),
+        ("gamma", 2, "done", "OAuth", "", 200, ["frontend", "v2"]),
     ]:
         path = Layout().plan(name)
         store.create(
@@ -39,6 +39,7 @@ def store(tmp_path: Path) -> DocumentStore:
                         "created": datetime(2026, 9, day, tzinfo=UTC),
                         "status": status,
                         "summary": summary,
+                        "tags": tags,
                     }
                 ),
                 body=body,
@@ -68,6 +69,13 @@ def names(store: DocumentStore, query: PlanQuery) -> list[str]:
         (PlanQuery(search="oauth", search_body=True), ["alpha", "beta", "gamma"]),
         (PlanQuery(statuses=set()), []),
         (PlanQuery(statuses={"active", "done"}), ["alpha", "gamma"]),
+        (PlanQuery(tags={"frontend"}), ["alpha", "gamma"]),
+        (PlanQuery(tags={"FRONTEND"}), ["alpha", "gamma"]),
+        (PlanQuery(tags={"frontend", "backend"}), ["alpha", "beta", "gamma"]),
+        (PlanQuery(tags={"missing"}), []),
+        (PlanQuery(tags=set()), []),
+        (PlanQuery(tags={"v2"}, statuses={"done"}), ["gamma"]),
+        (PlanQuery(search="v2"), ["beta", "gamma"]),
         (
             PlanQuery(
                 created_range=DateTimeRange(
@@ -116,6 +124,9 @@ def test_query_mechanics(store: DocumentStore, query: PlanQuery, expected: list[
         {"limit": 0},
         {"limit": -1},
         {"statuses": ["invalid"]},
+        {"tags": [""]},
+        {"tags": ["  "]},
+        {"tags": ["bad\x01"]},
         {"sort": "invalid"},
     ],
 )
@@ -128,14 +139,14 @@ def test_query_validation(data: dict[str, object]) -> None:
 def test_activity_precedes_filters_sort_and_limit(
     store: DocumentStore, tmp_path: Path, folder: str
 ) -> None:
-    child = tmp_path / "alpha" / folder / "nested" / "bad.md"
+    child = tmp_path / "plans" / "alpha" / folder / "nested" / "bad.md"
     child.parent.mkdir(parents=True)
     child.write_text("deliberately invalid document")
     os.utime(child, (300, 300))
     unrelated = child.with_suffix(".txt")
     unrelated.write_text("unrelated")
     os.utime(unrelated, (900, 900))
-    outside = tmp_path / "alpha" / "unrelated.md"
+    outside = tmp_path / "plans" / "alpha" / "unrelated.md"
     outside.write_text("also outside activity scopes")
     os.utime(outside, (900, 900))
     query = PlanQuery(
@@ -158,18 +169,18 @@ def test_discovery_empty_scopes_and_malformed_documents(
     store: DocumentStore, tmp_path: Path
 ) -> None:
     assert store.list(Layout().task_collection("alpha"), TaskMetadata) == []
-    (tmp_path / "alpha" / "tasks").mkdir()
+    (tmp_path / "plans" / "alpha" / "tasks").mkdir()
     assert store.list(Layout().task_collection("alpha"), TaskMetadata) == []
-    (tmp_path / "alpha" / "tasks" / "ignored.txt").write_text("invalid")
-    (tmp_path / "alpha" / "tasks" / "directory.md").mkdir()
+    (tmp_path / "plans" / "alpha" / "tasks" / "ignored.txt").write_text("invalid")
+    (tmp_path / "plans" / "alpha" / "tasks" / "directory.md").mkdir()
     assert store.list(Layout().task_collection("alpha"), TaskMetadata) == []
-    bad = tmp_path / "alpha" / "tasks" / "nested" / "bad.md"
+    bad = tmp_path / "plans" / "alpha" / "tasks" / "nested" / "bad.md"
     bad.parent.mkdir()
     bad.write_text("invalid")
     with pytest.raises(InvalidDocumentError) as error:
         store.list(Layout().task_collection("alpha"), TaskMetadata)
-    assert error.value.path == PurePosixPath("alpha/tasks/nested/bad.md")
-    (tmp_path / "alpha" / "plan.md").write_text("invalid")
+    assert error.value.path == PurePosixPath("plans/alpha/tasks/nested/bad.md")
+    (tmp_path / "plans" / "alpha" / "plan.md").write_text("invalid")
     with pytest.raises(InvalidDocumentError):
         store.list(Layout().plan_collection(), PlanMetadata)
 
@@ -177,7 +188,9 @@ def test_discovery_empty_scopes_and_malformed_documents(
 def test_non_directory_collection_is_error(store: DocumentStore) -> None:
     with pytest.raises(StorageError):
         store.list(
-            DocumentCollection(path=PurePosixPath("alpha/plan.md"), pattern=PurePosixPath("*.md")),
+            DocumentCollection(
+                path=PurePosixPath("plans/alpha/plan.md"), pattern=PurePosixPath("*.md")
+            ),
             PlanMetadata,
         )
 
@@ -191,7 +204,7 @@ def test_missing_root_is_empty(tmp_path: Path) -> None:
 
 def test_summary_has_no_body(store: DocumentStore) -> None:
     record = store.list(Layout().plan_collection(), PlanMetadata, DocumentQuery(limit=1))[0]
-    assert record.path == PurePosixPath("alpha/plan.md")
+    assert record.path == PurePosixPath("plans/alpha/plan.md")
     assert '"body"' not in record.model_dump_json()
 
 

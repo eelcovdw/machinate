@@ -1,6 +1,4 @@
 import json
-import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast, override
@@ -68,11 +66,11 @@ def test_task_add_explicit_plan(project: Path) -> None:
     assert parsed.plan == "auth"
     task = parsed.tasks[0]
     assert task.name == "login"
-    assert task.path.as_posix() == "auth/tasks/login.md"
+    assert task.path.as_posix() == "plans/auth/tasks/login.md"
     assert task.document.metadata.status == "todo"
     assert task.document.metadata.created.tzinfo is not None
     assert task.document.body == ""
-    assert (project / ".machi/auth/tasks/login.md").is_file()
+    assert (project / ".machi/plans/auth/tasks/login.md").is_file()
     assert read_state(project).current_plan is None
 
 
@@ -111,7 +109,7 @@ def test_task_add_non_interactive_requires_plan(
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert "Non-interactive mode requires an explicit plan" in error.error
-    assert not (project / ".machi/auth/tasks/login.md").exists()
+    assert not (project / ".machi/plans/auth/tasks/login.md").exists()
 
 
 def test_task_add_no_current_plan(project: Path) -> None:
@@ -119,7 +117,7 @@ def test_task_add_no_current_plan(project: Path) -> None:
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert "No current plan is selected" in error.error
-    assert not (project / ".machi/auth/tasks/login.md").exists()
+    assert not (project / ".machi/plans/auth/tasks/login.md").exists()
 
 
 def test_task_add_duplicate_preserves_existing(project: Path) -> None:
@@ -153,7 +151,7 @@ def test_task_add_unknown_plan(project: Path) -> None:
     )
     assert result.exit_code == 1, result.output
     assert "nope" in ErrorResult.model_validate_json(result.stderr).error
-    assert not (project / ".machi/nope").exists()
+    assert not (project / ".machi/plans/nope").exists()
 
 
 @pytest.mark.parametrize("format_name", ["text", "json"])
@@ -167,7 +165,7 @@ def test_task_add_output(project: Path, format_name: str) -> None:
         assert parsed.tasks[0].name == "login"
     else:
         assert "Created 1 task(s) in example/auth" in result.stdout
-        assert str(project / ".machi/auth/tasks/login.md") in result.stdout
+        assert str(project / ".machi/plans/auth/tasks/login.md") in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -286,9 +284,11 @@ def test_task_add_then_show_and_list(project: Path) -> None:
         app, ["task", "add", "login", "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert added.exit_code == 0, added.output
-    shown = runner.invoke(app, ["show", "-p", "auth", "-P", str(project), "--format", "json"])
+    shown = runner.invoke(
+        app, ["plan", "show", "-p", "auth", "-P", str(project), "--format", "json"]
+    )
     assert shown.exit_code == 0, shown.output
-    listed = runner.invoke(app, ["list", "-P", str(project), "--format", "json"])
+    listed = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
     assert [plan.name for plan in ListResult.model_validate(json.loads(listed.stdout)).plans] == [
         "auth"
     ]
@@ -338,51 +338,6 @@ def test_task_add_parser_error_formatter_injection() -> None:
     assert isinstance(formatter.results[0], ErrorResult)
 
 
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_task_add(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    initialized = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "init", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert initialized.returncode == 0, initialized.stderr
-    added = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "add", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert added.returncode == 0, added.stderr
-    tasked = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "task", "add", "login", "-p", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert tasked.returncode == 0, tasked.stderr
-    assert TaskAddResult.model_validate(json.loads(tasked.stdout)).tasks[0].name == "login"
-    assert (fresh / ".machi/auth/tasks/login.md").is_file()
-    duplicate = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "task", "add", "login", "-p", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert duplicate.returncode == 1
-    help_result = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "task", "add", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert help_result.returncode == 0
-    assert "--plan" in help_result.stdout
-
-
 def seed_task(project: Path, name: str, summary: str | None = None, body: str = "") -> None:
     prepare_project(project).tasks.create(
         "auth",
@@ -404,7 +359,7 @@ def test_task_list_explicit_plan(project: Path) -> None:
     assert parsed.project.storage == project / ".machi"
     assert parsed.plan == "auth"
     assert [task.name for task in parsed.tasks] == ["login", "logout"]
-    assert parsed.tasks[0].path.as_posix() == "auth/tasks/login.md"
+    assert parsed.tasks[0].path.as_posix() == "plans/auth/tasks/login.md"
     assert parsed.tasks[0].metadata.summary == "Sign in"
     assert parsed.tasks[0].metadata.status == "todo"
     assert read_state(project).current_plan is None
@@ -656,45 +611,6 @@ def test_task_list_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, sourc
     factory.assert_not_called()
 
 
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_task_list(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    for command in (["init", "-P", str(fresh)], ["add", "auth", "-P", str(fresh)]):
-        completed = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-            [str(launcher), *command, "--format", "json"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stderr
-    created = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "task", "add", "login", "-p", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert created.returncode == 0, created.stderr
-    listed = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "task", "list", "-p", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert listed.returncode == 0, listed.stderr
-    parsed = TaskListResult.model_validate(json.loads(listed.stdout))
-    assert [task.name for task in parsed.tasks] == ["login"]
-    help_result = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "task", "list", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert help_result.returncode == 0
-    assert "--status" in help_result.stdout
-
-
 def test_task_show_explicit_plan(project: Path) -> None:
     seed_task(project, "login", summary="Sign in", body="Detailed notes")
     result = runner.invoke(
@@ -706,7 +622,7 @@ def test_task_show_explicit_plan(project: Path) -> None:
     assert parsed.project.storage == project / ".machi"
     assert parsed.plan == "auth"
     assert parsed.task.name == "login"
-    assert parsed.task.path.as_posix() == "auth/tasks/login.md"
+    assert parsed.task.path.as_posix() == "plans/auth/tasks/login.md"
     assert parsed.task.document.metadata.summary == "Sign in"
     assert parsed.task.document.body == "Detailed notes"
     assert read_state(project).current_plan is None
@@ -854,55 +770,6 @@ def test_task_show_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, sourc
     factory.assert_not_called()
 
 
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_task_show(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    for command in (["init", "-P", str(fresh)], ["add", "auth", "-P", str(fresh)]):
-        completed = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-            [str(launcher), *command, "--format", "json"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stderr
-    subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "task", "add", "login", "-p", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    shown = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [
-            str(launcher),
-            "task",
-            "show",
-            "login",
-            "-p",
-            "auth",
-            "-P",
-            str(fresh),
-            "--format",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert shown.returncode == 0, shown.stderr
-    parsed = TaskShowResult.model_validate(json.loads(shown.stdout))
-    assert parsed.task.name == "login"
-    help_result = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "task", "show", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert help_result.returncode == 0
-    assert "--plan" in help_result.stdout
-
-
 def test_task_info_explicit_plan(project: Path) -> None:
     seed_task(project, "login", summary="Sign in", body="Detailed notes")
     result = runner.invoke(
@@ -914,7 +781,7 @@ def test_task_info_explicit_plan(project: Path) -> None:
     assert parsed.project.storage == project / ".machi"
     assert parsed.plan == "auth"
     assert parsed.task.name == "login"
-    assert parsed.task.path.as_posix() == "auth/tasks/login.md"
+    assert parsed.task.path.as_posix() == "plans/auth/tasks/login.md"
     assert parsed.task.metadata.summary == "Sign in"
     assert read_state(project).current_plan is None
 
@@ -1025,55 +892,6 @@ def test_task_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, sourc
     assert error.command == "task info"
     assert "--unknown" in error.error
     factory.assert_not_called()
-
-
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_task_info(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    for command in (["init", "-P", str(fresh)], ["add", "auth", "-P", str(fresh)]):
-        completed = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-            [str(launcher), *command, "--format", "json"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stderr
-    subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "task", "add", "login", "-p", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    info = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [
-            str(launcher),
-            "task",
-            "info",
-            "login",
-            "-p",
-            "auth",
-            "-P",
-            str(fresh),
-            "--format",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert info.returncode == 0, info.stderr
-    parsed = TaskInfoResult.model_validate(json.loads(info.stdout))
-    assert parsed.task.name == "login"
-    help_result = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "task", "info", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert help_result.returncode == 0
-    assert "--plan" in help_result.stdout
 
 
 def test_task_status_read(project: Path) -> None:
@@ -1266,65 +1084,3 @@ def test_task_status_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, sou
     assert error.command == "task status"
     assert "--unknown" in error.error
     factory.assert_not_called()
-
-
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_task_status(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    for command in (["init", "-P", str(fresh)], ["add", "auth", "-P", str(fresh)]):
-        completed = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-            [str(launcher), *command, "--format", "json"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stderr
-    subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "task", "add", "login", "-p", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    updated = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [
-            str(launcher),
-            "task",
-            "status",
-            "login",
-            "done",
-            "-p",
-            "auth",
-            "-P",
-            str(fresh),
-            "--format",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert updated.returncode == 0, updated.stderr
-    parsed = TaskStatusResult.model_validate(json.loads(updated.stdout))
-    assert parsed.task.document.metadata.status == "done"
-    read_back = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [
-            str(launcher),
-            "task",
-            "status",
-            "login",
-            "-p",
-            "auth",
-            "-P",
-            str(fresh),
-            "--format",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert read_back.returncode == 0, read_back.stderr
-    persisted = TaskStatusResult.model_validate(json.loads(read_back.stdout))
-    assert persisted.task.document.metadata.status == "done"

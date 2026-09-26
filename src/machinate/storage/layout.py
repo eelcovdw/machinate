@@ -3,6 +3,8 @@ from pathlib import PurePosixPath
 from .models import ContextNameInput, NameInput, TaskNameInput
 from .queries import DocumentCollection, DocumentScope
 
+_PLANS_DIRECTORY = PurePosixPath("plans")
+
 
 class Layout:
     def project(self) -> PurePosixPath:
@@ -10,17 +12,15 @@ class Layout:
 
     def plan(self, name: str) -> PurePosixPath:
         name = NameInput(name=name).name
-        return PurePosixPath(name, "plan.md")
+        return _PLANS_DIRECTORY / name / "plan.md"
 
     def task(self, plan: str, name: str) -> PurePosixPath:
-        plan = NameInput(name=plan).name
         name = TaskNameInput(name=name).name
-        return PurePosixPath(plan, "tasks", f"{name}.md")
+        return self.plan(plan).parent / "tasks" / f"{name}.md"
 
     def context(self, plan: str, name: str) -> PurePosixPath:
-        plan = NameInput(name=plan).name
         name = ContextNameInput(name=name).name
-        return PurePosixPath(plan, "context", f"{name}.md")
+        return self.plan(plan).parent / "context" / f"{name}.md"
 
     def plan_activity_scopes(self) -> tuple[DocumentScope, ...]:
         """Return scopes relative to the plan document's directory."""
@@ -31,20 +31,18 @@ class Layout:
 
     def plan_collection(self) -> DocumentCollection:
         return DocumentCollection(
-            path=PurePosixPath("."),
+            path=_PLANS_DIRECTORY,
             pattern=PurePosixPath("*/plan.md"),
             name_source="parent",
             activity_scopes=self.plan_activity_scopes(),
         )
 
     def task_collection(self, plan: str) -> DocumentCollection:
-        plan = NameInput(name=plan).name
         return DocumentCollection(
-            path=PurePosixPath(plan, "tasks"), pattern=PurePosixPath("**/*.md")
+            path=self.plan(plan).parent / "tasks", pattern=PurePosixPath("**/*.md")
         )
 
     def context_collection(self, plan: str) -> DocumentCollection:
-        plan = NameInput(name=plan).name
         return DocumentCollection(
-            path=PurePosixPath(plan, "context"), pattern=PurePosixPath("**/*.md")
+            path=self.plan(plan).parent / "context", pattern=PurePosixPath("**/*.md")
         )

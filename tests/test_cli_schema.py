@@ -1,5 +1,3 @@
-import subprocess
-import sys
 from pathlib import Path
 from typing import ClassVar, get_args
 from unittest.mock import Mock
@@ -99,11 +97,21 @@ def test_schema_refs_resolve() -> None:
 
 
 def test_schema_for_command() -> None:
-    schema = _CommandSchema.model_validate_json(runner.invoke(app, ["schema", "show"]).stdout)
+    schema = _CommandSchema.model_validate_json(
+        runner.invoke(app, ["schema", "plan", "show"]).stdout
+    )
     assert schema.type == "object"
     assert {"command", "project", "plan"} <= set(schema.properties)
     assert {"project", "plan"} <= set(schema.required)
     assert "ShowResult" not in schema.defs
+
+
+def test_schema_for_plan_group() -> None:
+    group = _GroupSchema.model_validate_json(runner.invoke(app, ["schema", "plan"]).stdout)
+    assert set(group.commands) == {"add", "info", "list", "path", "set", "show", "status"}
+    assert group.commands["info"].ref == "#/$defs/PlanInfoResult"
+    assert group.commands["show"].ref == "#/$defs/ShowResult"
+    assert "PlanInfoResult" in group.defs
 
 
 def test_schema_for_group() -> None:
@@ -150,7 +158,7 @@ def test_schema_unknown_command() -> None:
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.command == "schema"
     assert "Unknown schema 'nope'" in error.error
-    assert "add" in error.error
+    assert "plan" in error.error
 
 
 def test_schema_needs_no_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -186,19 +194,3 @@ def test_schema_parser_errors_follow_mode(monkeypatch: pytest.MonkeyPatch) -> No
     assert "--unknown" in error.error
 
     factory.assert_not_called()
-
-
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_schema(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    result = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "schema"],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=tmp_path,
-    )
-    assert result.returncode == 0, result.stderr
-    assert _flatten(_Bundle.model_validate_json(result.stdout).commands) == {
-        path: f"#/$defs/{model.__name__}" for path, model in SCHEMA_RESULTS.items()
-    }

@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from machinate.models.context import Context, ContextSummary
 from machinate.models.plan import Plan, PlanOverview, PlanSummary, ProjectOverview
@@ -16,7 +16,7 @@ class ProjectScope(BaseModel):
 
 
 class ListResult(BaseModel):
-    command: Literal["list"] = "list"
+    command: Literal["plan list"] = "plan list"
     project: ProjectScope
     plans: list[PlanSummary]
 
@@ -27,25 +27,25 @@ class InitResult(BaseModel):
 
 
 class AddResult(BaseModel):
-    command: Literal["add"] = "add"
+    command: Literal["plan add"] = "plan add"
     project: ProjectScope
     plan: Plan
 
 
 class ShowResult(BaseModel):
-    command: Literal["show"] = "show"
+    command: Literal["plan show"] = "plan show"
     project: ProjectScope
     plan: Plan
 
 
 class SetResult(BaseModel):
-    command: Literal["set"] = "set"
+    command: Literal["plan set"] = "plan set"
     project: ProjectScope
     state: ProjectState
 
 
 class StatusResult(BaseModel):
-    command: Literal["status"] = "status"
+    command: Literal["plan status"] = "plan status"
     project: ProjectScope
     plan: Plan
 
@@ -114,7 +114,7 @@ class ContextInfoResult(BaseModel):
 
 
 class PathResult(BaseModel):
-    command: Literal["path", "task path", "context path"]
+    command: Literal["plan path", "task path", "context path"]
     project: ProjectScope
     plan: str
     path: Path
@@ -125,11 +125,17 @@ class PathResult(BaseModel):
 class InfoResult(BaseModel):
     command: Literal["info"] = "info"
     project: ProjectScope
-    overview: ProjectOverview | PlanOverview = Field(discriminator="kind")
+    overview: ProjectOverview
+
+
+class PlanInfoResult(BaseModel):
+    command: Literal["plan info"] = "plan info"
+    project: ProjectScope
+    overview: PlanOverview
 
 
 class ErrorResult(BaseModel):
-    command: str = "list"
+    command: str = "plan"
     error: str
     project: ProjectScope | None = None
 
@@ -139,6 +145,7 @@ type CommandResult = (
     | InfoResult
     | InitResult
     | ListResult
+    | PlanInfoResult
     | PathResult
     | StatusResult
     | SetResult

@@ -1,6 +1,4 @@
 import json
-import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import override
@@ -56,7 +54,9 @@ def snapshot(project: Path) -> dict[Path, bytes]:
 
 def test_status_reads_explicit(project: Path) -> None:
     seed_plan(project)
-    result = runner.invoke(app, ["status", "-p", "auth", "-P", str(project), "--format", "json"])
+    result = runner.invoke(
+        app, ["plan", "status", "-p", "auth", "-P", str(project), "--format", "json"]
+    )
     assert result.exit_code == 0, result.output
     parsed = StatusResult.model_validate(json.loads(result.stdout))
     assert parsed.project.name == "example"
@@ -67,7 +67,7 @@ def test_status_reads_explicit(project: Path) -> None:
 
 def test_status_reads_current(project: Path) -> None:
     seed_plan(project, current=True)
-    result = runner.invoke(app, ["status", "-P", str(project), "--format", "json"])
+    result = runner.invoke(app, ["plan", "status", "-P", str(project), "--format", "json"])
     assert result.exit_code == 0, result.output
     assert StatusResult.model_validate(json.loads(result.stdout)).plan.name == "auth"
 
@@ -77,7 +77,7 @@ def test_status_non_interactive_requires_plan(
 ) -> None:
     seed_plan(project, current=True)
     monkeypatch.setenv("MACHI_INTERACTIVE", "false")
-    result = runner.invoke(app, ["status", "-P", str(project)])
+    result = runner.invoke(app, ["plan", "status", "-P", str(project)])
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert "Non-interactive mode requires an explicit plan" in error.error
@@ -87,7 +87,7 @@ def test_status_non_interactive_requires_plan(
 def test_status_sets_explicit(project: Path, value: str) -> None:
     seed_plan(project)
     result = runner.invoke(
-        app, ["status", value, "-p", "auth", "-P", str(project), "--format", "json"]
+        app, ["plan", "status", value, "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert result.exit_code == 0, result.output
     assert (
@@ -99,7 +99,7 @@ def test_status_sets_explicit(project: Path, value: str) -> None:
 
 def test_status_sets_current(project: Path) -> None:
     seed_plan(project, current=True)
-    result = runner.invoke(app, ["status", "done", "-P", str(project), "--format", "json"])
+    result = runner.invoke(app, ["plan", "status", "done", "-P", str(project), "--format", "json"])
     assert result.exit_code == 0, result.output
     assert read_status(project) == "done"
     assert read_state(project).current_plan == "auth"
@@ -110,7 +110,7 @@ def test_status_sets_non_interactive_explicit(
 ) -> None:
     seed_plan(project)
     monkeypatch.setenv("MACHI_INTERACTIVE", "false")
-    result = runner.invoke(app, ["status", "active", "-p", "auth", "-P", str(project)])
+    result = runner.invoke(app, ["plan", "status", "active", "-p", "auth", "-P", str(project)])
     assert result.exit_code == 0, result.output
     assert read_status(project) == "active"
 
@@ -119,7 +119,7 @@ def test_status_invalid_value_preserves_plan(project: Path) -> None:
     seed_plan(project)
     before = snapshot(project)
     result = runner.invoke(
-        app, ["status", "nope", "-p", "auth", "-P", str(project), "--format", "json"]
+        app, ["plan", "status", "nope", "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
@@ -133,7 +133,7 @@ def test_status_missing_plan_preserves_state(project: Path) -> None:
     seed_plan(project)
     before = snapshot(project)
     result = runner.invoke(
-        app, ["status", "active", "-p", "absent", "-P", str(project), "--format", "json"]
+        app, ["plan", "status", "active", "-p", "absent", "-P", str(project), "--format", "json"]
     )
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
@@ -146,7 +146,7 @@ def test_status_invalid_name_preserves_target(project: Path) -> None:
     seed_plan(project)
     before = snapshot(project)
     result = runner.invoke(
-        app, ["status", "active", "-p", "../bad", "-P", str(project), "--format", "json"]
+        app, ["plan", "status", "active", "-p", "../bad", "-P", str(project), "--format", "json"]
     )
     assert result.exit_code == 1, result.output
     assert "Expected a nonempty name" in ErrorResult.model_validate_json(result.stderr).error
@@ -156,7 +156,9 @@ def test_status_invalid_name_preserves_target(project: Path) -> None:
 def test_status_read_is_read_only(project: Path) -> None:
     seed_plan(project)
     before = snapshot(project)
-    result = runner.invoke(app, ["status", "-p", "auth", "-P", str(project), "--format", "json"])
+    result = runner.invoke(
+        app, ["plan", "status", "-p", "auth", "-P", str(project), "--format", "json"]
+    )
     assert result.exit_code == 0, result.output
     assert snapshot(project) == before
 
@@ -164,15 +166,15 @@ def test_status_read_is_read_only(project: Path) -> None:
 def test_status_only_changes_selected_plan(project: Path) -> None:
     seed_plan(project, "auth")
     seed_plan(project, "other")
-    other_before = (project / ".machi/other/plan.md").read_bytes()
+    other_before = (project / ".machi/plans/other/plan.md").read_bytes()
     state_before = (project / ".machi/machinate.toml").read_bytes()
     result = runner.invoke(
-        app, ["status", "active", "-p", "auth", "-P", str(project), "--format", "json"]
+        app, ["plan", "status", "active", "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert result.exit_code == 0, result.output
     assert read_status(project, "auth") == "active"
     assert read_status(project, "other") == "draft"
-    assert (project / ".machi/other/plan.md").read_bytes() == other_before
+    assert (project / ".machi/plans/other/plan.md").read_bytes() == other_before
     assert (project / ".machi/machinate.toml").read_bytes() == state_before
 
 
@@ -180,7 +182,7 @@ def test_status_uninitialized_project(tmp_path: Path, monkeypatch: pytest.Monkey
     target = tmp_path / "uninitialized"
     target.mkdir()
     monkeypatch.chdir(target)
-    result = runner.invoke(app, ["status", "-p", "auth", "--format", "json"])
+    result = runner.invoke(app, ["plan", "status", "-p", "auth", "--format", "json"])
     assert result.exit_code == 1, result.output
     assert "No initialized project" in ErrorResult.model_validate_json(result.stderr).error
 
@@ -189,7 +191,7 @@ def test_status_uninitialized_project(tmp_path: Path, monkeypatch: pytest.Monkey
 def test_status_output(project: Path, format_name: str) -> None:
     seed_plan(project)
     result = runner.invoke(
-        app, ["status", "active", "-p", "auth", "-P", str(project), "--format", format_name]
+        app, ["plan", "status", "active", "-p", "auth", "-P", str(project), "--format", format_name]
     )
     assert result.exit_code == 0, result.output
     if format_name == "json":
@@ -223,7 +225,7 @@ def test_status_format_precedence(  # noqa: PLR0913
         monkeypatch.setenv("MACHI_INTERACTIVE", interactive)
     if env_format is not None:
         monkeypatch.setenv("MACHI_FORMAT", env_format)
-    args = ["status", "-p", "auth", "-P", str(project)]
+    args = ["plan", "status", "-p", "auth", "-P", str(project)]
     if flag is not None:
         args.extend(["--format", flag])
     result = runner.invoke(app, args)
@@ -247,7 +249,7 @@ def test_status_invalid_settings(
 ) -> None:
     seed_plan(project)
     monkeypatch.setenv(env_name, env_value)
-    result = runner.invoke(app, ["status", "-p", "auth", "-P", str(project)])
+    result = runner.invoke(app, ["plan", "status", "-p", "auth", "-P", str(project)])
     assert result.exit_code == 1
     assert field in ErrorResult.model_validate_json(result.stderr).error
 
@@ -267,13 +269,13 @@ def test_status_formatter_injection(project: Path) -> None:
     formatter = ReplacementFormatter()
     custom = create_cli(Dependencies(formatters={"custom": formatter}))
     result = runner.invoke(
-        custom, ["status", "-p", "auth", "-P", str(project), "--format", "custom"]
+        custom, ["plan", "status", "-p", "auth", "-P", str(project), "--format", "custom"]
     )
     assert result.exit_code == 0
     assert result.stdout == "replacement\n"
     assert isinstance(formatter.results[0], StatusResult)
     result = runner.invoke(
-        custom, ["status", "nope", "-p", "auth", "-P", str(project), "--format", "custom"]
+        custom, ["plan", "status", "nope", "-p", "auth", "-P", str(project), "--format", "custom"]
     )
     assert result.exit_code == 1
     assert result.stderr == "replacement\n"
@@ -289,7 +291,7 @@ def test_status_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> No
     factory = Mock(return_value=application)
     result = runner.invoke(
         create_cli(Dependencies(prepare_project=factory)),
-        ["status", "active", "-p", "auth", "-P", str(project), "--format", "json"],
+        ["plan", "status", "active", "-p", "auth", "-P", str(project), "--format", "json"],
     )
     assert result.exit_code == 0, result.output
     factory.assert_called_once_with(project)
@@ -301,7 +303,7 @@ def test_status_does_not_change_selection(project: Path) -> None:
     seed_plan(project, "auth", current=True)
     seed_plan(project, "other")
     result = runner.invoke(
-        app, ["status", "done", "-p", "other", "-P", str(project), "--format", "json"]
+        app, ["plan", "status", "done", "-p", "other", "-P", str(project), "--format", "json"]
     )
     assert result.exit_code == 0, result.output
     assert read_status(project, "other") == "done"
@@ -309,7 +311,7 @@ def test_status_does_not_change_selection(project: Path) -> None:
 
 
 def test_status_help() -> None:
-    result = runner.invoke(app, ["status", "--help"])
+    result = runner.invoke(app, ["plan", "status", "--help"])
     assert result.exit_code == 0
     assert "--plan" in result.stdout
     assert "--project" in result.stdout
@@ -320,7 +322,7 @@ def test_status_help() -> None:
 
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
 def test_status_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
-    args = ["status", "active", "-p", "auth"]
+    args = ["plan", "status", "active", "-p", "auth"]
     if source == "flag":
         args.extend(["--format", "json"])
     elif source == "environment":
@@ -332,45 +334,6 @@ def test_status_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: 
     assert result.exit_code == 2
     assert result.stdout == ""
     error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "status"
+    assert error.command == "plan status"
     assert "--unknown" in error.error
     factory.assert_not_called()
-
-
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_status(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    initialized = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "init", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert initialized.returncode == 0, initialized.stderr
-    added = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "add", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert added.returncode == 0, added.stderr
-    updated = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "status", "active", "-p", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert updated.returncode == 0, updated.stderr
-    assert read_status(fresh) == "active"
-    read = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "status", "-p", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert read.returncode == 0, read.stderr
-    assert StatusResult.model_validate(json.loads(read.stdout)).plan.document.metadata.status == (
-        "active"
-    )

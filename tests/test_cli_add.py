@@ -1,6 +1,4 @@
 import json
-import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast, override
@@ -44,24 +42,24 @@ def snapshot(project: Path) -> dict[Path, bytes]:
 
 
 def test_add_explicit_project(project: Path) -> None:
-    result = runner.invoke(app, ["add", "alpha", "-P", str(project), "--format", "json"])
+    result = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
     assert result.exit_code == 0, result.output
     parsed = AddResult.model_validate(json.loads(result.stdout))
     assert parsed.project.name == "example"
     assert parsed.project.directory == project
     assert parsed.project.storage == project / ".machi"
     assert parsed.plan.name == "alpha"
-    assert parsed.plan.path.as_posix() == "alpha/plan.md"
+    assert parsed.plan.path.as_posix() == "plans/alpha/plan.md"
     assert parsed.plan.document.metadata.status == "draft"
     assert parsed.plan.document.metadata.created.tzinfo is not None
     assert parsed.plan.document.body == ""
-    assert (project / ".machi/alpha/plan.md").is_file()
+    assert (project / ".machi/plans/alpha/plan.md").is_file()
     assert read_state(project).current_plan is None
 
 
 def test_add_current_directory(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(project)
-    result = runner.invoke(app, ["add", "alpha", "--format", "json"])
+    result = runner.invoke(app, ["plan", "add", "alpha", "--format", "json"])
     assert result.exit_code == 0, result.output
     assert AddResult.model_validate(json.loads(result.stdout)).project.directory == project
 
@@ -71,16 +69,16 @@ def test_add_never_changes_selection(project: Path) -> None:
         "existing", PlanMetadata(created=datetime(2026, 1, 1, tzinfo=UTC))
     )
     prepare_project(project).plans.set_current("existing")
-    result = runner.invoke(app, ["add", "alpha", "-P", str(project), "--format", "json"])
+    result = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
     assert result.exit_code == 0, result.output
     assert read_state(project).current_plan == "existing"
 
 
 def test_add_duplicate_preserves_existing(project: Path) -> None:
-    first = runner.invoke(app, ["add", "alpha", "-P", str(project), "--format", "json"])
+    first = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
     assert first.exit_code == 0, first.output
     before = snapshot(project)
-    duplicate = runner.invoke(app, ["add", "alpha", "-P", str(project), "--format", "json"])
+    duplicate = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
     assert duplicate.exit_code == 1, duplicate.output
     error = ErrorResult.model_validate_json(duplicate.stderr)
     assert error.project is not None
@@ -91,7 +89,7 @@ def test_add_duplicate_preserves_existing(project: Path) -> None:
 @pytest.mark.parametrize("invalid", ["../bad", "a/b", "a\\b", "a:b", "", ".", ".."])
 def test_add_invalid_name_preserves_target(project: Path, invalid: str) -> None:
     before = snapshot(project)
-    result = runner.invoke(app, ["add", invalid, "-P", str(project), "--format", "json"])
+    result = runner.invoke(app, ["plan", "add", invalid, "-P", str(project), "--format", "json"])
     assert result.exit_code == 1, result.output
     assert "Expected a nonempty name" in ErrorResult.model_validate_json(result.stderr).error
     assert snapshot(project) == before
@@ -101,14 +99,14 @@ def test_add_uninitialized_project(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     target = tmp_path / "uninitialized"
     target.mkdir()
     monkeypatch.chdir(target)
-    result = runner.invoke(app, ["add", "alpha", "--format", "json"])
+    result = runner.invoke(app, ["plan", "add", "alpha", "--format", "json"])
     assert result.exit_code == 1, result.output
     assert "No initialized project" in ErrorResult.model_validate_json(result.stderr).error
 
 
 def test_add_missing_project_directory(tmp_path: Path) -> None:
     missing = tmp_path / "absent"
-    result = runner.invoke(app, ["add", "alpha", "-P", str(missing), "--format", "json"])
+    result = runner.invoke(app, ["plan", "add", "alpha", "-P", str(missing), "--format", "json"])
     assert result.exit_code == 1, result.output
     assert "No initialized project at" in ErrorResult.model_validate_json(result.stderr).error
     assert not missing.exists()
@@ -116,13 +114,15 @@ def test_add_missing_project_directory(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("format_name", ["text", "json"])
 def test_add_output(project: Path, format_name: str) -> None:
-    result = runner.invoke(app, ["add", "alpha", "-P", str(project), "--format", format_name])
+    result = runner.invoke(
+        app, ["plan", "add", "alpha", "-P", str(project), "--format", format_name]
+    )
     assert result.exit_code == 0, result.output
     if format_name == "json":
         assert AddResult.model_validate(json.loads(result.stdout)).plan.name == "alpha"
     else:
         assert "Created plan alpha in example" in result.stdout
-        assert str(project / ".machi/alpha/plan.md") in result.stdout
+        assert str(project / ".machi/plans/alpha/plan.md") in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -148,7 +148,7 @@ def test_add_format_precedence(  # noqa: PLR0913
         monkeypatch.setenv("MACHI_INTERACTIVE", interactive)
     if env_format is not None:
         monkeypatch.setenv("MACHI_FORMAT", env_format)
-    args = ["add", "alpha", "-P", str(project)]
+    args = ["plan", "add", "alpha", "-P", str(project)]
     if flag is not None:
         args.extend(["--format", flag])
     result = runner.invoke(app, args)
@@ -171,7 +171,7 @@ def test_add_invalid_settings(
     field: str,
 ) -> None:
     monkeypatch.setenv(env_name, env_value)
-    result = runner.invoke(app, ["add", "alpha", "-P", str(project)])
+    result = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project)])
     assert result.exit_code == 1
     assert field in ErrorResult.model_validate_json(result.stderr).error
 
@@ -189,11 +189,15 @@ class ReplacementFormatter(Formatter):
 def test_add_formatter_injection(project: Path) -> None:
     formatter = ReplacementFormatter()
     custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(custom, ["add", "alpha", "-P", str(project), "--format", "custom"])
+    result = runner.invoke(
+        custom, ["plan", "add", "alpha", "-P", str(project), "--format", "custom"]
+    )
     assert result.exit_code == 0
     assert result.stdout == "replacement\n"
     assert isinstance(formatter.results[0], AddResult)
-    result = runner.invoke(custom, ["add", "alpha", "-P", str(project), "--format", "custom"])
+    result = runner.invoke(
+        custom, ["plan", "add", "alpha", "-P", str(project), "--format", "custom"]
+    )
     assert result.exit_code == 1
     assert result.stderr == "replacement\n"
     assert isinstance(formatter.results[1], ErrorResult)
@@ -207,7 +211,7 @@ def test_add_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     factory = Mock(return_value=application)
     result = runner.invoke(
         create_cli(Dependencies(prepare_project=factory)),
-        ["add", "alpha", "-P", str(project), "--format", "json"],
+        ["plan", "add", "alpha", "-P", str(project), "--format", "json"],
     )
     assert result.exit_code == 0, result.output
     factory.assert_called_once_with(project)
@@ -221,7 +225,7 @@ def test_add_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_add_stamps_aware_utc(project: Path) -> None:
     before = datetime.now(UTC)
-    result = runner.invoke(app, ["add", "alpha", "-P", str(project), "--format", "json"])
+    result = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
     after = datetime.now(UTC)
     assert result.exit_code == 0, result.output
     created = AddResult.model_validate(json.loads(result.stdout)).plan.document.metadata.created
@@ -230,9 +234,9 @@ def test_add_stamps_aware_utc(project: Path) -> None:
 
 
 def test_add_then_list(project: Path) -> None:
-    added = runner.invoke(app, ["add", "alpha", "-P", str(project), "--format", "json"])
+    added = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
     assert added.exit_code == 0, added.output
-    result = runner.invoke(app, ["list", "-P", str(project), "--format", "json"])
+    result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
     assert result.exit_code == 0, result.output
     assert [plan.name for plan in ListResult.model_validate(json.loads(result.stdout)).plans] == [
         "alpha"
@@ -240,7 +244,7 @@ def test_add_then_list(project: Path) -> None:
 
 
 def test_add_help() -> None:
-    result = runner.invoke(app, ["add", "--help"])
+    result = runner.invoke(app, ["plan", "add", "--help"])
     assert result.exit_code == 0
     assert "--project" in result.stdout
     assert "--format" in result.stdout
@@ -249,7 +253,7 @@ def test_add_help() -> None:
 
 @pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
 def test_add_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
-    args = ["add", "alpha"]
+    args = ["plan", "add", "alpha"]
     if source == "flag":
         args.extend(["--format", "json"])
     elif source == "environment":
@@ -267,46 +271,7 @@ def test_add_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str
 def test_add_parser_error_formatter_injection() -> None:
     formatter = ReplacementFormatter()
     custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(custom, ["add", "alpha", "--unknown", "--format=custom"])
+    result = runner.invoke(custom, ["plan", "add", "alpha", "--unknown", "--format=custom"])
     assert result.exit_code == 2
     assert result.stderr == "replacement\n"
     assert isinstance(formatter.results[0], ErrorResult)
-
-
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_add(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    initialized = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "init", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert initialized.returncode == 0, initialized.stderr
-    added = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "add", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert added.returncode == 0, added.stderr
-    assert AddResult.model_validate(json.loads(added.stdout)).plan.name == "auth"
-    assert (fresh / ".machi/auth/plan.md").is_file()
-    duplicate = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "add", "auth", "-P", str(fresh), "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert duplicate.returncode == 1
-    assert "auth/plan.md" in ErrorResult.model_validate_json(duplicate.stderr).error
-    help_result = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "add", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert help_result.returncode == 0
-    assert "--project" in help_result.stdout

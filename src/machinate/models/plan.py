@@ -9,6 +9,7 @@ from machinate.storage.models import (
     PlanMetadata,
     PlanStatus,
     RelativePath,
+    Tag,
     TaskStatus,
 )
 from machinate.storage.queries import DocumentRecord
@@ -20,6 +21,7 @@ class PlanUpdate(BaseModel):
     summary: str | None = None
     body: str = ""
     status: PlanStatus = "draft"
+    tags: list[Tag] | None = None
 
 
 class Plan(BaseModel):
@@ -53,7 +55,7 @@ class ProjectOverview(BaseModel):
 
 
 class PlanOverview(BaseModel):
-    """Plan-level overview for `machi info -p NAME`."""
+    """Plan-level overview for `machi plan info [-p NAME]`."""
 
     kind: Literal["plan"] = "plan"
     current: bool

@@ -47,9 +47,9 @@ def test_create_get_duplicates_and_exact_names(
 ) -> None:
     task = service.create("alpha", "login", metadata, "Body\n")
     assert task == service.get("alpha", "login")
-    assert task.path == PurePosixPath("alpha/tasks/login.md")
+    assert task.path == PurePosixPath("plans/alpha/tasks/login.md")
     assert task.document == Document(metadata=metadata, body="Body\n")
-    assert json.loads(task.model_dump_json())["path"] == "alpha/tasks/login.md"
+    assert json.loads(task.model_dump_json())["path"] == "plans/alpha/tasks/login.md"
     with pytest.raises(DocumentExistsError):
         service.create("alpha", "login", metadata)
     with pytest.raises(MissingDocumentError):

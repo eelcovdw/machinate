@@ -56,7 +56,7 @@ def _command_label(ctx: click.Context) -> str:
         if current.info_name:
             names.append(current.info_name)
         current = current.parent
-    return " ".join(reversed(names)) or "list"
+    return " ".join(reversed(names)) or "plan"
 
 
 def root() -> None:

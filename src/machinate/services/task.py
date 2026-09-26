@@ -61,6 +61,8 @@ class TaskService:
             document.metadata.status = changes.status
         if "body" in changes.model_fields_set:
             document.body = changes.body
+        if "tags" in changes.model_fields_set:
+            document.metadata.tags = changes.tags if changes.tags is not None else []
         self.document_store.write(task.path, document)
         return self.get(plan, name)
 

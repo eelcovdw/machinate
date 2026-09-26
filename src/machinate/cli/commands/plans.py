@@ -14,6 +14,7 @@ from machinate.cli.models import (
     ErrorResult,
     InfoResult,
     ListResult,
+    PlanInfoResult,
     ProjectScope,
     SetResult,
     ShowResult,
@@ -47,6 +48,10 @@ def add_plan(
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
     ] = None,
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="Tag(s) to apply. Repeat for multiple tags."),
+    ] = None,
     output_format: Annotated[
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
@@ -62,11 +67,15 @@ def add_plan(
         plan_name = NameInput(name=name).name
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        plan = project_context.plans.create(plan_name, PlanMetadata(created=datetime.now(UTC)))
+        plan = project_context.plans.create(
+            plan_name, PlanMetadata(created=datetime.now(UTC), tags=tags or [])
+        )
         result = AddResult(project=scope, plan=plan)
     except (ProjectError, UnknownFormatError, StorageError, ValidationError, OSError) as exc:
         typer.echo(
-            formatter.format(ErrorResult(command="add", error=describe_error(exc), project=scope)),
+            formatter.format(
+                ErrorResult(command="plan add", error=describe_error(exc), project=scope)
+            ),
             err=True,
         )
         raise typer.Exit(1) from exc
@@ -86,6 +95,10 @@ def list_plans(  # noqa: PLR0913
         str | None, typer.Option(help="Substring search in name and summary.")
     ] = None,
     search_body: Annotated[bool, typer.Option(help="Include document body in search.")] = False,
+    tags: Annotated[
+        list[str] | None,
+        typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
+    ] = None,
     statuses: Annotated[
         list[str] | None,
         typer.Option(
@@ -109,6 +122,7 @@ def list_plans(  # noqa: PLR0913
             {
                 "search": search,
                 "search_body": search_body,
+                "tags": tags,
                 "statuses": statuses,
                 "sort": sort,
                 "descending": descending,
@@ -120,7 +134,10 @@ def list_plans(  # noqa: PLR0913
         result = ListResult(project=scope, plans=project_context.plans.list(query))
     except (ProjectError, UnknownFormatError, StorageError, ValidationError, OSError) as exc:
         typer.echo(
-            formatter.format(ErrorResult(error=describe_error(exc), project=scope)), err=True
+            formatter.format(
+                ErrorResult(command="plan list", error=describe_error(exc), project=scope)
+            ),
+            err=True,
         )
         raise typer.Exit(1) from exc
     typer.echo(formatter.format(result))
@@ -128,9 +145,39 @@ def list_plans(  # noqa: PLR0913
 
 def info_command(
     context: typer.Context,
+    project: Annotated[
+        Path | None,
+        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
+    ] = None,
+    output_format: Annotated[
+        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
+    ] = None,
+) -> None:
+    """Show a project overview."""
+    dependencies = get_dependencies(context)
+    formatter = Formatter()  # Structured fallback if settings/format selection fails.
+    scope: ProjectScope | None = None
+    try:
+        settings = Settings()
+        format_name = output_format or settings.format
+        formatter = select_formatter(format_name, dependencies.formatters)
+        project_context = dependencies.prepare_project(project)
+        scope = project_context.project
+        result = InfoResult(project=scope, overview=project_context.plans.project_overview())
+    except (ProjectError, UnknownFormatError, StorageError, ValidationError, OSError) as exc:
+        typer.echo(
+            formatter.format(ErrorResult(command="info", error=describe_error(exc), project=scope)),
+            err=True,
+        )
+        raise typer.Exit(1) from exc
+    typer.echo(formatter.format(result))
+
+
+def plan_info_command(
+    context: typer.Context,
     plan: Annotated[
         str | None,
-        typer.Option("--plan", "-p", help="Plan to overview; omit for a project overview."),
+        typer.Option("--plan", "-p", help="Plan to overview; otherwise the current plan."),
     ] = None,
     project: Annotated[
         Path | None,
@@ -140,7 +187,7 @@ def info_command(
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Show a project overview, or a plan overview when -p is given."""
+    """Show a plan overview without changing selection."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -151,15 +198,22 @@ def info_command(
         plan_name = None if plan is None else NameInput(name=plan).name
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        overview = (
-            project_context.plans.project_overview()
-            if plan_name is None
-            else project_context.plans.plan_overview(plan_name)
+        selected = select_plan(project_context.plans, plan_name, interactive=settings.interactive)
+        result = PlanInfoResult(
+            project=scope, overview=project_context.plans.plan_overview(selected.name)
         )
-        result = InfoResult(project=scope, overview=overview)
-    except (ProjectError, UnknownFormatError, StorageError, ValidationError, OSError) as exc:
+    except (
+        PlanSelectionError,
+        ProjectError,
+        UnknownFormatError,
+        StorageError,
+        ValidationError,
+        OSError,
+    ) as exc:
         typer.echo(
-            formatter.format(ErrorResult(command="info", error=describe_error(exc), project=scope)),
+            formatter.format(
+                ErrorResult(command="plan info", error=describe_error(exc), project=scope)
+            ),
             err=True,
         )
         raise typer.Exit(1) from exc
@@ -202,7 +256,9 @@ def set_plan(
         OSError,
     ) as exc:
         typer.echo(
-            formatter.format(ErrorResult(command="set", error=describe_error(exc), project=scope)),
+            formatter.format(
+                ErrorResult(command="plan set", error=describe_error(exc), project=scope)
+            ),
             err=True,
         )
         raise typer.Exit(1) from exc
@@ -255,7 +311,7 @@ def status_plan(
     ) as exc:
         typer.echo(
             formatter.format(
-                ErrorResult(command="status", error=describe_error(exc), project=scope)
+                ErrorResult(command="plan status", error=describe_error(exc), project=scope)
             ),
             err=True,
         )
@@ -299,7 +355,9 @@ def show_plan(
         OSError,
     ) as exc:
         typer.echo(
-            formatter.format(ErrorResult(command="show", error=describe_error(exc), project=scope)),
+            formatter.format(
+                ErrorResult(command="plan show", error=describe_error(exc), project=scope)
+            ),
             err=True,
         )
         raise typer.Exit(1) from exc

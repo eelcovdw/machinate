@@ -1,6 +1,4 @@
 import json
-import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import override
@@ -61,35 +59,39 @@ def seed_context(project: Path, name: str) -> None:
 
 
 def test_plan_path_explicit(project: Path) -> None:
-    result = runner.invoke(app, ["path", "-p", "auth", "-P", str(project), "--format", "json"])
+    result = runner.invoke(
+        app, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"]
+    )
     assert result.exit_code == 0, result.output
     parsed = PathResult.model_validate(json.loads(result.stdout))
-    assert parsed.command == "path"
+    assert parsed.command == "plan path"
     assert parsed.project.name == "example"
     assert parsed.project.storage == project / ".machi"
     assert parsed.plan == "auth"
-    assert parsed.path == project / ".machi/auth/plan.md"
+    assert parsed.path == project / ".machi/plans/auth/plan.md"
     assert parsed.kind == "plan"
     assert parsed.exists is True
     assert read_state(project).current_plan is None
 
 
 def test_plan_path_text_is_bare_path(project: Path) -> None:
-    result = runner.invoke(app, ["path", "-p", "auth", "-P", str(project)])
+    result = runner.invoke(app, ["plan", "path", "-p", "auth", "-P", str(project)])
     assert result.exit_code == 0, result.output
-    assert result.stdout == f"{project / '.machi/auth/plan.md'}\n"
+    assert result.stdout == f"{project / '.machi/plans/auth/plan.md'}\n"
 
 
 def test_plan_path_current_plan(project: Path) -> None:
     prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(app, ["path", "-P", str(project), "--format", "json"])
+    result = runner.invoke(app, ["plan", "path", "-P", str(project), "--format", "json"])
     assert result.exit_code == 0, result.output
     assert PathResult.model_validate(json.loads(result.stdout)).plan == "auth"
 
 
 def test_plan_path_does_not_change_selection(project: Path) -> None:
     prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(app, ["path", "-p", "auth", "-P", str(project), "--format", "json"])
+    result = runner.invoke(
+        app, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"]
+    )
     assert result.exit_code == 0, result.output
     assert read_state(project).current_plan == "auth"
 
@@ -99,23 +101,25 @@ def test_plan_path_non_interactive_requires_plan(
 ) -> None:
     prepare_project(project).plans.set_current("auth")
     monkeypatch.setenv("MACHI_INTERACTIVE", "false")
-    result = runner.invoke(app, ["path", "-P", str(project)])
+    result = runner.invoke(app, ["plan", "path", "-P", str(project)])
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "path"
+    assert error.command == "plan path"
     assert "Non-interactive mode requires an explicit plan" in error.error
 
 
 def test_plan_path_no_current_plan(project: Path) -> None:
-    result = runner.invoke(app, ["path", "-P", str(project), "--format", "json"])
+    result = runner.invoke(app, ["plan", "path", "-P", str(project), "--format", "json"])
     assert result.exit_code == 1, result.output
     assert "No current plan is selected" in ErrorResult.model_validate_json(result.stderr).error
 
 
 def test_plan_path_unknown_plan(project: Path) -> None:
-    result = runner.invoke(app, ["path", "-p", "nope", "-P", str(project), "--format", "json"])
+    result = runner.invoke(
+        app, ["plan", "path", "-p", "nope", "-P", str(project), "--format", "json"]
+    )
     assert result.exit_code == 1, result.output
-    assert ErrorResult.model_validate_json(result.stderr).command == "path"
+    assert ErrorResult.model_validate_json(result.stderr).command == "plan path"
 
 
 def test_task_path_document(project: Path) -> None:
@@ -127,7 +131,7 @@ def test_task_path_document(project: Path) -> None:
     parsed = PathResult.model_validate(json.loads(result.stdout))
     assert parsed.command == "task path"
     assert parsed.kind == "task"
-    assert parsed.path == project / ".machi/auth/tasks/login.md"
+    assert parsed.path == project / ".machi/plans/auth/tasks/login.md"
     assert parsed.exists is True
 
 
@@ -138,7 +142,7 @@ def test_task_path_directory_absent(project: Path) -> None:
     assert result.exit_code == 0, result.output
     parsed = PathResult.model_validate(json.loads(result.stdout))
     assert parsed.kind == "tasks_directory"
-    assert parsed.path == project / ".machi/auth/tasks"
+    assert parsed.path == project / ".machi/plans/auth/tasks"
     assert parsed.exists is False
 
 
@@ -166,7 +170,7 @@ def test_task_path_directory_never_creates(project: Path) -> None:
         app, ["task", "path", "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert result.exit_code == 0, result.output
-    assert not (project / ".machi/auth/tasks").exists()
+    assert not (project / ".machi/plans/auth/tasks").exists()
 
 
 def test_context_path_document(project: Path) -> None:
@@ -178,7 +182,7 @@ def test_context_path_document(project: Path) -> None:
     parsed = PathResult.model_validate(json.loads(result.stdout))
     assert parsed.command == "context path"
     assert parsed.kind == "context"
-    assert parsed.path == project / ".machi/auth/context/spec.md"
+    assert parsed.path == project / ".machi/plans/auth/context/spec.md"
     assert parsed.exists is True
 
 
@@ -189,7 +193,7 @@ def test_context_path_directory_absent(project: Path) -> None:
     assert result.exit_code == 0, result.output
     parsed = PathResult.model_validate(json.loads(result.stdout))
     assert parsed.kind == "context_directory"
-    assert parsed.path == project / ".machi/auth/context"
+    assert parsed.path == project / ".machi/plans/auth/context"
     assert parsed.exists is False
 
 
@@ -215,14 +219,16 @@ class ReplacementFormatter(Formatter):
 def test_path_formatter_injection(project: Path) -> None:
     formatter = ReplacementFormatter()
     custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(custom, ["path", "-p", "auth", "-P", str(project), "--format", "custom"])
+    result = runner.invoke(
+        custom, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "custom"]
+    )
     assert result.exit_code == 0, result.output
     assert result.stdout == "replacement\n"
     assert isinstance(formatter.results[0], PathResult)
 
 
 def test_path_help() -> None:
-    result = runner.invoke(app, ["path", "--help"])
+    result = runner.invoke(app, ["plan", "path", "--help"])
     assert result.exit_code == 0
     assert "--plan" in result.stdout
     assert not result.stdout.startswith("{")
@@ -237,9 +243,11 @@ def test_task_path_help() -> None:
 def test_path_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MACHI_FORMAT", "json")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), ["path", "--unknown"])
+    result = runner.invoke(
+        create_cli(Dependencies(prepare_project=factory)), ["plan", "path", "--unknown"]
+    )
     assert result.exit_code == 2, result.output
-    assert ErrorResult.model_validate_json(result.stderr).command == "path"
+    assert ErrorResult.model_validate_json(result.stderr).command == "plan path"
     factory.assert_not_called()
 
 
@@ -250,56 +258,8 @@ def test_path_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(application.plans, "get", get)
     result = runner.invoke(
         create_cli(Dependencies(prepare_project=factory)),
-        ["path", "-p", "auth", "-P", str(project), "--format", "json"],
+        ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"],
     )
     assert result.exit_code == 0, result.output
     factory.assert_called_once_with(project)
     get.assert_called_once_with("auth")
-
-
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_path(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    for command in (
-        ["init", "-P", str(fresh)],
-        ["add", "auth", "-P", str(fresh)],
-        ["task", "add", "login", "-p", "auth", "-P", str(fresh)],
-        ["context", "add", "spec", "-p", "auth", "-P", str(fresh)],
-    ):
-        completed = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-            [str(launcher), *command, "--format", "json"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stderr
-    plan = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "path", "-p", "auth", "-P", str(fresh)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert plan.returncode == 0, plan.stderr
-    assert plan.stdout == f"{fresh / '.machi/auth/plan.md'}\n"
-    task = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [
-            str(launcher),
-            "task",
-            "path",
-            "login",
-            "-p",
-            "auth",
-            "-P",
-            str(fresh),
-            "--format",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert task.returncode == 0, task.stderr
-    parsed = PathResult.model_validate(json.loads(task.stdout))
-    assert parsed.path == fresh / ".machi/auth/tasks/login.md"

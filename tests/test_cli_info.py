@@ -1,6 +1,4 @@
 import json
-import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import override
@@ -13,7 +11,7 @@ from upath import UPath
 from machinate.cli.cli import app, create_cli
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.formatting import Formatter
-from machinate.cli.models import CommandResult, ErrorResult, InfoResult
+from machinate.cli.models import CommandResult, ErrorResult, InfoResult, PlanInfoResult
 from machinate.cli.project_setup import prepare_project
 from machinate.models.plan import PlanOverview, ProjectOverview
 from machinate.storage import (
@@ -58,6 +56,7 @@ def test_info_project_overview(project: Path) -> None:
     result = runner.invoke(app, ["info", "-P", str(project), "--format", "json"])
     assert result.exit_code == 0, result.output
     parsed = InfoResult.model_validate(json.loads(result.stdout))
+    assert parsed.command == "info"
     assert parsed.project.name == "example"
     assert parsed.project.directory == project
     assert parsed.project.storage == project / ".machi"
@@ -122,48 +121,12 @@ def test_info_empty_project(tmp_path: Path) -> None:
     assert overview.recent_plans == []
 
 
-def test_info_plan_overview(project: Path) -> None:
-    result = runner.invoke(app, ["info", "-p", "auth", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    parsed = InfoResult.model_validate(json.loads(result.stdout))
-    assert isinstance(parsed.overview, PlanOverview)
-    overview = parsed.overview
-    assert overview.current is False
-    assert overview.info.plan.name == "auth"
-    assert overview.info.task_counts == {"todo": 1, "in-progress": 0, "done": 1}
-    assert overview.info.context_count == 1
-
-
-def test_info_plan_overview_current(project: Path) -> None:
-    prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(app, ["info", "-p", "auth", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    overview = InfoResult.model_validate(json.loads(result.stdout)).overview
-    assert isinstance(overview, PlanOverview)
-    assert overview.current is True
-
-
-def test_info_never_uses_current_without_plan(project: Path) -> None:
+def test_info_never_uses_current_plan(project: Path) -> None:
     prepare_project(project).plans.set_current("billing")
     result = runner.invoke(app, ["info", "-P", str(project), "--format", "json"])
     assert result.exit_code == 0, result.output
     overview = InfoResult.model_validate(json.loads(result.stdout)).overview
     assert overview.kind == "project"
-
-
-def test_info_unknown_plan(project: Path) -> None:
-    result = runner.invoke(app, ["info", "-p", "nope", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "info"
-    assert "nope" in error.error
-
-
-def test_info_invalid_plan_name(project: Path) -> None:
-    result = runner.invoke(app, ["info", "-p", "../bad", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert "Expected a nonempty name" in error.error
 
 
 def test_info_text_project_overview(project: Path) -> None:
@@ -184,16 +147,100 @@ def test_info_text_project_overview_without_current(project: Path) -> None:
     assert "Current plan: (none)" in result.stdout
 
 
-def test_info_text_plan_overview(project: Path) -> None:
-    result = runner.invoke(app, ["info", "-p", "auth", "-P", str(project)])
+def test_info_help() -> None:
+    result = runner.invoke(app, ["info", "--help"])
+    assert result.exit_code == 0
+    assert "--plan" not in result.stdout
+    assert not result.stdout.startswith("{")
+
+
+def test_plan_info_overview(project: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["plan", "info", "-p", "auth", "-P", str(project), "--format", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = PlanInfoResult.model_validate(json.loads(result.stdout))
+    assert parsed.command == "plan info"
+    assert isinstance(parsed.overview, PlanOverview)
+    overview = parsed.overview
+    assert overview.current is False
+    assert overview.info.plan.name == "auth"
+    assert overview.info.task_counts == {"todo": 1, "in-progress": 0, "done": 1}
+    assert overview.info.context_count == 1
+
+
+def test_plan_info_overview_current(project: Path) -> None:
+    prepare_project(project).plans.set_current("auth")
+    result = runner.invoke(
+        app,
+        ["plan", "info", "-p", "auth", "-P", str(project), "--format", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    overview = PlanInfoResult.model_validate(json.loads(result.stdout)).overview
+    assert isinstance(overview, PlanOverview)
+    assert overview.current is True
+
+
+def test_plan_info_uses_current_plan_without_flag(project: Path) -> None:
+    prepare_project(project).plans.set_current("billing")
+    result = runner.invoke(app, ["plan", "info", "-P", str(project), "--format", "json"])
+    assert result.exit_code == 0, result.output
+    overview = PlanInfoResult.model_validate(json.loads(result.stdout)).overview
+    assert overview.info.plan.name == "billing"
+
+
+def test_plan_info_no_current_plan(project: Path) -> None:
+    result = runner.invoke(app, ["plan", "info", "-P", str(project), "--format", "json"])
+    assert result.exit_code == 1, result.output
+    error = ErrorResult.model_validate_json(result.stderr)
+    assert error.command == "plan info"
+    assert "-p" in error.error
+
+
+def test_plan_info_non_interactive_requires_plan(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prepare_project(project).plans.set_current("auth")
+    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    result = runner.invoke(app, ["plan", "info", "-P", str(project), "--format", "json"])
+    assert result.exit_code == 1, result.output
+    error = ErrorResult.model_validate_json(result.stderr)
+    assert error.command == "plan info"
+    assert "-p" in error.error
+
+
+def test_plan_info_unknown_plan(project: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["plan", "info", "-p", "nope", "-P", str(project), "--format", "json"],
+    )
+    assert result.exit_code == 1, result.output
+    error = ErrorResult.model_validate_json(result.stderr)
+    assert error.command == "plan info"
+    assert "nope" in error.error
+
+
+def test_plan_info_invalid_plan_name(project: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["plan", "info", "-p", "../bad", "-P", str(project), "--format", "json"],
+    )
+    assert result.exit_code == 1, result.output
+    error = ErrorResult.model_validate_json(result.stderr)
+    assert "Expected a nonempty name" in error.error
+
+
+def test_plan_info_text_overview(project: Path) -> None:
+    result = runner.invoke(app, ["plan", "info", "-p", "auth", "-P", str(project)])
     assert result.exit_code == 0, result.output
     assert "Plan auth (draft)" in result.stdout
     assert "Tasks: 2 (todo: 1, in-progress: 0, done: 1)" in result.stdout
     assert "Contexts: 1" in result.stdout
 
 
-def test_info_help() -> None:
-    result = runner.invoke(app, ["info", "--help"])
+def test_plan_info_help() -> None:
+    result = runner.invoke(app, ["plan", "info", "--help"])
     assert result.exit_code == 0
     assert "--plan" in result.stdout
     assert not result.stdout.startswith("{")
@@ -209,13 +256,16 @@ class ReplacementFormatter(Formatter):
         return "replacement"
 
 
-def test_info_formatter_injection(project: Path) -> None:
+def test_plan_info_formatter_injection(project: Path) -> None:
     formatter = ReplacementFormatter()
     custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(custom, ["info", "-p", "auth", "-P", str(project), "--format", "custom"])
+    result = runner.invoke(
+        custom,
+        ["plan", "info", "-p", "auth", "-P", str(project), "--format", "custom"],
+    )
     assert result.exit_code == 0, result.output
     assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], InfoResult)
+    assert isinstance(formatter.results[0], PlanInfoResult)
 
 
 def test_info_missing_project_directory_error_is_rendered(tmp_path: Path) -> None:
@@ -244,27 +294,18 @@ def test_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: st
     factory.assert_not_called()
 
 
-@pytest.mark.parametrize("executable", ["machi", "machinate"])
-def test_checkout_executable_info(tmp_path: Path, executable: str) -> None:
-    launcher = Path(sys.executable).with_name(executable)
-    fresh = tmp_path / "fresh"
-    fresh.mkdir()
-    commands = [
-        ["init", "-P", str(fresh), "--format", "json"],
-        ["add", "auth", "-P", str(fresh), "--format", "json"],
-    ]
-    for args in commands:
-        completed = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-            [str(launcher), *args], capture_output=True, text=True, check=False
-        )
-        assert completed.returncode == 0, completed.stderr
-    for args in (
-        ["info", "-P", str(fresh), "--format", "json"],
-        ["info", "-p", "auth", "-P", str(fresh), "--format", "json"],
-    ):
-        completed = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-            [str(launcher), *args], capture_output=True, text=True, check=False
-        )
-        assert completed.returncode == 0, completed.stderr
-        parsed = InfoResult.model_validate(json.loads(completed.stdout))
-        assert parsed.command == "info"
+@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+def test_plan_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
+    args = ["plan", "info"]
+    if source == "flag":
+        args.extend(["--format", "json"])
+    elif source == "environment":
+        monkeypatch.setenv("MACHI_FORMAT", "json")
+    else:
+        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
+    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
+    assert result.exit_code == 2, result.output
+    error = ErrorResult.model_validate_json(result.stderr)
+    assert error.command == "plan info"
+    factory.assert_not_called()

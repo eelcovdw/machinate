@@ -48,6 +48,27 @@ def test_document_round_trip(store: DocumentStore, body: str) -> None:
     assert store.read("auth/tasks/login.md", TaskMetadata) == document
 
 
+def test_tag_validation_and_deduplication() -> None:
+    metadata = PlanMetadata(created=datetime(2026, 9, 22, tzinfo=UTC), tags=[" A ", "a", "b", "A"])
+    assert metadata.tags == ["A", "b"]
+    assert "tags" in PlanMetadata.model_json_schema()["properties"]
+    for invalid in ("", "   ", "bad\x01"):
+        with pytest.raises(ValidationError):
+            PlanMetadata(created=datetime(2026, 9, 22, tzinfo=UTC), tags=[invalid])
+
+
+def test_tags_round_trip(store: DocumentStore) -> None:
+    document = Document(
+        metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC), tags=["frontend", "v2"]),
+        body="body",
+    )
+    store.create("auth/tasks/login.md", document)
+    assert store.read("auth/tasks/login.md", TaskMetadata).metadata.tags == ["frontend", "v2"]
+    document.metadata.tags = ["backend"]
+    store.write("auth/tasks/login.md", document)
+    assert store.read("auth/tasks/login.md", TaskMetadata).metadata.tags == ["backend"]
+
+
 def test_existing_frontmatter_preserved(store: DocumentStore, tmp_path: Path) -> None:
     body = "\r\n\r\n# Résumé  \r\n---\r\nlast line"
     (tmp_path / "note.md").write_bytes(
@@ -141,7 +162,7 @@ def test_layout_rejects_names(name: str) -> None:
     for operation in (layout.task, layout.context):
         if name == "a/b":
             folder = "tasks" if operation == layout.task else "context"
-            assert operation("valid", name) == PurePosixPath("valid", folder, "a/b.md")
+            assert operation("valid", name) == PurePosixPath("plans", "valid", folder, "a/b.md")
         else:
             with pytest.raises(ValidationError):
                 operation("valid", name)
@@ -152,9 +173,9 @@ def test_layout_rejects_names(name: str) -> None:
 def test_layout() -> None:
     layout = Layout()
     assert layout.project() == PurePosixPath("project.md")
-    assert layout.plan("auth") == PurePosixPath("auth/plan.md")
-    assert layout.task("auth", "login") == PurePosixPath("auth/tasks/login.md")
-    assert layout.context("auth", "research") == PurePosixPath("auth/context/research.md")
+    assert layout.plan("auth") == PurePosixPath("plans/auth/plan.md")
+    assert layout.task("auth", "login") == PurePosixPath("plans/auth/tasks/login.md")
+    assert layout.context("auth", "research") == PurePosixPath("plans/auth/context/research.md")
 
 
 @pytest.mark.parametrize(

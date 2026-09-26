@@ -9,6 +9,7 @@ from .models import (
     PlanMetadata,
     PlanStatus,
     ProjectState,
+    Tag,
     TaskMetadata,
     TaskStatus,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "ProjectState",
     "ProjectStateStore",
     "StorageError",
+    "Tag",
     "TaskMetadata",
     "TaskQuery",
     "TaskStatus",

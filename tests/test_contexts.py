@@ -55,9 +55,9 @@ def test_create_get_duplicates_and_exact_names(
 ) -> None:
     context = service.create("alpha", "research", metadata, "Body\n")
     assert context == service.get("alpha", "research")
-    assert context.path == PurePosixPath("alpha/context/research.md")
+    assert context.path == PurePosixPath("plans/alpha/context/research.md")
     assert context.document == Document(metadata=metadata, body="Body\n")
-    assert json.loads(context.model_dump_json())["path"] == "alpha/context/research.md"
+    assert json.loads(context.model_dump_json())["path"] == "plans/alpha/context/research.md"
     assert Context.model_validate(json.loads(context.model_dump_json())) == context
     with pytest.raises(DocumentExistsError):
         service.create("alpha", "research", metadata, "Replacement")

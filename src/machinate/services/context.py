@@ -68,6 +68,8 @@ class ContextService:
             document.metadata.summary = changes.summary
         if "body" in changes.model_fields_set:
             document.body = changes.body
+        if "tags" in changes.model_fields_set:
+            document.metadata.tags = changes.tags if changes.tags is not None else []
         self.document_store.write(context.path, document)
         return self.get(plan, name)
 

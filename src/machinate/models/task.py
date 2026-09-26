@@ -3,7 +3,14 @@ from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
-from machinate.storage.models import Document, RelativePath, TaskMetadata, TaskName, TaskStatus
+from machinate.storage.models import (
+    Document,
+    RelativePath,
+    Tag,
+    TaskMetadata,
+    TaskName,
+    TaskStatus,
+)
 from machinate.storage.queries import DocumentRecord
 
 
@@ -13,6 +20,7 @@ class TaskUpdate(BaseModel):
     summary: str | None = None
     body: str = ""
     status: TaskStatus = "todo"
+    tags: list[Tag] | None = None
 
 
 class Task(BaseModel):

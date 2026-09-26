@@ -281,7 +281,7 @@ def test_init_delegation(target: Path) -> None:
 def test_init_then_list_is_empty(target: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(target)
     assert runner.invoke(app, ["init", "--format", "json"]).exit_code == 0
-    result = runner.invoke(app, ["list", "--format", "json"])
+    result = runner.invoke(app, ["plan", "list", "--format", "json"])
     assert result.exit_code == 0, result.output
     parsed = ListResult.model_validate(json.loads(result.stdout))
     assert parsed.plans == []
