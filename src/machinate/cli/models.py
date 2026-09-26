@@ -113,6 +113,15 @@ class ContextInfoResult(BaseModel):
     context: ContextSummary
 
 
+class PathResult(BaseModel):
+    command: Literal["path", "task path", "context path"]
+    project: ProjectScope
+    plan: str
+    path: Path
+    kind: Literal["plan", "task", "context", "tasks_directory", "context_directory"]
+    exists: bool
+
+
 class InfoResult(BaseModel):
     command: Literal["info"] = "info"
     project: ProjectScope
@@ -130,6 +139,7 @@ type CommandResult = (
     | InfoResult
     | InitResult
     | ListResult
+    | PathResult
     | StatusResult
     | SetResult
     | ShowResult

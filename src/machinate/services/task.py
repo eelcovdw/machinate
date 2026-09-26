@@ -1,3 +1,5 @@
+from pathlib import PurePosixPath
+
 from pydantic import validate_call
 
 from machinate.models.task import Task, TaskSummary, TaskUpdate
@@ -41,6 +43,11 @@ class TaskService:
             metadata=task.document.metadata,
             last_activity_at=task.modified_at,
         )
+
+    @validate_call
+    def directory(self, plan: Name) -> PurePosixPath:
+        self._require_plan(plan)
+        return self.layout.task_collection(plan).path
 
     @validate_call
     def update(self, plan: Name, name: TaskName, changes: TaskUpdate) -> Task:

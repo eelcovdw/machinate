@@ -17,6 +17,7 @@ from .models import (
     InfoResult,
     InitResult,
     ListResult,
+    PathResult,
     SetResult,
     ShowResult,
     StatusResult,
@@ -139,6 +140,11 @@ def render_context_show(result: ContextShowResult) -> str:
     if body:
         lines.extend(("", body))
     return "\n".join(lines)
+
+
+@render_text.register
+def render_path(result: PathResult) -> str:
+    return str(result.path)
 
 
 @render_text.register

@@ -1,3 +1,5 @@
+from pathlib import PurePosixPath
+
 from pydantic import validate_call
 
 from machinate.models.context import Context, ContextSummary, ContextUpdate
@@ -50,6 +52,11 @@ class ContextService:
             metadata=context.document.metadata,
             last_activity_at=context.modified_at,
         )
+
+    @validate_call
+    def directory(self, plan: Name) -> PurePosixPath:
+        self._require_plan(plan)
+        return self.layout.context_collection(plan).path
 
     @validate_call
     def update(self, plan: Name, name: ContextName, changes: ContextUpdate) -> Context:
