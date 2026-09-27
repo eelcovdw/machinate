@@ -17,7 +17,8 @@ Design docs for the v2 rewrite live in `.dev-docs/` (`CLI.md` is the accepted CL
 ## Stack
 
 - Python 3.14, uv, src layout (`src/machinate/`)
-- CLI entry point: `machi` / `machinate` (installed editable — do NOT use `uv run machi`)
+- CLI entry point: `machi` / `machinate` (installed editable — do NOT use `uv run machi`).
+  If it is not on your PATH, activate the venv first: `source .venv/bin/activate`.
 - CLI framework: `typer`
 - Storage: a real `.machi/` directory per project, state in `.machi/machinate.toml`
 - Layout inside `.machi/`: `{plan}/plan.md`, `{plan}/tasks/*.md`, `{plan}/context/*.md`
@@ -58,7 +59,8 @@ keeps links consistent.
 
 ```text
 machi init          Initialize a project directory.
-machi info          Show a project or plan overview.
+machi info          Show a project overview.
+machi find          Search files under the project's .machi store (all plans).
 machi instructions  Print this block.
 machi schema        Print the JSON Schema for command results.
 machi plan          add, list, show, info, path, set, update
@@ -66,9 +68,38 @@ machi task          add, list, show, info, path, update
 machi context       add, list, show, info, path, update
 ```
 
+### Finding work across plans
+
+`machi find QUERY` is the cross-plan search — use it as the first step when you
+know a task/document by name or phrase but not its plan. It searches every plan
+unless you pass `-p`, so it replaces enumerating plans by hand.
+
+```bash
+machi find atomic-state-writes          # locate a task across all plans
+machi find "atomic state" -p review-storage-fixes   # scope to one plan
+machi find 'body:"truncates machinate.toml"'        # body-field phrase search
+machi find --glob 'tasks/*.md'          # omit QUERY to list by filesystem glob
+```
+
+Results are path + line range + snippets (`plans/<plan>/tasks/<task>.md:1-7`).
+The query language supports terms (fuzzy + prefix by default), `"phrases"`,
+`field:term` (`path:`/`body:`), `+`/`-`, `AND`/`OR`/`NOT`, `term^2`, ranges
+(`field:[a TO c]`), and set membership. Disable fuzziness with `--exact`; allow
+field-scoped regexes with `--regex`. Tune output with `--context N`,
+`--snippet-chars`, `--no-snippets`, and `--limit`. Prefer `find` over
+`grep`/`rg`/`ls` for `.machi` content — it understands the store layout.
+
+For narrower listings, `machi plan list` / `machi task list` / `machi context list`
+accept `--search`, `--search-body`, repeatable `--tag` and `--status`, `--sort
+name|created|updated`, `--descending`, and `--limit`. Plan statuses are
+`draft|active|done`; task statuses are `todo|in-progress|done`.
+
 ### Targeting
 
-- Target an existing plan with `-p NAME`; without it the current plan is used.
+- Target a plan with `-p NAME`; without it the current plan is used. **If no
+  current plan is set, plan-scoped commands fail with `No current plan is
+  selected` — pass `-p NAME` explicitly.**
+- Select a current plan explicitly with `machi plan set -p NAME`.
 - Non-interactive mode (`MACHI_INTERACTIVE=false`) requires `-p`.
 - `-P DIR` targets an exact project directory; otherwise machinate discovers the
   nearest `.machi/` by walking upward.
@@ -77,10 +108,16 @@ machi context       add, list, show, info, path, update
 
 - Use `--format text|json`. Precedence: `--format` > `MACHI_FORMAT` > default
   (text, or json in non-interactive mode).
-- `machi schema` documents the exact JSON shape of every command result.
+- `machi schema` documents the exact JSON shape of every command result; pass a
+  command path (e.g. `machi schema task show`) to narrow it.
 
 ### Editing
 
 - `machi plan path`, `machi task path NAME`, and `machi context path NAME` print
-  absolute editing paths; edit bodies with your own file tools.
-- Change status, tags, and summaries with `machi plan|task|context update`.
+  absolute editing paths; edit bodies with your own file tools. Their `path`
+  subcommands also accept no name to print the containing directory.
+- Change status, tags, and summaries with `machi plan|task|context update`; e.g.
+  `machi task update NAME --status in-progress --tag x`. `--tag` replaces the
+  tag set, and an empty `--summary ''` clears the summary.
+- Inspect metadata without the body via `machi task info NAME` / `machi context
+  info NAME`; `machi plan info` and `machi info` show overviews.

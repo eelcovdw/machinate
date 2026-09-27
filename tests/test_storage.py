@@ -20,6 +20,7 @@ from machinate.storage import (
     ProjectState,
     ProjectStateStore,
     StorageError,
+    SymbolicLinkError,
     TaskMetadata,
 )
 from machinate.storage.summary import derive_summary
@@ -288,12 +289,55 @@ def test_state_round_trip(tmp_path: Path) -> None:
         state.current_plan = "../escape"
 
 
-@pytest.mark.parametrize("text", ["invalid [", 'project_name = "../bad"', 'current_plan = "auth"'])
+@pytest.mark.parametrize(
+    "text", ["", "invalid [", 'project_name = "../bad"', 'current_plan = "auth"']
+)
 def test_invalid_state(tmp_path: Path, text: str) -> None:
     path = UPath(tmp_path / "machinate.toml")
     path.write_text(text)
     with pytest.raises(InvalidDocumentError):
         ProjectStateStore(path).read()
+
+
+def test_failed_state_write_keeps_original(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = UPath(tmp_path / "nested" / "machinate.toml")
+    store = ProjectStateStore(path)
+    original = ProjectState(project_name="Café", current_plan="auth")
+    store.write(original)
+
+    def fail_replace(_self: Path, _target: str) -> None:
+        raise PermissionError("replacement denied")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+
+    real_unlink = Path.unlink
+
+    def fail_unlink(_path: Path, **_kwargs: object) -> None:
+        raise OSError("cleanup denied")
+
+    # The failed replace leaves a temporary file; failing cleanup adds a note
+    # that must survive the StorageError wrapper.
+    monkeypatch.setattr(Path, "unlink", fail_unlink)
+    with pytest.raises(StorageError) as error:
+        store.write(ProjectState(project_name="Café"))
+    assert isinstance(error.value.reason, PermissionError)
+    notes = getattr(error.value, "__notes__", [])
+    assert len(notes) == 1
+    assert "Could not remove temporary file" in notes[0]
+    assert store.read() == original
+    nested = tmp_path / "nested"
+    leftovers = set(nested.iterdir()) - {nested / "machinate.toml"}
+    assert len(leftovers) == 1  # The temporary file could not be removed; the note says so.
+
+    # With cleanup working again, a failed write removes its own temporary file.
+    monkeypatch.setattr(Path, "unlink", real_unlink)
+    with pytest.raises(StorageError) as error:
+        store.write(ProjectState(project_name="Café"))
+    assert not getattr(error.value, "__notes__", [])
+    assert set(nested.iterdir()) - {nested / "machinate.toml"} == leftovers
 
 
 def test_successful_update_replaces_file(
@@ -309,6 +353,59 @@ def test_successful_update_replaces_file(
     assert store.read("note.md", TaskMetadata).body == "new content"
     assert target.stat().st_mode & 0o777 == 0o640
     assert list(tmp_path.iterdir()) == [target]
+
+
+def test_null_extra_metadata_preserved(store: DocumentStore, tmp_path: Path) -> None:
+    document = Document(
+        metadata=Metadata.model_validate(
+            {"created": "2026-09-22T00:00:00Z", "custom": {"owner": None}}
+        ),
+        body="# Note\n",
+    )
+    store.create("note.md", document)
+    assert "owner: null" in (tmp_path / "note.md").read_text()
+    assert store.read("note.md", Metadata) == document
+
+
+def test_unset_summary_omitted(store: DocumentStore, tmp_path: Path) -> None:
+    document = Document(
+        metadata=Metadata.model_validate({"created": "2026-09-22T00:00:00Z"}), body="# Note\n"
+    )
+    store.create("note.md", document)
+    assert "summary" not in (tmp_path / "note.md").read_text()
+
+
+def test_write_rejects_symlink(
+    store: DocumentStore,
+    document: Document[TaskMetadata],
+    tmp_path: Path,
+) -> None:
+    external = tmp_path / "outside.md"
+    external.write_bytes(b"original\n")
+    (tmp_path / "note.md").symlink_to(external)
+
+    with pytest.raises(SymbolicLinkError) as error:
+        store.write("note.md", Document(metadata=document.metadata, body="new"))
+    assert error.value.reason is None
+    assert "note.md" in str(error.value)
+    assert "symbolic link" in str(error.value)
+
+    assert (tmp_path / "note.md").is_symlink()
+    assert external.read_bytes() == b"original\n"
+
+
+def test_create_rejects_symlink(
+    store: DocumentStore, document: Document[TaskMetadata], tmp_path: Path
+) -> None:
+    external = tmp_path / "outside.md"
+    external.write_bytes(b"original\n")
+    (tmp_path / "note.md").symlink_to(external)
+
+    with pytest.raises(DocumentExistsError):
+        store.create("note.md", document)
+
+    assert (tmp_path / "note.md").is_symlink()
+    assert external.read_bytes() == b"original\n"
 
 
 def test_invalid_utf8(store: DocumentStore, tmp_path: Path) -> None:
