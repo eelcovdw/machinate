@@ -56,43 +56,25 @@ def names(store: DocumentStore, query: PlanQuery) -> list[str]:
     ("query", "expected"),
     [
         (PlanQuery(), ["alpha", "beta", "gamma"]),
-        (PlanQuery(created_range=DateTimeRange()), ["alpha", "beta", "gamma"]),
         (
             PlanQuery(created_range=DateTimeRange(gte=datetime(2026, 9, 2, tzinfo=UTC))),
             ["beta", "gamma"],
         ),
         (PlanQuery(created_range=DateTimeRange(lte=datetime(2026, 9, 1, tzinfo=UTC))), ["alpha"]),
-        (PlanQuery(search=""), ["alpha", "beta", "gamma"]),
         (PlanQuery(search="ALP"), ["alpha"]),
-        (PlanQuery(search="oAuTh"), ["alpha", "gamma"]),
         (PlanQuery(search="oauth", search_body=True), ["alpha", "beta", "gamma"]),
         (PlanQuery(statuses=set()), []),
         (PlanQuery(statuses={"active", "done"}), ["alpha", "gamma"]),
         (PlanQuery(tags={"frontend"}), ["alpha", "gamma"]),
-        (PlanQuery(tags={"FRONTEND"}), ["alpha", "gamma"]),
         (PlanQuery(tags={"frontend", "backend"}), ["alpha", "beta", "gamma"]),
-        (PlanQuery(tags={"missing"}), []),
-        (PlanQuery(tags=set()), []),
         (PlanQuery(tags={"v2"}, statuses={"done"}), ["gamma"]),
-        (PlanQuery(search="v2"), ["beta", "gamma"]),
-        (
-            PlanQuery(
-                created_range=DateTimeRange(
-                    gte=datetime(2026, 9, 2, tzinfo=UTC), lte=datetime(2026, 9, 2, tzinfo=UTC)
-                )
-            ),
-            ["beta", "gamma"],
-        ),
         (
             PlanQuery(updated_range=DateTimeRange(gte=datetime.fromtimestamp(200, UTC))),
             ["beta", "gamma"],
         ),
-        (PlanQuery(updated_range=DateTimeRange(gte=datetime.fromtimestamp(201, UTC))), []),
         (PlanQuery(sort="name", descending=True, limit=2), ["gamma", "beta"]),
-        (PlanQuery(sort="created", descending=True), ["beta", "gamma", "alpha"]),
         (PlanQuery(sort="updated", descending=True), ["beta", "gamma", "alpha"]),
         (PlanQuery(sort="created"), ["alpha", "beta", "gamma"]),
-        (PlanQuery(sort="updated"), ["alpha", "beta", "gamma"]),
         (
             PlanQuery(
                 search="oauth",

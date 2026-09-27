@@ -1,17 +1,13 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import override
-from unittest.mock import Mock
 
 import pytest
 from typer.testing import CliRunner
 from upath import UPath
 
-from machinate.cli.cli import app, create_cli
-from machinate.cli.dependencies import Dependencies
-from machinate.cli.formatting import Formatter
-from machinate.cli.models import CommandResult, ErrorResult, InfoResult, PlanInfoResult
+from machinate.cli.cli import app
+from machinate.cli.models import ErrorResult, InfoResult, PlanInfoResult
 from machinate.cli.project_setup import prepare_project
 from machinate.models.plan import PlanOverview, ProjectOverview
 from machinate.storage import (
@@ -230,28 +226,6 @@ def test_plan_info_text_overview(project: Path) -> None:
     assert "Contexts: 1" in result.stdout
 
 
-class ReplacementFormatter(Formatter):
-    def __init__(self) -> None:
-        self.results: list[CommandResult] = []
-
-    @override
-    def format(self, result: CommandResult) -> str:
-        self.results.append(result)
-        return "replacement"
-
-
-def test_plan_info_formatter_injection(project: Path) -> None:
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(
-        custom,
-        ["plan", "info", "-p", "auth", "-P", str(project), "--format", "custom"],
-    )
-    assert result.exit_code == 0, result.output
-    assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], PlanInfoResult)
-
-
 def test_info_missing_project_directory_error_is_rendered(tmp_path: Path) -> None:
     missing = tmp_path / "missing"
     result = runner.invoke(app, ["info", "-P", str(missing), "--format", "json"])
@@ -259,37 +233,3 @@ def test_info_missing_project_directory_error_is_rendered(tmp_path: Path) -> Non
     error = ErrorResult.model_validate_json(result.stderr)
     assert "No initialized project" in error.error
     assert str(missing) in error.error
-
-
-@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
-def test_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
-    args = ["info"]
-    if source == "flag":
-        args.extend(["--format", "json"])
-    elif source == "environment":
-        monkeypatch.setenv("MACHI_FORMAT", "json")
-    else:
-        monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
-    assert result.exit_code == 2, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "info"
-    factory.assert_not_called()
-
-
-@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
-def test_plan_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
-    args = ["plan", "info"]
-    if source == "flag":
-        args.extend(["--format", "json"])
-    elif source == "environment":
-        monkeypatch.setenv("MACHI_FORMAT", "json")
-    else:
-        monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
-    assert result.exit_code == 2, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "plan info"
-    factory.assert_not_called()

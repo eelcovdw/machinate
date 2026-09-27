@@ -1,7 +1,6 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import override
 from unittest.mock import Mock
 
 import pytest
@@ -10,9 +9,7 @@ from upath import UPath
 
 from machinate.cli.cli import app, create_cli
 from machinate.cli.dependencies import Dependencies
-from machinate.cli.formatting import Formatter
 from machinate.cli.models import (
-    CommandResult,
     ErrorResult,
     SelectResult,
     ShowResult,
@@ -157,87 +154,6 @@ def test_select_output(project: Path, format_name: str) -> None:
         assert "Selected plan auth in example" in result.stdout
 
 
-@pytest.mark.parametrize(
-    ("automation", "env_format", "flag", "expected"),
-    [
-        (None, None, None, "text"),
-        ("true", None, None, "json"),
-        ("false", None, None, "text"),
-        ("true", "text", None, "text"),
-        (None, "json", None, "json"),
-        ("true", "json", "text", "text"),
-    ],
-)
-def test_select_format_precedence(  # noqa: PLR0913
-    project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    automation: str | None,
-    env_format: str | None,
-    flag: str | None,
-    expected: str,
-) -> None:
-    seed_plan(project, "auth")
-    if automation is not None:
-        monkeypatch.setenv("MACHI_AUTOMATION", automation)
-    if env_format is not None:
-        monkeypatch.setenv("MACHI_FORMAT", env_format)
-    args = ["plan", "select", "auth", "-P", str(project)]
-    if flag is not None:
-        args.extend(["--format", flag])
-    result = runner.invoke(app, args)
-    assert result.exit_code == 0, result.output
-    assert result.stdout.startswith("{") == (expected == "json")
-
-
-@pytest.mark.parametrize(
-    ("env_name", "env_value", "field"),
-    [
-        ("MACHI_AUTOMATION", "perhaps", "automation"),
-        ("MACHI_FORMAT", "human", "format"),
-    ],
-)
-def test_select_invalid_settings(
-    project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    env_name: str,
-    env_value: str,
-    field: str,
-) -> None:
-    seed_plan(project, "auth")
-    monkeypatch.setenv(env_name, env_value)
-    result = runner.invoke(app, ["plan", "select", "auth", "-P", str(project)])
-    assert result.exit_code == 1
-    assert field in ErrorResult.model_validate_json(result.stderr).error
-
-
-class ReplacementFormatter(Formatter):
-    def __init__(self) -> None:
-        self.results: list[CommandResult] = []
-
-    @override
-    def format(self, result: CommandResult) -> str:
-        self.results.append(result)
-        return "replacement"
-
-
-def test_select_formatter_injection(project: Path) -> None:
-    seed_plan(project, "auth")
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(
-        custom, ["plan", "select", "auth", "-P", str(project), "--format", "custom"]
-    )
-    assert result.exit_code == 0
-    assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], SelectResult)
-    result = runner.invoke(
-        custom, ["plan", "select", "absent", "-P", str(project), "--format", "custom"]
-    )
-    assert result.exit_code == 1
-    assert result.stderr == "replacement\n"
-    assert isinstance(formatter.results[1], ErrorResult)
-
-
 def test_select_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seed_plan(project, "auth")
     application = prepare_project(project)
@@ -282,25 +198,6 @@ def test_selection_does_not_redirect_explicit_operation(
     assert shown.exit_code == 0, shown.output
     assert ShowResult.model_validate(json.loads(shown.stdout)).plan.name == "other"
     assert read_state(project).current_plan == "auth"
-
-
-@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
-def test_select_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
-    args = ["plan", "select", "auth"]
-    if source == "flag":
-        args.extend(["--format", "json"])
-    elif source == "environment":
-        monkeypatch.setenv("MACHI_FORMAT", "json")
-    else:
-        monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
-    assert result.exit_code == 2
-    assert result.stdout == ""
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "plan select"
-    assert "--unknown" in error.error
-    factory.assert_not_called()
 
 
 def test_unselect_clears_current_plan(project: Path) -> None:

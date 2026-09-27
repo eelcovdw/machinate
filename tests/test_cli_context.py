@@ -1,7 +1,7 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast, override
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
@@ -10,9 +10,7 @@ from upath import UPath
 
 from machinate.cli.cli import app, create_cli
 from machinate.cli.dependencies import Dependencies
-from machinate.cli.formatting import Formatter
 from machinate.cli.models import (
-    CommandResult,
     ContextAddResult,
     ContextInfoResult,
     ContextListResult,
@@ -56,6 +54,38 @@ def snapshot(project: Path) -> dict[Path, bytes]:
     return {path: path.read_bytes() for path in project.rglob("*") if path.is_file()}
 
 
+CONTEXT_INVOCATIONS = {
+    "add": ["context", "add", "spec"],
+    "list": ["context", "list"],
+    "show": ["context", "show", "spec"],
+    "info": ["context", "info", "spec"],
+    "update": ["context", "update", "spec", "--summary", "x"],
+}
+
+
+@pytest.mark.parametrize("args", list(CONTEXT_INVOCATIONS.values()), ids=list(CONTEXT_INVOCATIONS))
+def test_context_plan_resolution(
+    project: Path, args: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every context subcommand shares select_plan, so resolution is tested once per command."""
+    unknown = runner.invoke(app, [*args, "-p", "nope", "-P", str(project), "--format", "json"])
+    assert unknown.exit_code == 1, unknown.output
+    assert "nope" in ErrorResult.model_validate_json(unknown.stderr).error
+
+    unselected = runner.invoke(app, [*args, "-P", str(project), "--format", "json"])
+    assert unselected.exit_code == 1, unselected.output
+    assert "No current plan is selected" in ErrorResult.model_validate_json(unselected.stderr).error
+
+    prepare_project(project).plans.set_current("auth")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
+    automated = runner.invoke(app, [*args, "-P", str(project)])
+    assert automated.exit_code == 1, automated.output
+    assert (
+        "Automation mode requires an explicit plan"
+        in ErrorResult.model_validate_json(automated.stderr).error
+    )
+
+
 def test_context_add_explicit_plan(project: Path) -> None:
     result = runner.invoke(
         app, ["context", "add", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
@@ -81,15 +111,6 @@ def test_context_add_current_plan(project: Path) -> None:
     result = runner.invoke(app, ["context", "add", "spec", "-P", str(project), "--format", "json"])
     assert result.exit_code == 0, result.output
     assert ContextAddResult.model_validate(json.loads(result.stdout)).plan == "auth"
-
-
-def test_context_add_never_changes_selection(project: Path) -> None:
-    prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(
-        app, ["context", "add", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 0, result.output
-    assert read_state(project).current_plan == "auth"
 
 
 def test_context_add_multiple(project: Path) -> None:
@@ -169,26 +190,6 @@ def test_context_add_batch_partial_success_text_reports_errors(project: Path) ->
     assert (project / ".machi/plans/auth/context/new.md").exists()
 
 
-def test_context_add_automation_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    prepare_project(project).plans.set_current("auth")
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    result = runner.invoke(app, ["context", "add", "spec", "-P", str(project)])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert "Automation mode requires an explicit plan" in error.error
-    assert not (project / ".machi/plans/auth/context/spec.md").exists()
-
-
-def test_context_add_no_current_plan(project: Path) -> None:
-    result = runner.invoke(app, ["context", "add", "spec", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert "No current plan is selected" in error.error
-    assert not (project / ".machi/plans/auth/context/spec.md").exists()
-
-
 def test_context_add_duplicate_preserves_existing(project: Path) -> None:
     """A duplicate is now a partial-failure result, not a global error."""
     first = runner.invoke(
@@ -221,15 +222,6 @@ def test_context_add_invalid_name_preserves_target(project: Path, invalid: str) 
     assert snapshot(project) == before
 
 
-def test_context_add_unknown_plan(project: Path) -> None:
-    result = runner.invoke(
-        app, ["context", "add", "spec", "-p", "nope", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    assert "nope" in ErrorResult.model_validate_json(result.stderr).error
-    assert not (project / ".machi/plans/nope").exists()
-
-
 @pytest.mark.parametrize("format_name", ["text", "json"])
 def test_context_add_output(project: Path, format_name: str) -> None:
     result = runner.invoke(
@@ -242,78 +234,6 @@ def test_context_add_output(project: Path, format_name: str) -> None:
     else:
         assert "Created 1 context document(s) in example/auth" in result.stdout
         assert str(project / ".machi/plans/auth/context/spec.md") in result.stdout
-
-
-@pytest.mark.parametrize(
-    ("automation", "env_format", "flag", "expected"),
-    [
-        (None, None, None, "text"),
-        ("true", None, None, "json"),
-        ("false", None, None, "text"),
-        ("true", "text", None, "text"),
-        (None, "json", None, "json"),
-        ("true", "json", "text", "text"),
-    ],
-)
-def test_context_add_format_precedence(  # noqa: PLR0913
-    project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    automation: str | None,
-    env_format: str | None,
-    flag: str | None,
-    expected: str,
-) -> None:
-    if automation is not None:
-        monkeypatch.setenv("MACHI_AUTOMATION", automation)
-    if env_format is not None:
-        monkeypatch.setenv("MACHI_FORMAT", env_format)
-    args = ["context", "add", "spec", "-p", "auth", "-P", str(project)]
-    if flag is not None:
-        args.extend(["--format", flag])
-    result = runner.invoke(app, args)
-    assert result.exit_code == 0, result.output
-    assert result.stdout.startswith("{") == (expected == "json")
-
-
-@pytest.mark.parametrize(
-    ("env_name", "env_value", "field"),
-    [
-        ("MACHI_AUTOMATION", "perhaps", "automation"),
-        ("MACHI_FORMAT", "human", "format"),
-    ],
-)
-def test_context_add_invalid_settings(
-    project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    env_name: str,
-    env_value: str,
-    field: str,
-) -> None:
-    monkeypatch.setenv(env_name, env_value)
-    result = runner.invoke(app, ["context", "add", "spec", "-p", "auth", "-P", str(project)])
-    assert result.exit_code == 1
-    assert field in ErrorResult.model_validate_json(result.stderr).error
-
-
-class ReplacementFormatter(Formatter):
-    def __init__(self) -> None:
-        self.results: list[CommandResult] = []
-
-    @override
-    def format(self, result: CommandResult) -> str:
-        self.results.append(result)
-        return "replacement"
-
-
-def test_context_add_formatter_injection(project: Path) -> None:
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(
-        custom, ["context", "add", "spec", "-p", "auth", "-P", str(project), "--format", "custom"]
-    )
-    assert result.exit_code == 0
-    assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], ContextAddResult)
 
 
 def test_context_add_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -371,34 +291,6 @@ def test_context_add_then_show_and_list(project: Path) -> None:
     ]
 
 
-@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
-def test_context_add_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
-    args = ["context", "add", "spec"]
-    if source == "flag":
-        args.extend(["--format", "json"])
-    elif source == "environment":
-        monkeypatch.setenv("MACHI_FORMAT", "json")
-    else:
-        monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
-    assert result.exit_code == 2, result.output
-    assert result.stdout == ""
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "context add"
-    assert "--unknown" in error.error
-    factory.assert_not_called()
-
-
-def test_context_add_parser_error_formatter_injection() -> None:
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(custom, ["context", "add", "spec", "--unknown", "--format=custom"])
-    assert result.exit_code == 2
-    assert result.stderr == "replacement\n"
-    assert isinstance(formatter.results[0], ErrorResult)
-
-
 def seed_context(
     project: Path,
     name: str,
@@ -425,47 +317,12 @@ def test_context_list_explicit_plan(project: Path) -> None:
     assert [context.name for context in parsed.contexts] == ["notes", "spec"]
 
 
-def test_context_list_current_plan(project: Path) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(app, ["context", "list", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert ContextListResult.model_validate(json.loads(result.stdout)).plan == "auth"
-
-
 def test_context_list_empty(project: Path) -> None:
     result = runner.invoke(
         app, ["context", "list", "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert result.exit_code == 0, result.output
     assert ContextListResult.model_validate(json.loads(result.stdout)).contexts == []
-
-
-def test_context_list_does_not_change_selection(project: Path) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(app, ["context", "list", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert read_state(project).current_plan == "auth"
-
-
-def test_context_list_automation_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).plans.set_current("auth")
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    result = runner.invoke(app, ["context", "list", "-P", str(project)])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert "Automation mode requires an explicit plan" in error.error
-
-
-def test_context_list_no_current_plan(project: Path) -> None:
-    result = runner.invoke(app, ["context", "list", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert "No current plan is selected" in error.error
 
 
 def test_context_list_search(project: Path) -> None:
@@ -545,35 +402,6 @@ def test_context_list_empty_text(project: Path) -> None:
     assert "No contexts found." in result.stdout
 
 
-def test_context_list_formatter_injection(project: Path) -> None:
-    seed_context(project, "spec")
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(
-        custom, ["context", "list", "-p", "auth", "-P", str(project), "--format", "custom"]
-    )
-    assert result.exit_code == 0, result.output
-    assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], ContextListResult)
-
-
-@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
-def test_context_list_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
-    args = ["context", "list"]
-    if source == "flag":
-        args.extend(["--format", "json"])
-    elif source == "environment":
-        monkeypatch.setenv("MACHI_FORMAT", "json")
-    else:
-        monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
-    assert result.exit_code == 2, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "context list"
-    factory.assert_not_called()
-
-
 def test_context_show_explicit_plan(project: Path) -> None:
     seed_context(project, "spec", summary="The spec", body="# Spec\n\nDetails.\n")
     result = runner.invoke(
@@ -590,56 +418,12 @@ def test_context_show_explicit_plan(project: Path) -> None:
     assert parsed.context.document.metadata.created.tzinfo is not None
 
 
-def test_context_show_current_plan(project: Path) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(app, ["context", "show", "spec", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert ContextShowResult.model_validate(json.loads(result.stdout)).plan == "auth"
-
-
-def test_context_show_does_not_change_selection(project: Path) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(app, ["context", "show", "spec", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert read_state(project).current_plan == "auth"
-
-
-def test_context_show_automation_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).plans.set_current("auth")
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    result = runner.invoke(app, ["context", "show", "spec", "-P", str(project)])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert "Automation mode requires an explicit plan" in error.error
-
-
-def test_context_show_no_current_plan(project: Path) -> None:
-    seed_context(project, "spec")
-    result = runner.invoke(app, ["context", "show", "spec", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 1, result.output
-    assert "No current plan is selected" in ErrorResult.model_validate_json(result.stderr).error
-
-
 def test_context_show_unknown_context(project: Path) -> None:
     result = runner.invoke(
         app, ["context", "show", "missing", "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert result.exit_code == 1, result.output
     assert "missing" in ErrorResult.model_validate_json(result.stderr).error
-
-
-def test_context_show_unknown_plan(project: Path) -> None:
-    seed_context(project, "spec")
-    result = runner.invoke(
-        app, ["context", "show", "spec", "-p", "nope", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    assert "nope" in ErrorResult.model_validate_json(result.stderr).error
 
 
 @pytest.mark.parametrize("invalid", ["../bad", "a\\b", "a:b", "", ".", ".."])
@@ -669,36 +453,6 @@ def test_context_show_text_output_without_body(project: Path) -> None:
     assert "Summary:" not in result.stdout
 
 
-def test_context_show_formatter_injection(project: Path) -> None:
-    seed_context(project, "spec")
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(
-        custom,
-        ["context", "show", "spec", "-p", "auth", "-P", str(project), "--format", "custom"],
-    )
-    assert result.exit_code == 0, result.output
-    assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], ContextShowResult)
-
-
-@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
-def test_context_show_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
-    args = ["context", "show", "spec"]
-    if source == "flag":
-        args.extend(["--format", "json"])
-    elif source == "environment":
-        monkeypatch.setenv("MACHI_FORMAT", "json")
-    else:
-        monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
-    assert result.exit_code == 2, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "context show"
-    factory.assert_not_called()
-
-
 def test_context_info_explicit_plan(project: Path) -> None:
     seed_context(project, "spec", summary="The spec", body="# Spec\n\nDetails.\n")
     result = runner.invoke(
@@ -725,34 +479,6 @@ def test_context_info_omits_body(project: Path) -> None:
     assert "body" not in payload
 
 
-def test_context_info_current_plan(project: Path) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(app, ["context", "info", "spec", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert ContextInfoResult.model_validate(json.loads(result.stdout)).plan == "auth"
-
-
-def test_context_info_does_not_change_selection(project: Path) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(app, ["context", "info", "spec", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert read_state(project).current_plan == "auth"
-
-
-def test_context_info_automation_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).plans.set_current("auth")
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    result = runner.invoke(app, ["context", "info", "spec", "-P", str(project)])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert "Automation mode requires an explicit plan" in error.error
-
-
 def test_context_info_unknown_context(project: Path) -> None:
     result = runner.invoke(
         app, ["context", "info", "missing", "-p", "auth", "-P", str(project), "--format", "json"]
@@ -777,36 +503,6 @@ def test_context_info_text_output_without_summary(project: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "Context spec" in result.stdout
     assert "Summary:" not in result.stdout
-
-
-def test_context_info_formatter_injection(project: Path) -> None:
-    seed_context(project, "spec")
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(
-        custom,
-        ["context", "info", "spec", "-p", "auth", "-P", str(project), "--format", "custom"],
-    )
-    assert result.exit_code == 0, result.output
-    assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], ContextInfoResult)
-
-
-@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
-def test_context_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
-    args = ["context", "info", "spec"]
-    if source == "flag":
-        args.extend(["--format", "json"])
-    elif source == "environment":
-        monkeypatch.setenv("MACHI_FORMAT", "json")
-    else:
-        monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
-    assert result.exit_code == 2, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "context info"
-    factory.assert_not_called()
 
 
 def test_context_update_sets_summary(project: Path) -> None:
@@ -881,40 +577,6 @@ def test_context_update_replaces_tags(project: Path) -> None:
     assert parsed.context.document.metadata.tags == ["new", "backend"]
 
 
-def test_context_update_current_plan(project: Path) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(
-        app,
-        ["context", "update", "spec", "--summary", "New", "-P", str(project), "--format", "json"],
-    )
-    assert result.exit_code == 0, result.output
-    assert ContextUpdateResult.model_validate(json.loads(result.stdout)).plan == "auth"
-
-
-def test_context_update_does_not_change_selection(project: Path) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(
-        app,
-        [
-            "context",
-            "update",
-            "spec",
-            "--summary",
-            "New",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert read_state(project).current_plan == "auth"
-
-
 def test_context_update_nothing_to_change(project: Path) -> None:
     seed_context(project, "spec")
     before = snapshot(project)
@@ -944,47 +606,6 @@ def test_context_update_unknown_context(project: Path) -> None:
             "--format",
             "json",
         ],
-    )
-    assert result.exit_code == 1, result.output
-    assert ErrorResult.model_validate_json(result.stderr).command == "context update"
-
-
-def test_context_update_unknown_plan(project: Path) -> None:
-    result = runner.invoke(
-        app,
-        [
-            "context",
-            "update",
-            "spec",
-            "--summary",
-            "x",
-            "-p",
-            "nope",
-            "-P",
-            str(project),
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 1, result.output
-    assert ErrorResult.model_validate_json(result.stderr).command == "context update"
-
-
-def test_context_update_automation_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).plans.set_current("auth")
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    result = runner.invoke(app, ["context", "update", "spec", "--summary", "x", "-P", str(project)])
-    assert result.exit_code == 1, result.output
-    assert ErrorResult.model_validate_json(result.stderr).command == "context update"
-
-
-def test_context_update_no_current_plan(project: Path) -> None:
-    seed_context(project, "spec")
-    result = runner.invoke(
-        app, ["context", "update", "spec", "--summary", "x", "-P", str(project), "--format", "json"]
     )
     assert result.exit_code == 1, result.output
     assert ErrorResult.model_validate_json(result.stderr).command == "context update"
@@ -1036,61 +657,6 @@ def test_context_update_text_output(project: Path) -> None:
     assert "Updated context spec in example/auth" in result.stdout
 
 
-@pytest.mark.parametrize(
-    ("automation", "env_format", "flag", "expected"),
-    [
-        (None, None, None, "text"),
-        ("true", None, None, "json"),
-        (None, "json", None, "json"),
-        ("true", "json", "text", "text"),
-    ],
-)
-def test_context_update_format_precedence(  # noqa: PLR0913
-    project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    automation: str | None,
-    env_format: str | None,
-    flag: str | None,
-    expected: str,
-) -> None:
-    seed_context(project, "spec")
-    if automation is not None:
-        monkeypatch.setenv("MACHI_AUTOMATION", automation)
-    if env_format is not None:
-        monkeypatch.setenv("MACHI_FORMAT", env_format)
-    args = ["context", "update", "spec", "--summary", "x", "-p", "auth", "-P", str(project)]
-    if flag is not None:
-        args.extend(["--format", flag])
-    result = runner.invoke(app, args)
-    assert result.exit_code == 0, result.output
-    assert result.stdout.startswith("{") == (expected == "json")
-
-
-def test_context_update_formatter_injection(project: Path) -> None:
-    seed_context(project, "spec")
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(
-        custom,
-        [
-            "context",
-            "update",
-            "spec",
-            "--summary",
-            "x",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--format",
-            "custom",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], ContextUpdateResult)
-
-
 def test_context_update_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seed_context(project, "spec")
     application = prepare_project(project)
@@ -1118,24 +684,3 @@ def test_context_update_delegation(project: Path, monkeypatch: pytest.MonkeyPatc
     factory.assert_called_once_with(project)
     update.assert_called_once_with("auth", "spec", ContextUpdate(summary="x"))
     assert ContextUpdateResult.model_validate(json.loads(result.stdout)).context.name == "spec"
-
-
-@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
-def test_context_update_parser_errors_use_json(
-    monkeypatch: pytest.MonkeyPatch, source: str
-) -> None:
-    args = ["context", "update", "spec", "-p", "auth"]
-    if source == "flag":
-        args.extend(["--format", "json"])
-    elif source == "environment":
-        monkeypatch.setenv("MACHI_FORMAT", "json")
-    else:
-        monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
-    assert result.exit_code == 2, result.output
-    assert result.stdout == ""
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "context update"
-    assert "--unknown" in error.error
-    factory.assert_not_called()

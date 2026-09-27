@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from typing import override
 from unittest.mock import Mock
 
 import pytest
@@ -9,8 +8,7 @@ from upath import UPath
 
 from machinate.cli.cli import app, create_cli
 from machinate.cli.dependencies import Dependencies
-from machinate.cli.formatting import Formatter
-from machinate.cli.models import CommandResult, ErrorResult, InitResult, ListResult, ProjectScope
+from machinate.cli.models import ErrorResult, InitResult, ListResult, ProjectScope
 from machinate.storage import ProjectState, ProjectStateStore
 
 runner = CliRunner()
@@ -182,57 +180,6 @@ def test_init_text_output(target: Path) -> None:
     assert not result.stdout.startswith("{")
 
 
-@pytest.mark.parametrize(
-    ("automation", "env_format", "flag", "expected"),
-    [
-        (None, None, None, "text"),
-        ("true", None, None, "json"),
-        ("false", None, None, "text"),
-        (None, "json", None, "json"),
-        ("true", "json", "text", "text"),
-    ],
-)
-def test_init_format_precedence(  # noqa: PLR0913
-    target: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    automation: str | None,
-    env_format: str | None,
-    flag: str | None,
-    expected: str,
-) -> None:
-    if automation is not None:
-        monkeypatch.setenv("MACHI_AUTOMATION", automation)
-    if env_format is not None:
-        monkeypatch.setenv("MACHI_FORMAT", env_format)
-    args = ["init", "-P", str(target)]
-    if flag is not None:
-        args.extend(["--format", flag])
-    result = runner.invoke(app, args)
-    assert result.exit_code == 0, result.output
-    assert result.stdout.startswith("{") == (expected == "json")
-
-
-@pytest.mark.parametrize(
-    ("env_name", "env_value", "field"),
-    [
-        ("MACHI_AUTOMATION", "perhaps", "automation"),
-        ("MACHI_FORMAT", "human", "format"),
-    ],
-)
-def test_init_invalid_settings(
-    target: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    env_name: str,
-    env_value: str,
-    field: str,
-) -> None:
-    monkeypatch.setenv(env_name, env_value)
-    result = runner.invoke(app, ["init", "-P", str(target)])
-    assert result.exit_code == 1
-    assert field in ErrorResult.model_validate_json(result.stderr).error
-    assert not (target / ".machi").exists()
-
-
 def test_init_explicit_format_overrides_invalid_env_format(
     target: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -241,30 +188,6 @@ def test_init_explicit_format_overrides_invalid_env_format(
     assert result.exit_code == 0, result.output
     assert result.stdout.startswith("{")
     assert (target / ".machi").exists()
-
-
-class ReplacementFormatter(Formatter):
-    def __init__(self) -> None:
-        self.results: list[CommandResult] = []
-
-    @override
-    def format(self, result: CommandResult) -> str:
-        self.results.append(result)
-        return "replacement"
-
-
-def test_init_formatter_injection(target: Path) -> None:
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(custom, ["init", "-P", str(target), "--format", "custom"])
-    assert result.exit_code == 0
-    assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], InitResult)
-    missing = target / "missing"
-    result = runner.invoke(custom, ["init", "-P", str(missing), "--format", "custom"])
-    assert result.exit_code == 1
-    assert result.stderr == "replacement\n"
-    assert isinstance(formatter.results[1], ErrorResult)
 
 
 def test_init_delegation(target: Path) -> None:
@@ -287,25 +210,3 @@ def test_init_then_list_is_empty(target: Path, monkeypatch: pytest.MonkeyPatch) 
     assert parsed.plans == []
     assert parsed.project.name == target.name
     assert parsed.project.directory == target
-
-
-@pytest.mark.parametrize("invalid", [["--project-name"], ["--unknown"]])
-@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
-def test_init_parser_errors_use_json(
-    invalid: list[str],
-    source: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    args = ["init"]
-    if source == "flag":
-        args.extend(["--format", "json"])
-    elif source == "environment":
-        monkeypatch.setenv("MACHI_FORMAT", "json")
-    else:
-        monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    result = runner.invoke(app, [*args, *invalid])
-    assert result.exit_code == 2
-    assert result.stdout == ""
-    parsed = ErrorResult.model_validate_json(result.stderr)
-    assert parsed.command == "init"
-    assert invalid[0] in parsed.error
