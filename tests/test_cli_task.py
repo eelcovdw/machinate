@@ -33,7 +33,7 @@ _DEFAULT_CREATED = datetime(2026, 1, 1, tzinfo=UTC)
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -136,6 +136,37 @@ def test_task_add_batch_partial_success(project: Path) -> None:
     assert (project / ".machi/plans/auth/tasks/existing.md").exists()  # Not overwritten.
 
 
+def test_task_add_batch_partial_success_text_reports_errors(project: Path) -> None:
+    """Text output must surface rejected names, not only exit non-zero."""
+    prepare_project(project).tasks.create(
+        "auth", "existing", TaskMetadata(created=_DEFAULT_CREATED)
+    )
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "add",
+            "new",
+            "existing",
+            "../bad",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "text",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert "Created 1 task(s)" in result.stdout
+    assert "Not created:" in result.stdout
+    assert "existing" in result.stdout
+    assert "Already exists" in result.stdout
+    assert "../bad" in result.stdout
+    assert "Expected a nonempty name" in result.stdout
+    assert (project / ".machi/plans/auth/tasks/new.md").exists()
+
+
 def test_task_add_batch_all_created_reports_no_errors(project: Path) -> None:
     result = runner.invoke(
         app,
@@ -146,15 +177,13 @@ def test_task_add_batch_all_created_reports_no_errors(project: Path) -> None:
     assert parsed.errors == []
 
 
-def test_task_add_non_interactive_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_task_add_automation_requires_plan(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     prepare_project(project).plans.set_current("auth")
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     result = runner.invoke(app, ["task", "add", "login", "-P", str(project)])
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
-    assert "Non-interactive mode requires an explicit plan" in error.error
+    assert "Automation mode requires an explicit plan" in error.error
     assert not (project / ".machi/plans/auth/tasks/login.md").exists()
 
 
@@ -221,26 +250,26 @@ def test_task_add_output(project: Path, format_name: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("interactive", "env_format", "flag", "expected"),
+    ("automation", "env_format", "flag", "expected"),
     [
         (None, None, None, "text"),
-        ("false", None, None, "json"),
-        ("true", None, None, "text"),
-        ("false", "text", None, "text"),
+        ("true", None, None, "json"),
+        ("false", None, None, "text"),
+        ("true", "text", None, "text"),
         (None, "json", None, "json"),
-        ("false", "json", "text", "text"),
+        ("true", "json", "text", "text"),
     ],
 )
 def test_task_add_format_precedence(  # noqa: PLR0913
     project: Path,
     monkeypatch: pytest.MonkeyPatch,
-    interactive: str | None,
+    automation: str | None,
     env_format: str | None,
     flag: str | None,
     expected: str,
 ) -> None:
-    if interactive is not None:
-        monkeypatch.setenv("MACHI_INTERACTIVE", interactive)
+    if automation is not None:
+        monkeypatch.setenv("MACHI_AUTOMATION", automation)
     if env_format is not None:
         monkeypatch.setenv("MACHI_FORMAT", env_format)
     args = ["task", "add", "login", "-p", "auth", "-P", str(project)]
@@ -254,7 +283,7 @@ def test_task_add_format_precedence(  # noqa: PLR0913
 @pytest.mark.parametrize(
     ("env_name", "env_value", "field"),
     [
-        ("MACHI_INTERACTIVE", "perhaps", "interactive"),
+        ("MACHI_AUTOMATION", "perhaps", "automation"),
         ("MACHI_FORMAT", "human", "format"),
     ],
 )
@@ -346,7 +375,7 @@ def test_task_add_then_show_and_list(project: Path) -> None:
     ]
 
 
-@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
 def test_task_add_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["task", "add", "login"]
     if source == "flag":
@@ -354,7 +383,7 @@ def test_task_add_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source
     elif source == "environment":
         monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+        monkeypatch.setenv("MACHI_AUTOMATION", "true")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
     assert result.exit_code == 2, result.output
@@ -539,16 +568,14 @@ def test_task_list_sort_and_limit(project: Path) -> None:
     ] == ["beta", "alpha"]
 
 
-def test_task_list_non_interactive_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_task_list_automation_requires_plan(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     prepare_project(project).plans.set_current("auth")
     seed_task(project, "login")
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     result = runner.invoke(app, ["task", "list", "-P", str(project)])
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
-    assert "Non-interactive mode requires an explicit plan" in error.error
+    assert "Automation mode requires an explicit plan" in error.error
 
 
 def test_task_list_no_current_plan(project: Path) -> None:
@@ -618,7 +645,7 @@ def test_task_list_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert TaskListResult.model_validate(json.loads(result.stdout)).tasks[0].name == "seed"
 
 
-@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
 def test_task_list_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["task", "list", "-p", "auth"]
     if source == "flag":
@@ -626,7 +653,7 @@ def test_task_list_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, sourc
     elif source == "environment":
         monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+        monkeypatch.setenv("MACHI_AUTOMATION", "true")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
     assert result.exit_code == 2, result.output
@@ -706,12 +733,10 @@ def test_task_show_invalid_name_preserves_target(project: Path, invalid: str) ->
     assert snapshot(project) == before
 
 
-def test_task_show_non_interactive_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_task_show_automation_requires_plan(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     prepare_project(project).plans.set_current("auth")
     seed_task(project, "login")
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     result = runner.invoke(app, ["task", "show", "login", "-P", str(project)])
     assert result.exit_code == 1, result.output
     assert ErrorResult.model_validate_json(result.stderr).command == "task show"
@@ -769,7 +794,7 @@ def test_task_show_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert TaskShowResult.model_validate(json.loads(result.stdout)).task.name == "seed"
 
 
-@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
 def test_task_show_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["task", "show", "login", "-p", "auth"]
     if source == "flag":
@@ -777,7 +802,7 @@ def test_task_show_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, sourc
     elif source == "environment":
         monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+        monkeypatch.setenv("MACHI_AUTOMATION", "true")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
     assert result.exit_code == 2, result.output
@@ -846,12 +871,10 @@ def test_task_info_missing_task_preserves_project(project: Path) -> None:
     assert snapshot(project) == before
 
 
-def test_task_info_non_interactive_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_task_info_automation_requires_plan(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     prepare_project(project).plans.set_current("auth")
     seed_task(project, "login")
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     result = runner.invoke(app, ["task", "info", "login", "-P", str(project)])
     assert result.exit_code == 1, result.output
     assert ErrorResult.model_validate_json(result.stderr).command == "task info"
@@ -885,7 +908,7 @@ def test_task_info_formatter_injection(project: Path) -> None:
     assert isinstance(formatter.results[0], TaskInfoResult)
 
 
-@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
 def test_task_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["task", "info", "login", "-p", "auth"]
     if source == "flag":
@@ -893,7 +916,7 @@ def test_task_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, sourc
     elif source == "environment":
         monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+        monkeypatch.setenv("MACHI_AUTOMATION", "true")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
     assert result.exit_code == 2, result.output
@@ -1117,12 +1140,12 @@ def test_task_update_unknown_plan(project: Path) -> None:
     assert ErrorResult.model_validate_json(result.stderr).command == "task update"
 
 
-def test_task_update_non_interactive_requires_plan(
+def test_task_update_automation_requires_plan(
     project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     prepare_project(project).plans.set_current("auth")
     seed_task(project, "login")
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     result = runner.invoke(app, ["task", "update", "login", "--status", "done", "-P", str(project)])
     assert result.exit_code == 1, result.output
     assert ErrorResult.model_validate_json(result.stderr).command == "task update"
@@ -1218,7 +1241,7 @@ def test_task_update_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) 
     assert TaskUpdateResult.model_validate(json.loads(result.stdout)).task.name == "seed"
 
 
-@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
 def test_task_update_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["task", "update", "login", "-p", "auth"]
     if source == "flag":
@@ -1226,7 +1249,7 @@ def test_task_update_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, sou
     elif source == "environment":
         monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+        monkeypatch.setenv("MACHI_AUTOMATION", "true")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
     assert result.exit_code == 2, result.output

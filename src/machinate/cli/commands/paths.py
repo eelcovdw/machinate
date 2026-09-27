@@ -42,7 +42,7 @@ def plan_path(
         formatter = select_formatter(output_format or settings.format, dependencies.formatters)
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan, automation=settings.automation)
         result = PathResult(
             command="plan path",
             project=scope,
@@ -88,7 +88,7 @@ def task_path(
         task_name = None if name is None else TaskNameInput(name=name).name
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan, automation=settings.automation)
         if task_name is None:
             target = scope.storage / project_context.tasks.directory(selected.name)
             result = PathResult(
@@ -146,7 +146,7 @@ def context_path(
         context_name = None if name is None else ContextNameInput(name=name).name
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan, automation=settings.automation)
         if context_name is None:
             target = scope.storage / project_context.contexts.directory(selected.name)
             result = PathResult(

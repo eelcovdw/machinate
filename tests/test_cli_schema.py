@@ -57,7 +57,7 @@ class _CommandSchema(BaseModel):
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -110,7 +110,16 @@ def test_schema_for_command() -> None:
 
 def test_schema_for_plan_group() -> None:
     group = _GroupSchema.model_validate_json(runner.invoke(app, ["schema", "plan"]).stdout)
-    assert set(group.commands) == {"add", "info", "list", "path", "set", "show", "update"}
+    assert set(group.commands) == {
+        "add",
+        "info",
+        "list",
+        "path",
+        "select",
+        "show",
+        "unselect",
+        "update",
+    }
     assert group.commands["info"].ref == "#/$defs/PlanInfoResult"
     assert group.commands["show"].ref == "#/$defs/ShowResult"
     assert "PlanInfoResult" in group.defs
@@ -180,7 +189,7 @@ def test_schema_parser_errors_follow_mode(monkeypatch: pytest.MonkeyPatch) -> No
     assert text.stdout == ""
     assert "--unknown" in text.stderr
 
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     structured = runner.invoke(cli, ["schema", "--unknown"])
     assert structured.exit_code == 2
     assert structured.stdout == ""

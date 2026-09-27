@@ -25,9 +25,9 @@ uv tool install git+https://github.com/eelcovdw/machinate.git
 ```bash
 machi init                   # initialize a project
 machi plan add auth          # create a plan
-machi plan set auth          # select it as current active plan
-machi task add login logout  # add tasks on the active plan
-machi task list              # list all tasks on the active plan
+machi plan select auth       # select it as the current plan
+machi task add login logout  # add tasks to the current plan
+machi task list              # list all tasks in the current plan
 machi context add spec       # add context
 machi plan show              # read the current plan
 machi plan info              # progress overview

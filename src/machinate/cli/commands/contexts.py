@@ -31,15 +31,24 @@ class ContextUpdateError(Exception):
     """Raised when an update is requested with no fields to change."""
 
 
-def context_changes(summary: str | None, tags: list[str] | None) -> ContextUpdate:
+def context_changes(
+    summary: str | None,
+    tags: list[str] | None,
+    clear_tags: bool = False,
+) -> ContextUpdate:
     """Validate provided options and build a context update with only the changed fields."""
     changes: dict[str, object] = {}
     if summary is not None:
         changes["summary"] = summary
-    if tags is not None:
+    if clear_tags:
+        if tags is not None:
+            msg = "--tag and --clear-tags are mutually exclusive."
+            raise ContextUpdateError(msg)
+        changes["tags"] = []
+    elif tags is not None:
         changes["tags"] = tags
     if not changes:
-        msg = "Nothing to update; pass --summary or --tag."
+        msg = "Nothing to update; pass --summary, --tag, or --clear-tags."
         raise ContextUpdateError(msg)
     return ContextUpdate.model_validate(changes)
 
@@ -67,7 +76,7 @@ def context_add(  # noqa: PLR0913
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Create one or more context documents in a plan without changing selection."""
+    """Create one or more context documents in a plan."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -76,7 +85,7 @@ def context_add(  # noqa: PLR0913
         formatter = select_formatter(output_format or settings.format, dependencies.formatters)
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan, automation=settings.automation)
         created, errors = project_context.contexts.create_batch(
             selected.name, names, ContextMetadata(created=datetime.now(UTC), tags=tags or [])
         )
@@ -129,7 +138,7 @@ def context_list(  # noqa: PLR0913
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
     limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
 ) -> None:
-    """List context documents in a plan without changing selection."""
+    """List context documents in a plan."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -148,7 +157,7 @@ def context_list(  # noqa: PLR0913
         )
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan, automation=settings.automation)
         result = ContextListResult(
             project=scope,
             plan=selected.name,
@@ -188,7 +197,7 @@ def context_show(
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Show a context document without changing selection."""
+    """Show context metadata and body."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -198,7 +207,7 @@ def context_show(
         context_name = ContextNameInput(name=name).name
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan, automation=settings.automation)
         document = project_context.contexts.get(selected.name, context_name)
         result = ContextShowResult(project=scope, plan=selected.name, context=document)
     except (
@@ -235,7 +244,7 @@ def context_info(
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Show a context's metadata (without its body) without changing selection."""
+    """Show context metadata."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -245,7 +254,7 @@ def context_info(
         context_name = ContextNameInput(name=name).name
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan, automation=settings.automation)
         document = project_context.contexts.info(selected.name, context_name)
         result = ContextInfoResult(project=scope, plan=selected.name, context=document)
     except (
@@ -286,11 +295,15 @@ def context_update(  # noqa: PLR0913
         list[str] | None,
         typer.Option("--tag", help="Replace the context's tags. Repeat for multiple tags."),
     ] = None,
+    clear_tags: Annotated[
+        bool,
+        typer.Option("--clear-tags", help="Remove all tags; mutually exclusive with --tag."),
+    ] = False,
     output_format: Annotated[
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Update a context document's summary or tags without changing selection."""
+    """Change context summary or tags."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -299,10 +312,10 @@ def context_update(  # noqa: PLR0913
         formatter = select_formatter(output_format or settings.format, dependencies.formatters)
         context_name = ContextNameInput(name=name).name
         plan_name = None if plan is None else NameInput(name=plan).name
-        changes = context_changes(summary, tags)
+        changes = context_changes(summary, tags, clear_tags)
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan_name, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan_name, automation=settings.automation)
         updated = project_context.contexts.update(selected.name, context_name, changes)
         result = ContextUpdateResult(project=scope, plan=selected.name, context=updated)
     except (

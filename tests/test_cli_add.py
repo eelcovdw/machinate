@@ -20,7 +20,7 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -168,26 +168,26 @@ def test_add_output(project: Path, format_name: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("interactive", "env_format", "flag", "expected"),
+    ("automation", "env_format", "flag", "expected"),
     [
         (None, None, None, "text"),
-        ("false", None, None, "json"),
-        ("true", None, None, "text"),
-        ("false", "text", None, "text"),
+        ("true", None, None, "json"),
+        ("false", None, None, "text"),
+        ("true", "text", None, "text"),
         (None, "json", None, "json"),
-        ("false", "json", "text", "text"),
+        ("true", "json", "text", "text"),
     ],
 )
 def test_add_format_precedence(  # noqa: PLR0913
     project: Path,
     monkeypatch: pytest.MonkeyPatch,
-    interactive: str | None,
+    automation: str | None,
     env_format: str | None,
     flag: str | None,
     expected: str,
 ) -> None:
-    if interactive is not None:
-        monkeypatch.setenv("MACHI_INTERACTIVE", interactive)
+    if automation is not None:
+        monkeypatch.setenv("MACHI_AUTOMATION", automation)
     if env_format is not None:
         monkeypatch.setenv("MACHI_FORMAT", env_format)
     args = ["plan", "add", "alpha", "-P", str(project)]
@@ -201,7 +201,7 @@ def test_add_format_precedence(  # noqa: PLR0913
 @pytest.mark.parametrize(
     ("env_name", "env_value", "field"),
     [
-        ("MACHI_INTERACTIVE", "perhaps", "interactive"),
+        ("MACHI_AUTOMATION", "perhaps", "automation"),
         ("MACHI_FORMAT", "human", "format"),
     ],
 )
@@ -285,7 +285,7 @@ def test_add_then_list(project: Path) -> None:
     ]
 
 
-@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
 def test_add_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["plan", "add", "alpha"]
     if source == "flag":
@@ -293,7 +293,7 @@ def test_add_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str
     elif source == "environment":
         monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+        monkeypatch.setenv("MACHI_AUTOMATION", "true")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
     assert result.exit_code == 2

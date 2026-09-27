@@ -29,7 +29,7 @@ _CREATED = datetime(2026, 1, 1, tzinfo=UTC)
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -191,11 +191,9 @@ def test_plan_info_no_current_plan(project: Path) -> None:
     assert "-p" in error.error
 
 
-def test_plan_info_non_interactive_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_plan_info_automation_requires_plan(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     prepare_project(project).plans.set_current("auth")
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     result = runner.invoke(app, ["plan", "info", "-P", str(project), "--format", "json"])
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
@@ -263,7 +261,7 @@ def test_info_missing_project_directory_error_is_rendered(tmp_path: Path) -> Non
     assert str(missing) in error.error
 
 
-@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
 def test_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["info"]
     if source == "flag":
@@ -271,7 +269,7 @@ def test_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: st
     elif source == "environment":
         monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+        monkeypatch.setenv("MACHI_AUTOMATION", "true")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
     assert result.exit_code == 2, result.output
@@ -280,7 +278,7 @@ def test_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: st
     factory.assert_not_called()
 
 
-@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
 def test_plan_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["plan", "info"]
     if source == "flag":
@@ -288,7 +286,7 @@ def test_plan_info_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, sourc
     elif source == "environment":
         monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+        monkeypatch.setenv("MACHI_AUTOMATION", "true")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
     assert result.exit_code == 2, result.output

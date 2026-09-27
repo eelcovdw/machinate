@@ -10,6 +10,7 @@ from rich.console import Console, RenderableType
 from rich.table import Table
 from rich.text import Text
 
+from machinate.models.batch import BatchCreateError
 from machinate.models.search import FindEntry, FindSnippet
 from machinate.storage import PlanStatus, TaskStatus
 
@@ -29,13 +30,14 @@ from .models import (
     ListResult,
     PathResult,
     PlanInfoResult,
-    SetResult,
+    SelectResult,
     ShowResult,
     TaskAddResult,
     TaskInfoResult,
     TaskListResult,
     TaskShowResult,
     TaskUpdateResult,
+    UnselectResult,
     UpdateResult,
 )
 from .styles import (
@@ -120,8 +122,17 @@ def _field(label: str, value: str | Text, *, style: str = "") -> Text:
     return line
 
 
-def _bullet(name: str, value: str) -> Text:
-    return Text.assemble(("- ", ""), (name, HEADING), (f": {value}", PATH))
+def _bullet(name: str, value: str, *, style: str = PATH) -> Text:
+    return Text.assemble(("- ", ""), (name, HEADING), (f": {value}", style))
+
+
+def _not_created(errors: Sequence[BatchCreateError]) -> list[Text]:
+    """Render the names a batch rejected, so text output never drops them."""
+    if not errors:
+        return []
+    lines = [Text(), Text("Not created:", style=ERROR)]
+    lines.extend(_bullet(error.name, error.error, style=ERROR) for error in errors)
+    return lines
 
 
 def _counts[S: str](counts: Mapping[S, int]) -> str:
@@ -142,14 +153,27 @@ def _shorten(text: str, width: int) -> str:
     return f"{text[:cut].rstrip()}…"
 
 
-def _entry(name: str, name_width: int, tags: str, tags_width: int, summary: str | None) -> Text:
+def _entry(  # noqa: PLR0913
+    name: str,
+    name_width: int,
+    tags: str,
+    tags_width: int,
+    summary: str | None,
+    status: str | None = None,
+    status_width: int = 0,
+) -> Text:
     line = Text("  ")
+    used = 2
+    if status is not None:
+        line.append(status.ljust(status_width), style=status_style(status))
+        line.append("  ")
+        used += status_width + 2
     if summary:
         line.append(name.ljust(name_width))
         line.append("  ")
         line.append(tags.ljust(tags_width), style=MUTED)
         line.append("  ")
-        available = _display_width() - (2 + name_width + 2 + tags_width + 2)
+        available = _display_width() - (used + name_width + 2 + tags_width + 2)
         line.append(_shorten(summary, max(available, _MIN_SUMMARY_WIDTH)))
     elif tags:
         line.append(name.ljust(name_width))
@@ -165,11 +189,11 @@ def _status_sections(entries: Sequence[tuple[str, Text]], statuses: Sequence[str
     grouped: dict[str, list[Text]] = {}
     for status, row in entries:
         grouped.setdefault(status, []).append(row)
-    order = list(statuses)
+    order = [status for status in statuses if status in grouped]
     order.extend(status for status in grouped if status not in statuses)
     lines: list[Text] = []
     for status in order:
-        rows = grouped.get(status, [])
+        rows = grouped[status]
         header = Text(status, style=status_style(status))
         header.append(f" ({len(rows)})", style=MUTED)
         lines.append(header)
@@ -251,6 +275,7 @@ def render_context_add(result: ContextAddResult) -> str:
         _bullet(context.name, str(result.project.storage / context.path))
         for context in result.contexts
     )
+    lines.extend(_not_created(result.errors))
     return _render(lines)
 
 
@@ -342,6 +367,7 @@ def render_task_add(result: TaskAddResult) -> str:
     lines.extend(
         _bullet(task.name, str(result.project.storage / task.path)) for task in result.tasks
     )
+    lines.extend(_not_created(result.errors))
     return _render(lines)
 
 
@@ -355,14 +381,27 @@ def render_task_list(result: TaskListResult) -> str:
     name_width = max(len(task.name) for task in result.tasks)
     tags = [", ".join(task.metadata.tags) for task in result.tasks]
     tags_width = max((len(value) for value in tags), default=0)
+    grouped = result.group_by is not None
+    status_width = max((len(task.metadata.status) for task in result.tasks), default=0)
     entries = [
         (
             task.metadata.status,
-            _entry(task.name, name_width, tag, tags_width, task.summary),
+            _entry(
+                task.name,
+                name_width,
+                tag,
+                tags_width,
+                task.summary,
+                status=None if grouped else task.metadata.status,
+                status_width=status_width,
+            ),
         )
         for task, tag in zip(result.tasks, tags, strict=True)
     ]
-    lines.extend(_status_sections(entries, TASK_STATUS_ORDER))
+    if grouped:
+        lines.extend(_status_sections(entries, TASK_STATUS_ORDER))
+    else:
+        lines.extend(row for _, row in entries)
     return _render(lines)
 
 
@@ -439,10 +478,17 @@ def render_update(result: UpdateResult) -> str:
 
 
 @render_text.register
-def render_set(result: SetResult) -> str:
+def render_select(result: SelectResult) -> str:
     line = Text("Selected plan ")
     line.append(str(result.state.current_plan), style=HEADING)
     line.append(f" in {result.project.name}")
+    return _render([line])
+
+
+@render_text.register
+def render_unselect(result: UnselectResult) -> str:
+    line = Text("Cleared the current plan in ")
+    line.append(result.project.name, style=HEADING)
     return _render([line])
 
 
@@ -549,14 +595,27 @@ def render_list(result: ListResult) -> str:
     name_width = max(len(plan.name) for plan in result.plans)
     tags = [", ".join(plan.metadata.tags) for plan in result.plans]
     tags_width = max((len(value) for value in tags), default=0)
+    grouped = result.group_by is not None
+    status_width = max((len(plan.metadata.status) for plan in result.plans), default=0)
     entries = [
         (
             plan.metadata.status,
-            _entry(plan.name, name_width, tag, tags_width, plan.summary),
+            _entry(
+                plan.name,
+                name_width,
+                tag,
+                tags_width,
+                plan.summary,
+                status=None if grouped else plan.metadata.status,
+                status_width=status_width,
+            ),
         )
         for plan, tag in zip(result.plans, tags, strict=True)
     ]
-    lines.extend(_status_sections(entries, PLAN_STATUS_ORDER))
+    if grouped:
+        lines.extend(_status_sections(entries, PLAN_STATUS_ORDER))
+    else:
+        lines.extend(row for _, row in entries)
     return _render(lines)
 
 

@@ -29,7 +29,7 @@ _NOW = datetime(2026, 9, 22, tzinfo=UTC)
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_LOG_LEVEL", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_LOG_LEVEL", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -178,61 +178,24 @@ def test_find_text_and_json_expose_the_same_entries(project: Path) -> None:
         assert entry.path.as_posix() in output
 
 
-def test_find_snippet_line_range_and_text(project: Path) -> None:
+def test_find_text_lists_paths_without_snippets(project: Path) -> None:
     output = invoke_text(project, "kangaroo")
-    assert "plans/auth/tasks/login.md:8" in output
-    assert "8 │ kangaroo login flow" in output
-
-
-def test_find_no_snippets_flag_omits_lines(project: Path) -> None:
-    output = invoke_text(project, "kangaroo", "--no-snippets")
     assert "plans/auth/tasks/login.md" in output
     assert "kangaroo login flow" not in output
     assert "│" not in output
     assert ":8" not in output
 
 
-def test_find_context_widens_line_range(project: Path) -> None:
-    output = invoke_text(project, "kangaroo", "--context", "2")
-    assert "plans/auth/tasks/login.md:6-10" in output
-    assert "intro" in output
-    assert "trailing" in output
-
-
-def test_find_json_snippet_lines_and_highlights(project: Path) -> None:
+def test_find_json_entries_have_no_snippets(project: Path) -> None:
     parsed = invoke(project, "kangaroo")
-    snippet = parsed.entries[0].snippets[0]
-    assert (snippet.line, snippet.line_end) == (8, 8)
-    assert snippet.text == "kangaroo login flow"
-    start, end = snippet.highlights[0]
-    assert snippet.text[start:end] == "kangaroo"
+    assert all(entry.snippets == [] for entry in parsed.entries)
 
 
-def test_find_json_no_snippets_flag(project: Path) -> None:
-    parsed = invoke(project, "kangaroo", "--no-snippets")
-    assert parsed.entries[0].snippets == []
-
-
-def test_find_snippet_offsets_with_non_ascii(project: Path) -> None:
-    store = DocumentStore(UPath(project / ".machi"))
-    store.create(
-        Layout().context("auth", "accented"),
-        Document(metadata=ContextMetadata(created=_NOW), body="caf\u00e9 na\u00efve zebra\n"),
-    )
-    parsed = invoke(project, "zebra")
-    snippet = parsed.entries[0].snippets[0]
-    start, end = snippet.highlights[0]
-    assert snippet.text[start:end] == "zebra"
-
-
-def test_find_snippet_for_prefix_and_typo_queries(project: Path) -> None:
+def test_find_prefix_and_typo_queries(project: Path) -> None:
     for query in ("kang", "kanguroo"):
         parsed = invoke(project, query)
         assert parsed.entries, query
-        snippet = parsed.entries[0].snippets[0]
-        assert snippet.line == 8, query
-        start, end = snippet.highlights[0]
-        assert snippet.text[start:end] == "kangaroo", query
+        assert parsed.entries[0].snippets == []
 
 
 def test_find_via_installed_cli(project: Path) -> None:
@@ -240,7 +203,7 @@ def test_find_via_installed_cli(project: Path) -> None:
     environment = {
         key: value
         for key, value in os.environ.items()
-        if key not in {"MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_LOG_LEVEL", "MACHI_AGENT"}
+        if key not in {"MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_LOG_LEVEL", "MACHI_AGENT"}
     }
     result = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
         [str(launcher), "find", "-P", str(project), "kangaroo", "--format", "json"],

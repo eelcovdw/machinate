@@ -29,10 +29,15 @@ class ContextService:
         self, plan: Name, name: ContextName, metadata: ContextMetadata, body: str = ""
     ) -> Context:
         self._require_plan(plan)
-        self.document_store.create(
-            self.layout.context(plan, name), Document(metadata=metadata, body=body)
-        )
-        return self.get(plan, name)
+        return self._create(plan, name, metadata, body)
+
+    def _create(
+        self, plan: Name, name: ContextName, metadata: ContextMetadata, body: str = ""
+    ) -> Context:
+        """Write a context without re-checking the plan; callers must have required it."""
+        path = self.layout.context(plan, name)
+        self.document_store.create(path, Document(metadata=metadata, body=body))
+        return self._get(plan, name)
 
     @validate_call
     def create_batch(
@@ -57,25 +62,28 @@ class ContextService:
                 self.document_store.metadata(self.layout.context(plan, valid))
             except MissingDocumentError:
                 candidates.append(valid)
-            except OSError as exc:
+            except StorageError as exc:
                 errors.append(BatchCreateError(name=name, error=str(exc)))
             else:
                 errors.append(
                     BatchCreateError(
-                        name=valid, error=f"Already exists: {self.layout.context(plan, valid)}"
+                        name=name, error=f"Already exists: {self.layout.context(plan, valid)}"
                     )
                 )
         created: list[Context] = []
         for name in candidates:
             try:
-                created.append(self.create(plan, name, metadata, body))
-            except (StorageError, ValidationError, OSError) as exc:
+                created.append(self._create(plan, name, metadata, body))
+            except (StorageError, ValidationError) as exc:
                 errors.append(BatchCreateError(name=name, error=str(exc)))
         return created, errors
 
     @validate_call
     def get(self, plan: Name, name: ContextName) -> Context:
         self._require_plan(plan)
+        return self._get(plan, name)
+
+    def _get(self, plan: Name, name: ContextName) -> Context:
         path = self.layout.context(plan, name)
         return Context(
             name=name,

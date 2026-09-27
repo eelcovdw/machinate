@@ -21,6 +21,7 @@ class ListResult(BaseModel):
     command: Literal["plan list"] = "plan list"
     project: ProjectScope
     plans: list[PlanSummary]
+    group_by: Literal["status"] | None = None
 
 
 class InitResult(BaseModel):
@@ -40,8 +41,14 @@ class ShowResult(BaseModel):
     plan: Plan
 
 
-class SetResult(BaseModel):
-    command: Literal["plan set"] = "plan set"
+class SelectResult(BaseModel):
+    command: Literal["plan select"] = "plan select"
+    project: ProjectScope
+    state: ProjectState
+
+
+class UnselectResult(BaseModel):
+    command: Literal["plan unselect"] = "plan unselect"
     project: ProjectScope
     state: ProjectState
 
@@ -65,6 +72,7 @@ class TaskListResult(BaseModel):
     project: ProjectScope
     plan: str
     tasks: list[TaskSummary]
+    group_by: Literal["status"] | None = None
 
 
 class TaskShowResult(BaseModel):
@@ -174,7 +182,8 @@ type CommandResult = (
     | PlanInfoResult
     | PathResult
     | UpdateResult
-    | SetResult
+    | SelectResult
+    | UnselectResult
     | ShowResult
     | TaskAddResult
     | TaskInfoResult

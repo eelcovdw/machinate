@@ -44,17 +44,27 @@ def task_status(value: str) -> TaskStatus:
     return cast("TaskStatus", value)
 
 
-def task_changes(summary: str | None, status: str | None, tags: list[str] | None) -> TaskUpdate:
+def task_changes(
+    summary: str | None,
+    status: str | None,
+    tags: list[str] | None,
+    clear_tags: bool = False,
+) -> TaskUpdate:
     """Validate provided options and build a task update with only the changed fields."""
     changes: dict[str, object] = {}
     if summary is not None:
         changes["summary"] = summary
     if status is not None:
         changes["status"] = task_status(status)
-    if tags is not None:
+    if clear_tags:
+        if tags is not None:
+            msg = "--tag and --clear-tags are mutually exclusive."
+            raise TaskUpdateError(msg)
+        changes["tags"] = []
+    elif tags is not None:
         changes["tags"] = tags
     if not changes:
-        msg = "Nothing to update; pass --summary, --status, or --tag."
+        msg = "Nothing to update; pass --summary, --status, --tag, or --clear-tags."
         raise TaskUpdateError(msg)
     return TaskUpdate.model_validate(changes)
 
@@ -80,7 +90,7 @@ def task_add(  # noqa: PLR0913
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Create one or more tasks in a plan without changing selection."""
+    """Create one or more tasks in a plan."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -89,7 +99,7 @@ def task_add(  # noqa: PLR0913
         formatter = select_formatter(output_format or settings.format, dependencies.formatters)
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan, automation=settings.automation)
         created, errors = project_context.tasks.create_batch(
             selected.name, names, TaskMetadata(created=datetime.now(UTC), tags=tags or [])
         )
@@ -145,9 +155,16 @@ def task_list(  # noqa: PLR0913
     ] = None,
     sort: Annotated[str, typer.Option(help="Sort by name, created, or updated.")] = "name",
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
+    group_by: Annotated[
+        bool,
+        typer.Option(
+            "--group-by/--no-group-by",
+            help="Group rows under status headers; use --no-group-by for a flat list.",
+        ),
+    ] = True,
     limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
 ) -> None:
-    """List tasks in a plan without changing selection."""
+    """List tasks in a plan."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -167,11 +184,12 @@ def task_list(  # noqa: PLR0913
         )
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan, automation=settings.automation)
         result = TaskListResult(
             project=scope,
             plan=selected.name,
             tasks=project_context.tasks.list(selected.name, query),
+            group_by="status" if group_by else None,
         )
     except (
         ProjectError,
@@ -207,7 +225,7 @@ def task_show(
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Show a task without changing selection."""
+    """Show task metadata and body."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -217,7 +235,7 @@ def task_show(
         task_name = TaskNameInput(name=name).name
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan, automation=settings.automation)
         task = project_context.tasks.get(selected.name, task_name)
         result = TaskShowResult(project=scope, plan=selected.name, task=task)
     except (
@@ -254,7 +272,7 @@ def task_info(
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Show a task's metadata (without its body) without changing selection."""
+    """Show task metadata."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -264,7 +282,7 @@ def task_info(
         task_name = TaskNameInput(name=name).name
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan, automation=settings.automation)
         task = project_context.tasks.info(selected.name, task_name)
         result = TaskInfoResult(project=scope, plan=selected.name, task=task)
     except (
@@ -308,11 +326,15 @@ def update_task(  # noqa: PLR0913
         list[str] | None,
         typer.Option("--tag", help="Replace the task's tags. Repeat for multiple tags."),
     ] = None,
+    clear_tags: Annotated[
+        bool,
+        typer.Option("--clear-tags", help="Remove all tags; mutually exclusive with --tag."),
+    ] = False,
     output_format: Annotated[
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
 ) -> None:
-    """Update a task's summary, status, or tags without changing selection."""
+    """Change task status, summary, or tags."""
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
     scope: ProjectScope | None = None
@@ -321,10 +343,10 @@ def update_task(  # noqa: PLR0913
         formatter = select_formatter(output_format or settings.format, dependencies.formatters)
         task_name = TaskNameInput(name=name).name
         plan_name = None if plan is None else NameInput(name=plan).name
-        changes = task_changes(summary, status, tags)
+        changes = task_changes(summary, status, tags, clear_tags)
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan_name, interactive=settings.interactive)
+        selected = select_plan(project_context.plans, plan_name, automation=settings.automation)
         updated = project_context.tasks.update(selected.name, task_name, changes)
         result = TaskUpdateResult(project=scope, plan=selected.name, task=updated)
     except (

@@ -20,7 +20,7 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -97,13 +97,13 @@ def test_show_no_current_plan(project: Path) -> None:
     assert "No current plan" in result.stderr
 
 
-def test_show_non_interactive_requires_plan(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_show_automation_requires_plan(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seed_plan(project, current=True)
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     result = runner.invoke(app, ["plan", "show", "-P", str(project)])
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
-    assert "Non-interactive mode requires an explicit plan" in error.error
+    assert "Automation mode requires an explicit plan" in error.error
 
 
 def test_show_missing_plan_preserves_state(project: Path) -> None:
@@ -169,27 +169,27 @@ def test_show_output(project: Path, format_name: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("interactive", "env_format", "flag", "expected"),
+    ("automation", "env_format", "flag", "expected"),
     [
         (None, None, None, "text"),
-        ("false", None, None, "json"),
-        ("true", None, None, "text"),
-        ("false", "text", None, "text"),
+        ("true", None, None, "json"),
+        ("false", None, None, "text"),
+        ("true", "text", None, "text"),
         (None, "json", None, "json"),
-        ("false", "json", "text", "text"),
+        ("true", "json", "text", "text"),
     ],
 )
 def test_show_format_precedence(  # noqa: PLR0913
     project: Path,
     monkeypatch: pytest.MonkeyPatch,
-    interactive: str | None,
+    automation: str | None,
     env_format: str | None,
     flag: str | None,
     expected: str,
 ) -> None:
     seed_plan(project)
-    if interactive is not None:
-        monkeypatch.setenv("MACHI_INTERACTIVE", interactive)
+    if automation is not None:
+        monkeypatch.setenv("MACHI_AUTOMATION", automation)
     if env_format is not None:
         monkeypatch.setenv("MACHI_FORMAT", env_format)
     args = ["plan", "show", "-p", "auth", "-P", str(project)]
@@ -203,7 +203,7 @@ def test_show_format_precedence(  # noqa: PLR0913
 @pytest.mark.parametrize(
     ("env_name", "env_value", "field"),
     [
-        ("MACHI_INTERACTIVE", "perhaps", "interactive"),
+        ("MACHI_AUTOMATION", "perhaps", "automation"),
         ("MACHI_FORMAT", "human", "format"),
     ],
 )
@@ -298,7 +298,7 @@ def test_show_then_list(project: Path) -> None:
     assert prepare_project(project).plans.project_state_store.read().current_plan is None
 
 
-@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
 def test_show_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: str) -> None:
     args = ["plan", "show", "-p", "auth"]
     if source == "flag":
@@ -306,7 +306,7 @@ def test_show_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch, source: st
     elif source == "environment":
         monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+        monkeypatch.setenv("MACHI_AUTOMATION", "true")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, "--unknown"])
     assert result.exit_code == 2

@@ -88,6 +88,12 @@ class PlanService:
         self.project_state_store.write(state)
         return state
 
+    def clear_current(self) -> ProjectState:
+        state = self.project_state_store.read()
+        state.current_plan = None
+        self.project_state_store.write(state)
+        return state
+
     def get_current(self) -> Plan | None:
         name = self.project_state_store.read().current_plan
         return None if name is None else self.get(name)

@@ -18,7 +18,7 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -183,25 +183,25 @@ def test_init_text_output(target: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("interactive", "env_format", "flag", "expected"),
+    ("automation", "env_format", "flag", "expected"),
     [
         (None, None, None, "text"),
-        ("false", None, None, "json"),
-        ("true", None, None, "text"),
+        ("true", None, None, "json"),
+        ("false", None, None, "text"),
         (None, "json", None, "json"),
-        ("false", "json", "text", "text"),
+        ("true", "json", "text", "text"),
     ],
 )
 def test_init_format_precedence(  # noqa: PLR0913
     target: Path,
     monkeypatch: pytest.MonkeyPatch,
-    interactive: str | None,
+    automation: str | None,
     env_format: str | None,
     flag: str | None,
     expected: str,
 ) -> None:
-    if interactive is not None:
-        monkeypatch.setenv("MACHI_INTERACTIVE", interactive)
+    if automation is not None:
+        monkeypatch.setenv("MACHI_AUTOMATION", automation)
     if env_format is not None:
         monkeypatch.setenv("MACHI_FORMAT", env_format)
     args = ["init", "-P", str(target)]
@@ -215,7 +215,7 @@ def test_init_format_precedence(  # noqa: PLR0913
 @pytest.mark.parametrize(
     ("env_name", "env_value", "field"),
     [
-        ("MACHI_INTERACTIVE", "perhaps", "interactive"),
+        ("MACHI_AUTOMATION", "perhaps", "automation"),
         ("MACHI_FORMAT", "human", "format"),
     ],
 )
@@ -233,14 +233,14 @@ def test_init_invalid_settings(
     assert not (target / ".machi").exists()
 
 
-def test_init_invalid_env_format_is_not_ignored_by_flag(
+def test_init_explicit_format_overrides_invalid_env_format(
     target: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MACHI_FORMAT", "human")
     result = runner.invoke(app, ["init", "-P", str(target), "--format", "json"])
-    assert result.exit_code == 1
-    assert "format" in ErrorResult.model_validate_json(result.stderr).error
-    assert not (target / ".machi").exists()
+    assert result.exit_code == 0, result.output
+    assert result.stdout.startswith("{")
+    assert (target / ".machi").exists()
 
 
 class ReplacementFormatter(Formatter):
@@ -290,7 +290,7 @@ def test_init_then_list_is_empty(target: Path, monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.parametrize("invalid", [["--project-name"], ["--unknown"]])
-@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
 def test_init_parser_errors_use_json(
     invalid: list[str],
     source: str,
@@ -302,7 +302,7 @@ def test_init_parser_errors_use_json(
     elif source == "environment":
         monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+        monkeypatch.setenv("MACHI_AUTOMATION", "true")
     result = runner.invoke(app, [*args, *invalid])
     assert result.exit_code == 2
     assert result.stdout == ""

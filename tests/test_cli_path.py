@@ -26,7 +26,7 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -96,16 +96,14 @@ def test_plan_path_does_not_change_selection(project: Path) -> None:
     assert read_state(project).current_plan == "auth"
 
 
-def test_plan_path_non_interactive_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_plan_path_automation_requires_plan(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     prepare_project(project).plans.set_current("auth")
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     result = runner.invoke(app, ["plan", "path", "-P", str(project)])
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.command == "plan path"
-    assert "Non-interactive mode requires an explicit plan" in error.error
+    assert "Automation mode requires an explicit plan" in error.error
 
 
 def test_plan_path_no_current_plan(project: Path) -> None:
