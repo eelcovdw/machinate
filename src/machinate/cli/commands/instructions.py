@@ -9,50 +9,56 @@ from machinate.cli.formatting import Formatter, UnknownFormatError, select_forma
 from machinate.cli.models import ErrorResult, InstructionsResult
 from machinate.cli.settings import Settings
 
-# Paste-ready agent guidance. Kept as one literal so it is copied verbatim into a
-# project's instruction file; `test_instructions_lists_every_registered_command`
-# fails if a registered command is missing here.
+# Paste-ready agent guidance. Kept as one literal so it stays word-for-word in
+# sync with the `## Machinate` section of this project's AGENTS.md.
 _INSTRUCTIONS = """\
 ## Machinate
 
-machinate is a file-based planning tool for coding agents. It keeps a project's
-plans, tasks, and context as plain Markdown with TOML frontmatter under `.machi/`,
-with no server or database, and this project is planned with it.
+Plans, tasks, and context are plain Markdown files with YAML frontmatter under
+`.machi/` — no server, no database. This project is planned with machinate;
+regenerate this section with `machi instructions`.
 
-Prefer the `machi` CLI over `ls`/`find`/`Glob` — it returns structured output and
-keeps links consistent.
+### Finding work
+
+`machi find QUERY` searches every plan at once (scope with `-p`) and understands
+the store layout — use it instead of `ls`/`grep`/`rg` over `.machi/`. Queries
+support fuzzy terms, `"phrases"`, and boolean/field syntax; `machi find --help`
+documents the full grammar.
+
+### Targeting
+
+- `-p NAME` targets a plan; without it, the current plan is used. Select one with
+  `machi plan select NAME`, clear it with `machi plan unselect`. With no current
+  plan set, plan-scoped commands fail until `-p` is passed.
+- `MACHI_AUTOMATION=true` requires `-p` and defaults output to JSON.
+- `-P DIR` targets an exact project directory; otherwise the nearest `.machi/`
+  is found by walking upward.
+
+### Reading and writing
+
+- Output is text or JSON — `--format` beats `MACHI_FORMAT`, which beats the
+  mode default. `machi schema <command>` documents each result's JSON shape.
+- `machi plan|task|context path` prints absolute editing paths
+  (`plans/<plan>/tasks/<task>.md`) — edit bodies with your own file tools.
+- `machi plan|task|context update` changes status, summary, or tags: `--tag`
+  replaces the tag set, `--clear-tags` empties it.
+- `machi info` shows the project overview; `info` subcommands show metadata
+  without the body.
 
 ### Commands
 
 ```text
-machi init          Initialize a project directory.
-machi info          Show a project or plan overview.
-machi instructions  Print this block.
-machi schema        Print the JSON Schema for command results.
-machi find          Search files under .machi/ (glob + tantivy query language).
-machi plan          add, list, show, info, path, set, update
-machi task          add, list, show, info, path, update
-machi context       add, list, show, info, path, update
+machi init | info | find | instructions | schema
+machi plan    add, list, show, info, path, select, unselect, update
+machi task    add, list, show, info, path, update
+machi context add, list, show, info, path, update
 ```
 
-### Targeting
-
-- Target an existing plan with `-p NAME`; without it the current plan is used.
-- Non-interactive mode (`MACHI_INTERACTIVE=false`) requires `-p`.
-- `-P DIR` targets an exact project directory; otherwise machinate discovers the
-  nearest `.machi/` by walking upward.
-
-### Output
-
-- Use `--format text|json`. Precedence: `--format` > `MACHI_FORMAT` > default
-  (text, or json in non-interactive mode).
-- `machi schema` documents the exact JSON shape of every command result.
-
-### Editing
-
-- `machi plan path`, `machi task path NAME`, and `machi context path NAME` print
-  absolute editing paths; edit bodies with your own file tools.
-- Change status, tags, and summaries with `machi plan|task|context update`."""
+`list` subcommands take `--search`, `--search-body`, repeatable `--tag`/
+`--status`, `--sort name|created|updated`, `--descending`, `--limit`, and
+`--no-group-by` to drop status grouping. Plan statuses are `draft|active|done`;
+task statuses are `todo|in-progress|done`.
+"""
 
 
 def build_instructions() -> str:

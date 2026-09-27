@@ -22,7 +22,7 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -81,15 +81,6 @@ def test_plan_add_invalid_tag_preserves_target(project: Path, invalid: str) -> N
     assert result.exit_code == 1, result.output
     assert "Expected a nonempty tag" in ErrorResult.model_validate_json(result.stderr).error
     assert not (project / ".machi/plans/alpha").exists()
-
-
-def test_plan_add_invalid_tag_non_interactive_json(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
-    result = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--tag", ""])
-    assert result.exit_code == 1
-    assert "Expected a nonempty tag" in ErrorResult.model_validate_json(result.stderr).error
 
 
 def test_plan_list_filters_by_tag(project: Path) -> None:
@@ -200,21 +191,6 @@ def test_task_add_and_list_tags(project: Path) -> None:
     assert TaskListResult.model_validate(json.loads(empty.stdout)).tasks == []
 
 
-def test_task_show_and_info_text_include_tags(project: Path) -> None:
-    plan_add(project, "alpha")
-    task_add(project, ["t1"], "cli")
-    shown = runner.invoke(
-        app, ["task", "show", "t1", "-p", "alpha", "-P", str(project), "--format", "text"]
-    )
-    assert shown.exit_code == 0, shown.output
-    assert "Tags: cli" in shown.stdout
-    info = runner.invoke(
-        app, ["task", "info", "t1", "-p", "alpha", "-P", str(project), "--format", "text"]
-    )
-    assert info.exit_code == 0, info.output
-    assert "Tags: cli" in info.stdout
-
-
 def test_context_add_and_list_tags(project: Path) -> None:
     plan_add(project, "alpha")
     parsed = context_add(project, ["spec"], "docs")
@@ -230,16 +206,84 @@ def test_context_add_and_list_tags(project: Path) -> None:
     ] == ["spec"]
 
 
-def test_context_show_and_info_text_include_tags(project: Path) -> None:
+def test_plan_update_clear_tags(project: Path) -> None:
+    plan_add(project, "alpha", "frontend", "v2")
+    result = runner.invoke(
+        app,
+        ["plan", "update", "-p", "alpha", "-P", str(project), "--clear-tags", "--format", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    text = (project / ".machi/plans/alpha/plan.md").read_text()
+    assert "tags: []" in text
+    assert "frontend" not in text
+
+
+def test_plan_update_tag_and_clear_tags_conflict(project: Path) -> None:
+    plan_add(project, "alpha", "frontend")
+    result = runner.invoke(
+        app,
+        [
+            "plan",
+            "update",
+            "-p",
+            "alpha",
+            "-P",
+            str(project),
+            "--tag",
+            "backend",
+            "--clear-tags",
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    assert "mutually exclusive" in ErrorResult.model_validate_json(result.stderr).error
+    assert "frontend" in (project / ".machi/plans/alpha/plan.md").read_text()
+
+
+def test_task_update_clear_tags(project: Path) -> None:
+    plan_add(project, "alpha")
+    task_add(project, ["t1"], "cli")
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "update",
+            "t1",
+            "-p",
+            "alpha",
+            "-P",
+            str(project),
+            "--clear-tags",
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    text = (project / ".machi/plans/alpha/tasks/t1.md").read_text()
+    assert "tags: []" in text
+    assert "cli" not in text
+
+
+def test_context_update_clear_tags(project: Path) -> None:
     plan_add(project, "alpha")
     context_add(project, ["spec"], "docs")
-    shown = runner.invoke(
-        app, ["context", "show", "spec", "-p", "alpha", "-P", str(project), "--format", "text"]
+    result = runner.invoke(
+        app,
+        [
+            "context",
+            "update",
+            "spec",
+            "-p",
+            "alpha",
+            "-P",
+            str(project),
+            "--clear-tags",
+            "--format",
+            "json",
+        ],
     )
-    assert shown.exit_code == 0, shown.output
-    assert "Tags: docs" in shown.stdout
-    info = runner.invoke(
-        app, ["context", "info", "spec", "-p", "alpha", "-P", str(project), "--format", "text"]
-    )
-    assert info.exit_code == 0, info.output
-    assert "Tags: docs" in info.stdout
+    assert result.exit_code == 0, result.output
+    text = (project / ".machi/plans/alpha/context/spec.md").read_text()
+    assert "tags: []" in text
+    assert "docs" not in text

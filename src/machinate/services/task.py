@@ -1,10 +1,12 @@
 from pathlib import PurePosixPath
 
-from pydantic import validate_call
+from pydantic import ValidationError, validate_call
 
+from machinate.models.batch import BatchCreateError, first_validation_message
 from machinate.models.task import Task, TaskSummary, TaskUpdate
 from machinate.storage import Document, DocumentStore, Layout, PlanMetadata, TaskMetadata, TaskQuery
-from machinate.storage.models import Name, TaskName, TaskStatus
+from machinate.storage.errors import MissingDocumentError, StorageError
+from machinate.storage.models import Name, TaskName, TaskNameInput, TaskStatus
 
 
 class TaskService:
@@ -18,14 +20,59 @@ class TaskService:
     @validate_call
     def create(self, plan: Name, name: TaskName, metadata: TaskMetadata, body: str = "") -> Task:
         self._require_plan(plan)
-        self.document_store.create(
-            self.layout.task(plan, name), Document(metadata=metadata, body=body)
-        )
-        return self.get(plan, name)
+        return self._create(plan, name, metadata, body)
+
+    def _create(self, plan: Name, name: TaskName, metadata: TaskMetadata, body: str = "") -> Task:
+        """Write a task without re-checking the plan; callers must have required it."""
+        path = self.layout.task(plan, name)
+        self.document_store.create(path, Document(metadata=metadata, body=body))
+        return self._get(plan, name)
+
+    @validate_call
+    def create_batch(
+        self, plan: Name, names: list[str], metadata: TaskMetadata, body: str = ""
+    ) -> tuple[list[Task], list[BatchCreateError]]:
+        """Create many tasks: preflight conflicts, report per-name failures.
+
+        Invalid and already-existing names become BatchCreateError entries;
+        every remaining name is still attempted, so a mid-batch failure cannot
+        silently skip later names.
+        """
+        self._require_plan(plan)
+        errors: list[BatchCreateError] = []
+        candidates: list[str] = []
+        for name in names:
+            try:
+                valid = TaskNameInput(name=name).name
+            except ValidationError as exc:
+                errors.append(BatchCreateError(name=name, error=first_validation_message(exc)))
+                continue
+            try:
+                self.document_store.metadata(self.layout.task(plan, valid))
+            except MissingDocumentError:
+                candidates.append(valid)
+            except StorageError as exc:
+                errors.append(BatchCreateError(name=name, error=str(exc)))
+            else:
+                errors.append(
+                    BatchCreateError(
+                        name=name, error=f"Already exists: {self.layout.task(plan, valid)}"
+                    )
+                )
+        created: list[Task] = []
+        for name in candidates:
+            try:
+                created.append(self._create(plan, name, metadata, body))
+            except (StorageError, ValidationError) as exc:
+                errors.append(BatchCreateError(name=name, error=str(exc)))
+        return created, errors
 
     @validate_call
     def get(self, plan: Name, name: TaskName) -> Task:
         self._require_plan(plan)
+        return self._get(plan, name)
+
+    def _get(self, plan: Name, name: TaskName) -> Task:
         path = self.layout.task(plan, name)
         return Task(
             name=name,

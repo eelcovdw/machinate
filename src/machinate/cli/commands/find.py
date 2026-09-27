@@ -42,20 +42,6 @@ def find_command(  # noqa: PLR0913
             "--exact", help="Disable fuzzy matching (one typo + prefix); exact terms only."
         ),
     ] = False,
-    snippets: Annotated[
-        bool,
-        typer.Option(
-            "--snippets/--no-snippets", help="Show matched lines and line ranges per result."
-        ),
-    ] = True,
-    context_lines: Annotated[
-        int,
-        typer.Option("--context", help="Extra lines shown around each matched line."),
-    ] = 0,
-    snippet_chars: Annotated[
-        int,
-        typer.Option("--snippet-chars", help="Maximum characters per matched window."),
-    ] = 160,
     limit: Annotated[
         str | None, typer.Option("--limit", help="Maximum results (positive integer).")
     ] = None,
@@ -82,8 +68,7 @@ def find_command(  # noqa: PLR0913
     Fuzzy matching tolerates one typo and matches prefixes; disable it with --exact.
     Regexes are field-scoped and need --regex, e.g. path:/conf.*/.
 
-    Matches show the matched lines and their line range (path:12-14); use --no-snippets to
-    list result paths only, or --context N to widen the shown window.
+    Results list matching paths only; snippets are not shown.
     """
     dependencies = get_dependencies(context)
     formatter = Formatter()  # Structured fallback if settings/format selection fails.
@@ -97,9 +82,7 @@ def find_command(  # noqa: PLR0913
             "globs": glob or [],
             "regex": regex,
             "exact": exact,
-            "snippets": snippets,
-            "context": context_lines,
-            "snippet_chars": snippet_chars,
+            "snippets": False,
         }
         if plan is not None:
             payload["plan"] = plan

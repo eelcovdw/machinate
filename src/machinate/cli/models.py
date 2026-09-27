@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from machinate.models.batch import BatchCreateError
 from machinate.models.context import Context, ContextSummary
 from machinate.models.plan import Plan, PlanOverview, PlanSummary, ProjectOverview
 from machinate.models.search import FindEntry
@@ -20,6 +21,7 @@ class ListResult(BaseModel):
     command: Literal["plan list"] = "plan list"
     project: ProjectScope
     plans: list[PlanSummary]
+    group_by: Literal["status"] | None = None
 
 
 class InitResult(BaseModel):
@@ -39,8 +41,14 @@ class ShowResult(BaseModel):
     plan: Plan
 
 
-class SetResult(BaseModel):
-    command: Literal["plan set"] = "plan set"
+class SelectResult(BaseModel):
+    command: Literal["plan select"] = "plan select"
+    project: ProjectScope
+    state: ProjectState
+
+
+class UnselectResult(BaseModel):
+    command: Literal["plan unselect"] = "plan unselect"
     project: ProjectScope
     state: ProjectState
 
@@ -56,6 +64,7 @@ class TaskAddResult(BaseModel):
     project: ProjectScope
     plan: str
     tasks: list[Task]
+    errors: list[BatchCreateError] = []
 
 
 class TaskListResult(BaseModel):
@@ -63,6 +72,7 @@ class TaskListResult(BaseModel):
     project: ProjectScope
     plan: str
     tasks: list[TaskSummary]
+    group_by: Literal["status"] | None = None
 
 
 class TaskShowResult(BaseModel):
@@ -91,6 +101,7 @@ class ContextAddResult(BaseModel):
     project: ProjectScope
     plan: str
     contexts: list[Context]
+    errors: list[BatchCreateError] = []
 
 
 class ContextListResult(BaseModel):
@@ -171,7 +182,8 @@ type CommandResult = (
     | PlanInfoResult
     | PathResult
     | UpdateResult
-    | SetResult
+    | SelectResult
+    | UnselectResult
     | ShowResult
     | TaskAddResult
     | TaskInfoResult

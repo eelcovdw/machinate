@@ -18,8 +18,9 @@ from machinate.cli.commands.plans import (
     info_command,
     list_plans,
     plan_info_command,
-    set_plan,
+    select_current_plan,
     show_plan,
+    unselect_plan,
     update_plan,
 )
 from machinate.cli.commands.projects import init_project
@@ -44,13 +45,14 @@ from machinate.cli.models import (
     ListResult,
     PathResult,
     PlanInfoResult,
-    SetResult,
+    SelectResult,
     ShowResult,
     TaskAddResult,
     TaskInfoResult,
     TaskListResult,
     TaskShowResult,
     TaskUpdateResult,
+    UnselectResult,
     UpdateResult,
 )
 
@@ -63,6 +65,7 @@ class CommandSpec:
     handler: Callable[..., None] | None = None
     result: type[BaseModel] | None = None
     children: tuple[CommandSpec, ...] = ()
+    help: str | None = None
 
     def __post_init__(self) -> None:
         if bool(self.children) == (self.handler is not None):
@@ -80,18 +83,21 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("find", find_command, FindResult),
     CommandSpec(
         "plan",
+        help="Manage plans; plan select sets the current plan used when -p is omitted.",
         children=(
             CommandSpec("add", add_plan, AddResult),
             CommandSpec("info", plan_info_command, PlanInfoResult),
             CommandSpec("path", plan_path, PathResult),
             CommandSpec("list", list_plans, ListResult),
             CommandSpec("show", show_plan, ShowResult),
-            CommandSpec("set", set_plan, SetResult),
+            CommandSpec("select", select_current_plan, SelectResult),
+            CommandSpec("unselect", unselect_plan, UnselectResult),
             CommandSpec("update", update_plan, UpdateResult),
         ),
     ),
     CommandSpec(
         "task",
+        help="Manage tasks in a plan.",
         children=(
             CommandSpec("add", task_add, TaskAddResult),
             CommandSpec("info", task_info, TaskInfoResult),
@@ -103,6 +109,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         "context",
+        help="Manage context documents in a plan.",
         children=(
             CommandSpec("add", context_add, ContextAddResult),
             CommandSpec("info", context_info, ContextInfoResult),

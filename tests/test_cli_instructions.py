@@ -1,43 +1,19 @@
 from pathlib import Path
-from typing import override
 
 import pytest
 from typer.testing import CliRunner
 
-from machinate.cli.cli import app, create_cli
-from machinate.cli.commands.catalog import COMMANDS
-from machinate.cli.dependencies import Dependencies
-from machinate.cli.formatting import Formatter
-from machinate.cli.models import CommandResult, ErrorResult, InstructionsResult
+from machinate.cli.cli import app
+from machinate.cli.commands.instructions import build_instructions
+from machinate.cli.models import ErrorResult, InstructionsResult
 
 runner = CliRunner()
 
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
-
-
-class ReplacementFormatter(Formatter):
-    def __init__(self) -> None:
-        self.results: list[CommandResult] = []
-
-    @override
-    def format(self, result: CommandResult) -> str:
-        self.results.append(result)
-        return "replacement"
-
-
-def test_instructions_text() -> None:
-    result = runner.invoke(app, ["instructions"])
-    assert result.exit_code == 0, result.output
-    assert "## Machinate" in result.stdout
-    assert "machi plan" in result.stdout
-    assert "-p NAME" in result.stdout
-    assert "MACHI_INTERACTIVE=false" in result.stdout
-    assert "machi schema" in result.stdout
-    assert "machi plan path" in result.stdout
 
 
 def test_instructions_json() -> None:
@@ -45,13 +21,6 @@ def test_instructions_json() -> None:
     assert result.exit_code == 0, result.output
     payload = InstructionsResult.model_validate_json(result.stdout)
     assert payload.command == "instructions"
-    assert "## Machinate" in payload.text
-
-
-def test_instructions_lists_every_registered_command() -> None:
-    result = runner.invoke(app, ["instructions"])
-    for spec in COMMANDS:
-        assert f"machi {spec.name}" in result.stdout
 
 
 def test_instructions_writes_no_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -68,19 +37,10 @@ def test_instructions_invalid_format() -> None:
 
 
 def test_instructions_json_default_in_automation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     result = runner.invoke(app, ["instructions"])
     assert result.exit_code == 0, result.output
     assert InstructionsResult.model_validate_json(result.stdout).command == "instructions"
-
-
-def test_instructions_formatter_injection() -> None:
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(custom, ["instructions", "--format", "custom"])
-    assert result.exit_code == 0
-    assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], InstructionsResult)
 
 
 def test_instructions_help() -> None:
@@ -89,7 +49,15 @@ def test_instructions_help() -> None:
     assert "Usage" in result.stdout
 
 
-def test_instructions_parser_errors_use_json() -> None:
-    result = runner.invoke(app, ["instructions", "--unknown"], env={"MACHI_INTERACTIVE": "false"})
-    assert result.exit_code == 2
-    assert ErrorResult.model_validate_json(result.stderr).command == "instructions"
+def test_instructions_uses_yaml_frontmatter_wording() -> None:
+    guidance = " ".join(build_instructions().split())
+    assert "YAML frontmatter" in guidance
+    assert "TOML" not in guidance
+
+
+def test_instructions_stay_in_sync_with_agents_md() -> None:
+    agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text()
+    start = agents.index("## Machinate")
+    end = agents.find("\n## ", start + 1)
+    section = agents[start:] if end == -1 else agents[start:end]
+    assert build_instructions().strip() == section.strip()

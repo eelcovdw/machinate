@@ -3,15 +3,16 @@ from typing import ClassVar, Literal
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-type FormatName = Literal["text", "json"]
 type LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
 class Settings(BaseSettings):
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(env_prefix="MACHI_")
 
-    interactive: bool = True
-    format: FormatName = "text"
+    automation: bool = False
+    # Left unvalidated here so an explicit --format override wins over an invalid
+    # MACHI_FORMAT; select_formatter validates the effective name instead.
+    format: str = "text"
     log_level: LogLevel | None = None
 
     @field_validator("log_level", mode="before")
@@ -22,5 +23,5 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _resolve_format(self) -> Settings:
         if "format" not in self.model_fields_set:
-            self.format = "text" if self.interactive else "json"
+            self.format = "json" if self.automation else "text"
         return self

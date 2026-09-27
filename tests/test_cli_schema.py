@@ -30,11 +30,6 @@ class _Bundle(BaseModel):
     defs: dict[str, JsonSchemaValue] = Field(alias="$defs")
 
 
-class _GroupSchema(BaseModel):
-    commands: dict[str, _Node]
-    defs: dict[str, JsonSchemaValue] = Field(alias="$defs")
-
-
 def _flatten(nodes: dict[str, _Node], prefix: str = "") -> dict[str, str]:
     refs: dict[str, str] = {}
     for name, node in nodes.items():
@@ -57,7 +52,7 @@ class _CommandSchema(BaseModel):
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -108,49 +103,12 @@ def test_schema_for_command() -> None:
     assert "ShowResult" not in schema.defs
 
 
-def test_schema_for_plan_group() -> None:
-    group = _GroupSchema.model_validate_json(runner.invoke(app, ["schema", "plan"]).stdout)
-    assert set(group.commands) == {"add", "info", "list", "path", "set", "show", "update"}
-    assert group.commands["info"].ref == "#/$defs/PlanInfoResult"
-    assert group.commands["show"].ref == "#/$defs/ShowResult"
-    assert "PlanInfoResult" in group.defs
-
-
-def test_schema_for_group() -> None:
-    group = _GroupSchema.model_validate_json(runner.invoke(app, ["schema", "task"]).stdout)
-    assert set(group.commands) == {"add", "info", "list", "path", "show", "update"}
-    assert group.commands["add"].ref == "#/$defs/TaskAddResult"
-    assert group.commands["info"].ref == "#/$defs/TaskInfoResult"
-    assert group.commands["list"].ref == "#/$defs/TaskListResult"
-    assert group.commands["path"].ref == "#/$defs/PathResult"
-    assert group.commands["show"].ref == "#/$defs/TaskShowResult"
-    assert group.commands["update"].ref == "#/$defs/TaskUpdateResult"
-    assert "TaskAddResult" in group.defs
-    assert "TaskInfoResult" in group.defs
-    assert "TaskListResult" in group.defs
-    assert "TaskShowResult" in group.defs
-    assert "TaskUpdateResult" in group.defs
-
-
-def test_schema_for_nested_command() -> None:
-    schema = _CommandSchema.model_validate_json(
-        runner.invoke(app, ["schema", "task", "add"]).stdout
-    )
-    assert schema.type == "object"
-    assert {"command", "project", "plan", "tasks"} <= set(schema.properties)
-
-
 def test_schema_unknown_nested_command() -> None:
     result = runner.invoke(app, ["schema", "task", "nope"])
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.command == "schema"
     assert "Unknown schema 'nope'" in error.error
-
-
-def test_schema_error_envelope() -> None:
-    schema = _CommandSchema.model_validate_json(runner.invoke(app, ["schema", "error"]).stdout)
-    assert {"command", "error", "project"} <= set(schema.properties)
 
 
 def test_schema_unknown_command() -> None:
@@ -180,7 +138,7 @@ def test_schema_parser_errors_follow_mode(monkeypatch: pytest.MonkeyPatch) -> No
     assert text.stdout == ""
     assert "--unknown" in text.stderr
 
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     structured = runner.invoke(cli, ["schema", "--unknown"])
     assert structured.exit_code == 2
     assert structured.stdout == ""

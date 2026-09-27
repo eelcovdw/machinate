@@ -1,11 +1,11 @@
 import logging
 from contextlib import suppress
-from typing import TextIO, override
+from typing import TextIO, cast, override
 
 import click
 import typer
 from pydantic import ValidationError
-from typer.core import TyperCommand
+from typer.core import TyperCommand, TyperGroup
 
 from .commands.catalog import ALIASES, COMMANDS, CommandSpec
 from .commands.schema import schema_command
@@ -17,7 +17,7 @@ from .settings import Settings
 
 
 class Command(TyperCommand):
-    """Render command parsing failures through the configured formatter."""
+    """Render leaf-command parsing failures through the configured formatter."""
 
     @override
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
@@ -25,29 +25,66 @@ class Command(TyperCommand):
         try:
             return super().parse_args(ctx, args)
         except click.UsageError as exc:
-            # Recover parsed options without invoking callbacks or normal help.
-            recovered = self.make_context(
-                ctx.info_name,
-                original_args,
-                parent=ctx.parent,
-                resilient_parsing=True,
-                ignore_unknown_options=True,
-            )
-            with recovered:
-                override_name = recovered.params.get("output_format")
-                formatter = Formatter()
-                message = exc.format_message()
-                try:
-                    settings = Settings()
-                    name = override_name if isinstance(override_name, str) else settings.format
-                    formatter = select_formatter(name, get_dependencies(ctx).formatters)
-                except (ValidationError, UnknownFormatError) as formatting_error:
-                    message = describe_error(formatting_error)
-                typer.echo(
-                    formatter.format(ErrorResult(command=_command_label(ctx), error=message)),
-                    err=True,
-                )
+            _report_usage_error(ctx, exc, original_args)
             raise typer.Exit(2) from exc
+
+
+class Group(TyperGroup):
+    """Render group parsing failures through the configured formatter."""
+
+    @override
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        original_args = args.copy()
+        try:
+            return super().parse_args(ctx, args)
+        except click.exceptions.NoArgsIsHelpError:
+            raise
+        except click.UsageError as exc:
+            _report_usage_error(ctx, exc, original_args)
+            raise typer.Exit(2) from exc
+
+    @override
+    def invoke(self, ctx: click.Context) -> object:
+        try:
+            return cast("object", super().invoke(ctx))
+        except click.exceptions.NoArgsIsHelpError:
+            raise
+        except click.UsageError as exc:
+            # Unknown subcommands and other resolution failures reach here.
+            _report_usage_error(ctx, exc, None)
+            raise typer.Exit(2) from exc
+
+
+def _report_usage_error(
+    ctx: click.Context,
+    exc: click.UsageError,
+    original_args: list[str] | None,
+) -> None:
+    """Format a usage failure using the flag, settings, or default formatter."""
+    message = exc.format_message()
+    formatter = Formatter()  # Structured fallback if settings/format selection fails.
+    override_name: object = None
+    if original_args is not None:
+        # Recover parsed options without invoking callbacks or normal help.
+        recovered = ctx.command.make_context(
+            ctx.info_name,
+            original_args,
+            parent=ctx.parent,
+            resilient_parsing=True,
+            ignore_unknown_options=True,
+        )
+        with recovered:
+            override_name = recovered.params.get("output_format")
+    try:
+        settings = Settings()
+        name = override_name if isinstance(override_name, str) else settings.format
+        formatter = select_formatter(name, get_dependencies(ctx).formatters)
+    except (ValidationError, UnknownFormatError) as formatting_error:
+        message = describe_error(formatting_error)
+    typer.echo(
+        formatter.format(ErrorResult(command=_command_label(ctx), error=message)),
+        err=True,
+    )
 
 
 def _command_label(ctx: click.Context) -> str:
@@ -58,7 +95,7 @@ def _command_label(ctx: click.Context) -> str:
         if current.info_name:
             names.append(current.info_name)
         current = current.parent
-    return " ".join(reversed(names)) or "plan"
+    return " ".join(reversed(names)) or "machi"
 
 
 class _DiagnosticHandler(logging.StreamHandler[TextIO]):
@@ -86,12 +123,20 @@ def root() -> None:
         configure_logging(Settings())
 
 
+_ROOT_EPILOG = """\
+Examples: `machi plan select auth` sets the current plan; `machi plan show -p auth`
+shows it, with shared options after the leaf command; `machi task add notes` adds to the
+current plan; `machi task path notes` prints the file to edit. Task and context names may
+contain "/" and omit the appended ".md"; edit bodies through their path command and an editor.
+"""
+
+
 def _register(parent: typer.Typer, spec: CommandSpec) -> None:
     if spec.children:
-        group = typer.Typer(no_args_is_help=True)
+        group = typer.Typer(no_args_is_help=True, cls=Group)
         for child in spec.children:
             _register(group, child)
-        parent.add_typer(group, name=spec.name)
+        parent.add_typer(group, name=spec.name, help=spec.help)
     elif spec.handler is not None:
         parent.command(spec.name, cls=Command)(spec.handler)
 
@@ -99,6 +144,8 @@ def _register(parent: typer.Typer, spec: CommandSpec) -> None:
 def create_cli(dependencies: Dependencies | None = None) -> typer.Typer:
     cli = typer.Typer(
         no_args_is_help=True,
+        cls=Group,
+        epilog=_ROOT_EPILOG,
         context_settings={"obj": dependencies if dependencies is not None else Dependencies()},
     )
     cli.callback()(root)

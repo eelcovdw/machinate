@@ -28,7 +28,7 @@ class _Tty(io.StringIO):
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_AGENT", "NO_COLOR"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_AGENT", "NO_COLOR"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -104,9 +104,29 @@ def test_plan_list_groups_by_status(project: Path, monkeypatch: pytest.MonkeyPat
     out = result.stdout
     assert "draft (1)" in out
     assert "active (1)" in out
-    assert "done (0)" in out
-    assert out.index("draft (1)") < out.index("active (1)") < out.index("done (0)")
+    assert "done (0)" not in out  # only statuses present are shown
+    assert out.index("draft (1)") < out.index("active (1)")
     assert "\u250c" not in out  # no table borders
+
+
+def test_plan_list_no_group_by_keeps_sort_order(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    application = prepare_project(project)
+    application.plans.create(
+        "billing",
+        PlanMetadata(created=datetime(2026, 1, 2, tzinfo=UTC), summary="Billing"),
+        body="",
+    )
+    application.plans.set_status("auth", "active")
+    monkeypatch.chdir(project)
+    result = runner.invoke(app, ["plan", "list", "--no-group-by"])
+    assert result.exit_code == 0, result.output
+    out = result.stdout
+    # With grouping off, sort order wins: auth (active) before billing (draft).
+    assert out.index("auth") < out.index("billing")
+    assert "draft (1)" not in out
+    assert "active" in out
 
 
 def test_task_list_groups_by_status(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -122,7 +142,26 @@ def test_task_list_groups_by_status(project: Path, monkeypatch: pytest.MonkeyPat
     out = result.stdout
     assert "todo (1)" in out
     assert "in-progress (1)" in out
-    assert "done (0)" in out
+    assert "done (0)" not in out
+
+
+def test_task_list_no_group_by_keeps_sort_order(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    application = prepare_project(project)
+    for name in ("t1", "t2"):
+        application.tasks.create(
+            "auth", name, TaskMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)), body=""
+        )
+    application.tasks.set_status("auth", "t2", "in-progress")
+    monkeypatch.chdir(project)
+    result = runner.invoke(app, ["task", "list", "-p", "auth", "--no-group-by"])
+    assert result.exit_code == 0, result.output
+    out = result.stdout
+    assert "todo (1)" not in out
+    assert out.index("t1") < out.index("t2")
+    assert "todo" in out
+    assert "in-progress" in out
 
 
 def test_display_width_follows_terminal(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -29,7 +29,7 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_LOG_LEVEL", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_LOG_LEVEL", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -246,26 +246,26 @@ def test_output(project: Path, populated: bool, format_name: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("interactive", "env_format", "flag", "expected"),
+    ("automation", "env_format", "flag", "expected"),
     [
         (None, None, None, "text"),
-        ("false", None, None, "json"),
-        ("true", None, None, "text"),
-        ("false", "text", None, "text"),
+        ("true", None, None, "json"),
+        ("false", None, None, "text"),
+        ("true", "text", None, "text"),
         (None, "json", None, "json"),
-        ("false", "json", "text", "text"),
+        ("true", "json", "text", "text"),
     ],
 )
 def test_format_precedence(  # noqa: PLR0913
     project: Path,
     monkeypatch: pytest.MonkeyPatch,
-    interactive: str | None,
+    automation: str | None,
     env_format: str | None,
     flag: str | None,
     expected: str,
 ) -> None:
-    if interactive is not None:
-        monkeypatch.setenv("MACHI_INTERACTIVE", interactive)
+    if automation is not None:
+        monkeypatch.setenv("MACHI_AUTOMATION", automation)
     if env_format is not None:
         monkeypatch.setenv("MACHI_FORMAT", env_format)
     monkeypatch.setenv("MACHI_AGENT", "true")
@@ -299,7 +299,7 @@ def test_invalid_options(project: Path, args: list[str]) -> None:
 @pytest.mark.parametrize(
     ("env_name", "env_value", "field"),
     [
-        ("MACHI_INTERACTIVE", "perhaps", "interactive"),
+        ("MACHI_AUTOMATION", "perhaps", "automation"),
         ("MACHI_FORMAT", "human", "format"),
     ],
 )
@@ -316,13 +316,13 @@ def test_invalid_settings(
     assert field in ErrorResult.model_validate_json(result.stderr).error
 
 
-def test_invalid_env_format_is_not_ignored_by_flag(
+def test_explicit_format_overrides_invalid_env_format(
     project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MACHI_FORMAT", "human")
     result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 1
-    assert "format" in ErrorResult.model_validate_json(result.stderr).error
+    assert result.exit_code == 0, result.output
+    assert result.stdout.startswith("{")
 
 
 class ReplacementFormatter(Formatter):
@@ -395,7 +395,7 @@ def test_read_only_and_malformed_document(project: Path) -> None:
 def test_help_does_not_prepare_project(monkeypatch: pytest.MonkeyPatch) -> None:
     factory = Mock(side_effect=AssertionError("help must not prepare a project"))
     custom = create_cli(Dependencies(prepare_project=factory))
-    monkeypatch.setenv("MACHI_INTERACTIVE", "invalid")
+    monkeypatch.setenv("MACHI_AUTOMATION", "invalid")
     for args in (["--help"], ["plan", "list", "--help"]):
         result = runner.invoke(custom, args)
         assert result.exit_code == 0, result.output
@@ -411,14 +411,14 @@ def test_repeated_invocations_reload_settings(
     first = runner.invoke(custom, args)
     assert first.exit_code == 0
     assert "No plans found." in first.stdout
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     second = runner.invoke(custom, args)
     assert second.exit_code == 0
     assert ListResult.model_validate_json(second.stdout).plans == []
 
 
 @pytest.mark.parametrize("invalid", [["--limit"], ["--unknown"]])
-@pytest.mark.parametrize("source", ["flag", "environment", "non_interactive"])
+@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
 def test_parser_errors_use_json(
     invalid: list[str],
     source: str,
@@ -430,7 +430,7 @@ def test_parser_errors_use_json(
     elif source == "environment":
         monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+        monkeypatch.setenv("MACHI_AUTOMATION", "true")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, *invalid])
     assert result.exit_code == 2
@@ -454,3 +454,55 @@ def test_parser_error_format_override(monkeypatch: pytest.MonkeyPatch) -> None:
     result = runner.invoke(app, ["plan", "list", "--format", "text", "--limit"])
     assert result.exit_code == 2
     assert result.stderr.startswith("Error:")
+
+
+def test_group_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    """C5: group failures follow the same formatting policy as leaf commands."""
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
+    factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
+    custom = create_cli(Dependencies(prepare_project=factory))
+
+    unknown_command = runner.invoke(custom, ["task", "oops"])
+    assert unknown_command.exit_code == 2
+    assert unknown_command.stdout == ""
+    parsed = ErrorResult.model_validate_json(unknown_command.stderr)
+    assert parsed.command == "task"
+    assert "No such command 'oops'." in parsed.error
+
+    top_level = runner.invoke(custom, ["--definitely-not-an-option"])
+    assert top_level.exit_code == 2
+    assert top_level.stdout == ""
+    assert "No such option" in ErrorResult.model_validate_json(top_level.stderr).error
+
+    group_option = runner.invoke(custom, ["task", "--definitely-not-an-option"])
+    assert group_option.exit_code == 2
+    assert group_option.stdout == ""
+    assert "No such option" in ErrorResult.model_validate_json(group_option.stderr).error
+    factory.assert_not_called()
+
+
+def test_group_parser_errors_use_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MACHI_FORMAT", "text")
+    result = runner.invoke(app, ["task", "oops"])
+    assert result.exit_code == 2
+    assert result.stdout == ""
+    assert result.stderr.startswith("Error:")
+
+
+def test_group_parser_error_formatter_injection(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MACHI_FORMAT", "custom")
+    formatter = ReplacementFormatter()
+    custom = create_cli(Dependencies(formatters={"custom": formatter}))
+    result = runner.invoke(custom, ["task", "oops"])
+    assert result.exit_code == 2
+    assert result.stderr == "replacement\n"
+    assert isinstance(formatter.results[0], ErrorResult)
+
+
+def test_group_help_still_prints(monkeypatch: pytest.MonkeyPatch) -> None:
+    """C5 must not swallow the no-args help path for groups."""
+    monkeypatch.setenv("MACHI_FORMAT", "json")
+    result = runner.invoke(app, ["task"])
+    assert result.exit_code == 2
+    assert "Usage: " in result.stdout
+    assert result.stderr == ""

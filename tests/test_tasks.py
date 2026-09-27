@@ -58,6 +58,44 @@ def test_create_get_duplicates_and_exact_names(
         service.get("alpha", "LOGIN")
 
 
+def test_create_batch_reports_partial_results(service: TaskService, metadata: TaskMetadata) -> None:
+    """C2: existing and invalid names become errors; later names still get created."""
+    service.create("alpha", "existing", metadata)
+    created, errors = service.create_batch(
+        "alpha", ["new", "existing", "../bad", "later"], metadata
+    )
+    assert [task.name for task in created] == ["new", "later"]
+    assert [(error.name, error.error) for error in errors] == [
+        ("existing", "Already exists: plans/alpha/tasks/existing.md"),
+        ("../bad", "Expected a nonempty name without path separators or control characters"),
+    ]
+    assert service.get("alpha", "new")
+    assert service.get("alpha", "later")
+
+
+def test_create_batch_empty(service: TaskService, metadata: TaskMetadata) -> None:
+    created, errors = service.create_batch("alpha", [], metadata)
+    assert created == []
+    assert errors == []
+
+
+def test_create_batch_unknown_plan(service: TaskService, metadata: TaskMetadata) -> None:
+    with pytest.raises(MissingDocumentError):
+        service.create_batch("missing", ["a"], metadata)
+
+
+def test_create_batch_reads_plan_once(
+    service: TaskService, metadata: TaskMetadata, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The plan is validated once, not once per name (N+1)."""
+    read = Mock(wraps=service.document_store.read)
+    monkeypatch.setattr(service.document_store, "read", read)
+    service.create_batch("alpha", ["one", "two", "three"], metadata)
+    plan_path = service.layout.plan("alpha")
+    plan_reads = [call for call in read.call_args_list if call.args[0] == plan_path]
+    assert len(plan_reads) == 1
+
+
 def test_patches(service: TaskService, metadata: TaskMetadata) -> None:
     service.create("alpha", "login", metadata, "Body")
     task = service.set_status("alpha", "login", "in-progress")

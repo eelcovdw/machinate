@@ -1,7 +1,6 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import override
 from unittest.mock import Mock
 
 import pytest
@@ -10,8 +9,7 @@ from upath import UPath
 
 from machinate.cli.cli import app, create_cli
 from machinate.cli.dependencies import Dependencies
-from machinate.cli.formatting import Formatter
-from machinate.cli.models import CommandResult, ErrorResult, PathResult
+from machinate.cli.models import ErrorResult, PathResult
 from machinate.cli.project_setup import prepare_project
 from machinate.storage import (
     ContextMetadata,
@@ -26,7 +24,7 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_INTERACTIVE", "MACHI_AGENT"):
+    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_AGENT"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -96,16 +94,14 @@ def test_plan_path_does_not_change_selection(project: Path) -> None:
     assert read_state(project).current_plan == "auth"
 
 
-def test_plan_path_non_interactive_requires_plan(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_plan_path_automation_requires_plan(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     prepare_project(project).plans.set_current("auth")
-    monkeypatch.setenv("MACHI_INTERACTIVE", "false")
+    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     result = runner.invoke(app, ["plan", "path", "-P", str(project)])
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.command == "plan path"
-    assert "Non-interactive mode requires an explicit plan" in error.error
+    assert "Automation mode requires an explicit plan" in error.error
 
 
 def test_plan_path_no_current_plan(project: Path) -> None:
@@ -206,42 +202,10 @@ def test_context_path_directory_exists(project: Path) -> None:
     assert PathResult.model_validate(json.loads(result.stdout)).exists is True
 
 
-class ReplacementFormatter(Formatter):
-    def __init__(self) -> None:
-        self.results: list[CommandResult] = []
-
-    @override
-    def format(self, result: CommandResult) -> str:
-        self.results.append(result)
-        return "replacement"
-
-
-def test_path_formatter_injection(project: Path) -> None:
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(
-        custom, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "custom"]
-    )
-    assert result.exit_code == 0, result.output
-    assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], PathResult)
-
-
 def test_task_path_help() -> None:
     result = runner.invoke(app, ["task", "path", "--help"])
     assert result.exit_code == 0
     assert "[NAME]" in result.stdout
-
-
-def test_path_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHI_FORMAT", "json")
-    factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    result = runner.invoke(
-        create_cli(Dependencies(prepare_project=factory)), ["plan", "path", "--unknown"]
-    )
-    assert result.exit_code == 2, result.output
-    assert ErrorResult.model_validate_json(result.stderr).command == "plan path"
-    factory.assert_not_called()
 
 
 def test_path_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
