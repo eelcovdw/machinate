@@ -63,64 +63,47 @@ Verification for a change: targeted `pytest`, then the full suite, plus `ruff fo
 
 ## Machinate
 
-machinate keeps a project's plans, tasks, and context as plain Markdown with YAML
-frontmatter under `.machi/` — no server, no database. This project is planned
-with it, and `machi instructions` prints a paste-ready CLI overview for agent
-instruction files.
+Plans, tasks, and context are plain Markdown files with YAML frontmatter under
+`.machi/` — no server, no database. This project is planned with machinate;
+regenerate this section with `machi instructions`.
 
 ### Finding work
 
-`machi find QUERY` searches every plan at once (unless scoped with `-p`) and
-understands the store layout — use it instead of `ls`/`grep`/`rg` over `.machi/`.
-
-```bash
-machi find atomic-state-writes                       # across all plans
-machi find "atomic state" -p review-storage-fixes   # scope to one plan
-machi find 'body:"truncates machinate.toml"'         # phrase in the body field
-machi find --glob 'tasks/*.md'                       # list by glob, no query
-```
-
-Results list matching paths (`plans/<plan>/tasks/<task>.md`).
-The query language supports fuzzy terms, `"phrases"`, `field:term` (`path:`/
-`body:`), `+`/`-`, `AND`/`OR`/`NOT`, and ranges — see `machi find --help` for
-the full grammar and output options.
+`machi find QUERY` searches every plan at once (scope with `-p`) and understands
+the store layout — use it instead of `ls`/`grep`/`rg` over `.machi/`. Queries
+support fuzzy terms, `"phrases"`, and boolean/field syntax; `machi find --help`
+documents the full grammar.
 
 ### Targeting
 
-- `-p NAME` targets a plan; without it, the current plan is used. **If no
-  current plan is set, plan-scoped commands fail with `No current plan is
-  selected` — pass `-p` explicitly.** Select a current plan with
-  `machi plan select NAME`; clear it with `machi plan unselect`.
-- Automation mode (`MACHI_AUTOMATION=true`) always requires `-p` and defaults
-  output to JSON.
-- `-P DIR` targets an exact project directory; otherwise machinate discovers
-  the nearest `.machi/` by walking upward.
+- `-p NAME` targets a plan; without it, the current plan is used. Select one with
+  `machi plan select NAME`, clear it with `machi plan unselect`. With no current
+  plan set, plan-scoped commands fail until `-p` is passed.
+- `MACHI_AUTOMATION=true` requires `-p` and defaults output to JSON.
+- `-P DIR` targets an exact project directory; otherwise the nearest `.machi/`
+  is found by walking upward.
 
 ### Reading and writing
 
-- Every command takes `--format text|json`. Precedence: `--format` >
-  `MACHI_FORMAT` > default (text, or json in automation mode).
-  `machi schema <command>` documents the exact JSON shape of results.
-- `machi plan path`, `machi task path NAME`, and `machi context path NAME` print
-  absolute editing paths — edit bodies with your own file tools. With no name
-  they print the containing directory.
-- Change status, tags, and summaries with `machi plan|task|context update`,
-  e.g. `machi task update NAME --status in-progress --tag x`. `--tag` replaces
-  the tag set; `--summary ''` clears the summary.
-- `machi plan|task|context info` shows metadata without the body; `machi info`
-  shows the project overview.
+- Output is text or JSON — `--format` beats `MACHI_FORMAT`, which beats the
+  mode default. `machi schema <command>` documents each result's JSON shape.
+- `machi plan|task|context path` prints absolute editing paths
+  (`plans/<plan>/tasks/<task>.md`) — edit bodies with your own file tools.
+- `machi plan|task|context update` changes status, summary, or tags: `--tag`
+  replaces the tag set, `--clear-tags` empties it.
+- `machi info` shows the project overview; `info` subcommands show metadata
+  without the body.
 
 ### Commands
 
 ```text
 machi init | info | find | instructions | schema
-machi plan    add, list, show, info, path, set, update
+machi plan    add, list, show, info, path, select, unselect, update
 machi task    add, list, show, info, path, update
 machi context add, list, show, info, path, update
 ```
 
-`list` subcommands accept `--search`, `--search-body`, repeatable `--tag` and
-`--status`, `--sort name|created|updated`, `--descending`, and `--limit`.
-`plan list` and `task list` group rows under status headers by default; pass
-`--no-group-by` to keep the sort order.
-Plan statuses are `draft|active|done`; task statuses are `todo|in-progress|done`.
+`list` subcommands take `--search`, `--search-body`, repeatable `--tag`/
+`--status`, `--sort name|created|updated`, `--descending`, `--limit`, and
+`--no-group-by` to drop status grouping. Plan statuses are `draft|active|done`;
+task statuses are `todo|in-progress|done`.
