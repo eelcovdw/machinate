@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from machinate.models.batch import BatchCreateError
 from machinate.models.context import Context, ContextSummary
 from machinate.models.plan import Plan, PlanOverview, PlanSummary, ProjectOverview
 from machinate.models.search import FindEntry
@@ -56,6 +57,7 @@ class TaskAddResult(BaseModel):
     project: ProjectScope
     plan: str
     tasks: list[Task]
+    errors: list[BatchCreateError] = []
 
 
 class TaskListResult(BaseModel):
@@ -91,6 +93,7 @@ class ContextAddResult(BaseModel):
     project: ProjectScope
     plan: str
     contexts: list[Context]
+    errors: list[BatchCreateError] = []
 
 
 class ContextListResult(BaseModel):

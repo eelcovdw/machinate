@@ -87,17 +87,13 @@ def task_add(  # noqa: PLR0913
     try:
         settings = Settings()
         formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        task_names = [TaskNameInput(name=name).name for name in names]
         project_context = dependencies.prepare_project(project)
         scope = project_context.project
         selected = select_plan(project_context.plans, plan, interactive=settings.interactive)
-        created = [
-            project_context.tasks.create(
-                selected.name, name, TaskMetadata(created=datetime.now(UTC), tags=tags or [])
-            )
-            for name in task_names
-        ]
-        result = TaskAddResult(project=scope, plan=selected.name, tasks=created)
+        created, errors = project_context.tasks.create_batch(
+            selected.name, names, TaskMetadata(created=datetime.now(UTC), tags=tags or [])
+        )
+        result = TaskAddResult(project=scope, plan=selected.name, tasks=created, errors=errors)
     except (
         ProjectError,
         UnknownFormatError,
@@ -113,6 +109,8 @@ def task_add(  # noqa: PLR0913
         )
         raise typer.Exit(1) from exc
     typer.echo(formatter.format(result))
+    if result.errors:
+        raise typer.Exit(1)  # Partial failure; the result still reports what was created.
 
 
 def task_list(  # noqa: PLR0913

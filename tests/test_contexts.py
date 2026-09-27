@@ -61,6 +61,23 @@ def test_create_get_duplicates_and_exact_names(
     with pytest.raises(DocumentExistsError):
         service.create("alpha", "research", metadata, "Replacement")
     assert service.get("alpha", "research") == context
+
+
+def test_create_batch_reports_partial_results(
+    service: ContextService, metadata: ContextMetadata
+) -> None:
+    """C2: existing and invalid names become errors; later names still get created."""
+    service.create("alpha", "existing", metadata)
+    created, errors = service.create_batch(
+        "alpha", ["new", "existing", "../bad", "later"], metadata
+    )
+    assert [context.name for context in created] == ["new", "later"]
+    assert [(error.name, error.error) for error in errors] == [
+        ("existing", "Already exists: plans/alpha/context/existing.md"),
+        ("../bad", "Expected a nonempty name without path separators or control characters"),
+    ]
+    assert service.get("alpha", "new")
+    assert service.get("alpha", "later")
     for name in ("res", "RESEARCH"):
         with pytest.raises(MissingDocumentError):
             service.get("alpha", name)

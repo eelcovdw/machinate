@@ -28,6 +28,8 @@ from machinate.storage.queries import TaskQuery
 
 runner = CliRunner()
 
+_DEFAULT_CREATED = datetime(2026, 1, 1, tzinfo=UTC)
+
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -101,6 +103,49 @@ def test_task_add_multiple(project: Path) -> None:
     assert names == ["login", "logout"]
 
 
+def test_task_add_batch_partial_success(project: Path) -> None:
+    """C2: an existing name must not abort the batch or swallow later names."""
+    prepare_project(project).tasks.create(
+        "auth", "existing", TaskMetadata(created=_DEFAULT_CREATED)
+    )
+    result = runner.invoke(
+        app,
+        [
+            "task",
+            "add",
+            "new",
+            "existing",
+            "later",
+            "../bad",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    parsed = TaskAddResult.model_validate(json.loads(result.stdout))
+    assert [task.name for task in parsed.tasks] == ["new", "later"]
+    assert [error.name for error in parsed.errors] == ["existing", "../bad"]
+    assert "Already exists" in parsed.errors[0].error
+    assert "Expected a nonempty name" in parsed.errors[1].error
+    assert (project / ".machi/plans/auth/tasks/new.md").exists()
+    assert (project / ".machi/plans/auth/tasks/later.md").exists()
+    assert (project / ".machi/plans/auth/tasks/existing.md").exists()  # Not overwritten.
+
+
+def test_task_add_batch_all_created_reports_no_errors(project: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["task", "add", "one", "two", "-p", "auth", "-P", str(project), "--format", "json"],
+    )
+    assert result.exit_code == 0, result.output
+    parsed = TaskAddResult.model_validate(json.loads(result.stdout))
+    assert parsed.errors == []
+
+
 def test_task_add_non_interactive_requires_plan(
     project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -122,6 +167,7 @@ def test_task_add_no_current_plan(project: Path) -> None:
 
 
 def test_task_add_duplicate_preserves_existing(project: Path) -> None:
+    """A duplicate is now a partial-failure result, not a global error."""
     first = runner.invoke(
         app, ["task", "add", "login", "-p", "auth", "-P", str(project), "--format", "json"]
     )
@@ -131,7 +177,10 @@ def test_task_add_duplicate_preserves_existing(project: Path) -> None:
         app, ["task", "add", "login", "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert duplicate.exit_code == 1, duplicate.output
-    assert "login" in ErrorResult.model_validate_json(duplicate.stderr).error
+    parsed = TaskAddResult.model_validate(json.loads(duplicate.stdout))
+    assert parsed.tasks == []
+    assert [error.name for error in parsed.errors] == ["login"]
+    assert "Already exists" in parsed.errors[0].error
     assert snapshot(project) == before
 
 
@@ -142,7 +191,9 @@ def test_task_add_invalid_name_preserves_target(project: Path, invalid: str) -> 
         app, ["task", "add", invalid, "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert result.exit_code == 1, result.output
-    assert "Expected a nonempty name" in ErrorResult.model_validate_json(result.stderr).error
+    parsed = TaskAddResult.model_validate(json.loads(result.stdout))
+    assert parsed.tasks == []
+    assert [error.name for error in parsed.errors] == [invalid]
     assert snapshot(project) == before
 
 
@@ -246,8 +297,8 @@ def test_task_add_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> 
     seed = application.tasks.create(
         "auth", "seed", TaskMetadata(created=datetime(2026, 1, 1, tzinfo=UTC))
     )
-    create = Mock(return_value=seed)
-    monkeypatch.setattr(application.tasks, "create", create)
+    create_batch = Mock(return_value=([seed], []))
+    monkeypatch.setattr(application.tasks, "create_batch", create_batch)
     factory = Mock(return_value=application)
     result = runner.invoke(
         create_cli(Dependencies(prepare_project=factory)),
@@ -255,12 +306,12 @@ def test_task_add_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> 
     )
     assert result.exit_code == 0, result.output
     factory.assert_called_once_with(project)
-    create.assert_called_once()
-    call_plan, call_name, call_metadata = cast(
-        "tuple[str, str, TaskMetadata]", create.call_args.args
+    create_batch.assert_called_once()
+    call_plan, call_names, call_metadata = cast(
+        "tuple[str, list[str], TaskMetadata]", create_batch.call_args.args
     )
     assert call_plan == "auth"
-    assert call_name == "login"
+    assert call_names == ["login"]
     assert call_metadata.status == "todo"
     assert call_metadata.created.tzinfo is not None
     assert TaskAddResult.model_validate(json.loads(result.stdout)).tasks[0].name == "seed"

@@ -1,7 +1,8 @@
 from pathlib import PurePosixPath
 
-from pydantic import validate_call
+from pydantic import ValidationError, validate_call
 
+from machinate.models.batch import BatchCreateError, first_validation_message
 from machinate.models.context import Context, ContextSummary, ContextUpdate
 from machinate.storage import (
     ContextMetadata,
@@ -11,7 +12,8 @@ from machinate.storage import (
     Layout,
     PlanMetadata,
 )
-from machinate.storage.models import ContextName, Name
+from machinate.storage.errors import MissingDocumentError, StorageError
+from machinate.storage.models import ContextName, ContextNameInput, Name
 
 
 class ContextService:
@@ -31,6 +33,45 @@ class ContextService:
             self.layout.context(plan, name), Document(metadata=metadata, body=body)
         )
         return self.get(plan, name)
+
+    @validate_call
+    def create_batch(
+        self, plan: Name, names: list[str], metadata: ContextMetadata, body: str = ""
+    ) -> tuple[list[Context], list[BatchCreateError]]:
+        """Create many contexts: preflight conflicts, report per-name failures.
+
+        Invalid and already-existing names become BatchCreateError entries;
+        every remaining name is still attempted, so a mid-batch failure cannot
+        silently skip later names.
+        """
+        self._require_plan(plan)
+        errors: list[BatchCreateError] = []
+        candidates: list[str] = []
+        for name in names:
+            try:
+                valid = ContextNameInput(name=name).name
+            except ValidationError as exc:
+                errors.append(BatchCreateError(name=name, error=first_validation_message(exc)))
+                continue
+            try:
+                self.document_store.metadata(self.layout.context(plan, valid))
+            except MissingDocumentError:
+                candidates.append(valid)
+            except OSError as exc:
+                errors.append(BatchCreateError(name=name, error=str(exc)))
+            else:
+                errors.append(
+                    BatchCreateError(
+                        name=valid, error=f"Already exists: {self.layout.context(plan, valid)}"
+                    )
+                )
+        created: list[Context] = []
+        for name in candidates:
+            try:
+                created.append(self.create(plan, name, metadata, body))
+            except (StorageError, ValidationError, OSError) as exc:
+                errors.append(BatchCreateError(name=name, error=str(exc)))
+        return created, errors
 
     @validate_call
     def get(self, plan: Name, name: ContextName) -> Context:

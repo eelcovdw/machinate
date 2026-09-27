@@ -105,6 +105,39 @@ def test_context_add_multiple(project: Path) -> None:
     assert names == ["spec", "notes"]
 
 
+def test_context_add_batch_partial_success(project: Path) -> None:
+    """C2: an existing name must not abort the batch or swallow later names."""
+    prepare_project(project).contexts.create(
+        "auth", "existing", ContextMetadata(created=_DEFAULT_CREATED)
+    )
+    result = runner.invoke(
+        app,
+        [
+            "context",
+            "add",
+            "new",
+            "existing",
+            "later",
+            "../bad",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--format",
+            "json",
+        ],
+    )
+    assert result.exit_code == 1, result.output
+    parsed = ContextAddResult.model_validate(json.loads(result.stdout))
+    assert [context.name for context in parsed.contexts] == ["new", "later"]
+    assert [error.name for error in parsed.errors] == ["existing", "../bad"]
+    assert "Already exists" in parsed.errors[0].error
+    assert "Expected a nonempty name" in parsed.errors[1].error
+    assert (project / ".machi/plans/auth/context/new.md").exists()
+    assert (project / ".machi/plans/auth/context/later.md").exists()
+    assert (project / ".machi/plans/auth/context/existing.md").exists()  # Not overwritten.
+
+
 def test_context_add_non_interactive_requires_plan(
     project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -126,6 +159,7 @@ def test_context_add_no_current_plan(project: Path) -> None:
 
 
 def test_context_add_duplicate_preserves_existing(project: Path) -> None:
+    """A duplicate is now a partial-failure result, not a global error."""
     first = runner.invoke(
         app, ["context", "add", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
     )
@@ -135,7 +169,10 @@ def test_context_add_duplicate_preserves_existing(project: Path) -> None:
         app, ["context", "add", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert duplicate.exit_code == 1, duplicate.output
-    assert "spec" in ErrorResult.model_validate_json(duplicate.stderr).error
+    parsed = ContextAddResult.model_validate(json.loads(duplicate.stdout))
+    assert parsed.contexts == []
+    assert [error.name for error in parsed.errors] == ["spec"]
+    assert "Already exists" in parsed.errors[0].error
     assert snapshot(project) == before
 
 
@@ -146,7 +183,10 @@ def test_context_add_invalid_name_preserves_target(project: Path, invalid: str) 
         app, ["context", "add", invalid, "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert result.exit_code == 1, result.output
-    assert "Expected a nonempty name" in ErrorResult.model_validate_json(result.stderr).error
+    parsed = ContextAddResult.model_validate(json.loads(result.stdout))
+    assert parsed.contexts == []
+    assert [error.name for error in parsed.errors] == [invalid]
+    assert "Expected a nonempty name" in parsed.errors[0].error
     assert snapshot(project) == before
 
 
@@ -250,8 +290,8 @@ def test_context_add_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) 
     seed = application.contexts.create(
         "auth", "seed", ContextMetadata(created=datetime(2026, 1, 1, tzinfo=UTC))
     )
-    create = Mock(return_value=seed)
-    monkeypatch.setattr(application.contexts, "create", create)
+    create_batch = Mock(return_value=([seed], []))
+    monkeypatch.setattr(application.contexts, "create_batch", create_batch)
     factory = Mock(return_value=application)
     result = runner.invoke(
         create_cli(Dependencies(prepare_project=factory)),
@@ -259,12 +299,12 @@ def test_context_add_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) 
     )
     assert result.exit_code == 0, result.output
     factory.assert_called_once_with(project)
-    create.assert_called_once()
-    call_plan, call_name, call_metadata = cast(
-        "tuple[str, str, ContextMetadata]", create.call_args.args
+    create_batch.assert_called_once()
+    call_plan, call_names, call_metadata = cast(
+        "tuple[str, list[str], ContextMetadata]", create_batch.call_args.args
     )
     assert call_plan == "auth"
-    assert call_name == "spec"
+    assert call_names == ["spec"]
     assert call_metadata.created.tzinfo is not None
     assert ContextAddResult.model_validate(json.loads(result.stdout)).contexts[0].name == "seed"
 
