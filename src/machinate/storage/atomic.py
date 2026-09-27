@@ -11,7 +11,7 @@ def atomic_write(target: Path, content: bytes, *, mode: int | None = None) -> No
     The temporary file is a sibling of target so replacement stays on the same
     filesystem, and an interrupted write cannot leave a truncated or empty file
     behind. Pass the mode of the file being replaced to preserve permissions;
-    fresh files get the umask default.
+    fresh files are created 0600 (NamedTemporaryFile is always owner-only).
 
     Raises OSError when a step fails; any leftover temporary file is removed,
     and a cleanup failure is reported as a note on the primary failure.

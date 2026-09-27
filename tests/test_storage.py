@@ -312,12 +312,32 @@ def test_failed_state_write_keeps_original(
         raise PermissionError("replacement denied")
 
     monkeypatch.setattr(Path, "replace", fail_replace)
+
+    real_unlink = Path.unlink
+
+    def fail_unlink(_path: Path, **_kwargs: object) -> None:
+        raise OSError("cleanup denied")
+
+    # The failed replace leaves a temporary file; failing cleanup adds a note
+    # that must survive the StorageError wrapper.
+    monkeypatch.setattr(Path, "unlink", fail_unlink)
     with pytest.raises(StorageError) as error:
         store.write(ProjectState(project_name="Café"))
     assert isinstance(error.value.reason, PermissionError)
+    notes = getattr(error.value, "__notes__", [])
+    assert len(notes) == 1
+    assert "Could not remove temporary file" in notes[0]
     assert store.read() == original
     nested = tmp_path / "nested"
-    assert list(nested.iterdir()) == [nested / "machinate.toml"]
+    leftovers = set(nested.iterdir()) - {nested / "machinate.toml"}
+    assert len(leftovers) == 1  # The temporary file could not be removed; the note says so.
+
+    # With cleanup working again, a failed write removes its own temporary file.
+    monkeypatch.setattr(Path, "unlink", real_unlink)
+    with pytest.raises(StorageError) as error:
+        store.write(ProjectState(project_name="Café"))
+    assert not getattr(error.value, "__notes__", [])
+    assert set(nested.iterdir()) - {nested / "machinate.toml"} == leftovers
 
 
 def test_successful_update_replaces_file(
@@ -364,8 +384,11 @@ def test_write_rejects_symlink(
     external.write_bytes(b"original\n")
     (tmp_path / "note.md").symlink_to(external)
 
-    with pytest.raises(SymbolicLinkError):
+    with pytest.raises(SymbolicLinkError) as error:
         store.write("note.md", Document(metadata=document.metadata, body="new"))
+    assert error.value.reason is None
+    assert "note.md" in str(error.value)
+    assert "symbolic link" in str(error.value)
 
     assert (tmp_path / "note.md").is_symlink()
     assert external.read_bytes() == b"original\n"

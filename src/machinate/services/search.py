@@ -300,5 +300,5 @@ class SearchService:
     def _read_text(self, relative: PurePosixPath) -> str:
         try:
             return (self.document_store.root / relative).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except OSError, UnicodeDecodeError:
             return ""

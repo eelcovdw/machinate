@@ -101,7 +101,8 @@ class DocumentStore:
             info = target.lstat()  # Updates must not silently create missing documents.
             if stat.S_ISLNK(info.st_mode):
                 # A rename would replace the link itself; refuse rather than rewrite it.
-                raise SymbolicLinkError(relative, OSError("Refusing to replace a symbolic link"))
+                # No underlying OS error, so no fabricated reason.
+                raise SymbolicLinkError(relative)
             if not stat.S_ISREG(info.st_mode):
                 raise IsADirectoryError(str(target))
             atomic_write(Path(target.path), content, mode=stat.S_IMODE(info.st_mode))

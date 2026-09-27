@@ -30,8 +30,14 @@ class ProjectStateStore:
         try:
             content = tomli_w.dumps(state.model_dump(exclude_none=True)).encode("utf-8")
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            # Preserve permissions on update; fresh files get the umask default.
-            mode = stat.S_IMODE(self.path.stat().st_mode) if self.path.exists() else None
+            # Preserve permissions on update; fresh files are 0600 (NamedTemporaryFile
+            # is always owner-only), not the umask default.
+            try:
+                info = self.path.stat()
+            except FileNotFoundError:
+                mode = None
+            else:
+                mode = stat.S_IMODE(info.st_mode)
             atomic_write(Path(self.path.path), content, mode=mode)
         except OSError as exc:
             raise StorageError(self.path, exc) from exc

@@ -1,3 +1,5 @@
+import json
+import os
 import subprocess
 import sys
 import tomllib
@@ -34,19 +36,25 @@ def test_console_script_smoke(executable: str) -> None:
 def test_console_script_reports_usage_errors(executable: str) -> None:
     """Exercise the custom parse_args path that catches click.UsageError.
 
-    Fresh resolution with Typer 0.26+ vendors Click, so typer raises its own
-    vendored exceptions that the external click.UsageError handler would miss
-    (C1); a clean usage error proves the external Click is the one in use.
+    The custom handler only runs for leaf commands: a root-group failure like
+    `machi --definitely-not-an-option` exits before reaching it, so the test
+    must target a leaf command (C1). Fresh resolution with Typer 0.26+ vendors
+    Click, so typer raises its own vendored exceptions that the external
+    click.UsageError handler would miss; a structured usage error proves the
+    external Click is the one in use.
     """
     launcher = Path(sys.executable).with_name(executable)
     result = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "--definitely-not-an-option"],
+        [str(launcher), "info", "--definitely-not-an-option"],
         capture_output=True,
         text=True,
         check=False,
+        env={**os.environ, "MACHI_FORMAT": "json"},
     )
     assert result.returncode == 2, result.stderr
-    assert "No such option" in result.stderr
+    parsed = cast("dict[str, object]", json.loads(result.stderr))
+    assert parsed["command"] == "info"
+    assert "No such option" in str(parsed["error"])
 
 
 def test_installed_versions_satisfy_declared_constraints() -> None:
