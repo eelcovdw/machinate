@@ -1,9 +1,14 @@
 import subprocess
 import sys
-from importlib.metadata import entry_points
+import tomllib
+from importlib.metadata import entry_points, version
 from pathlib import Path
+from typing import cast
 
 import pytest
+from packaging.requirements import Requirement
+
+PYPROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 
 
 def test_console_scripts_point_at_app() -> None:
@@ -23,3 +28,47 @@ def test_console_script_smoke(executable: str) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "Usage" in result.stdout
+
+
+@pytest.mark.parametrize("executable", ["machi", "machinate"])
+def test_console_script_reports_usage_errors(executable: str) -> None:
+    """Exercise the custom parse_args path that catches click.UsageError.
+
+    Fresh resolution with Typer 0.26+ vendors Click, so typer raises its own
+    vendored exceptions that the external click.UsageError handler would miss
+    (C1); a clean usage error proves the external Click is the one in use.
+    """
+    launcher = Path(sys.executable).with_name(executable)
+    result = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
+        [str(launcher), "--definitely-not-an-option"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2, result.stderr
+    assert "No such option" in result.stderr
+
+
+def test_installed_versions_satisfy_declared_constraints() -> None:
+    """Catch a fresh resolution drifting outside the declared constraints (C1)."""
+    with PYPROJECT.open("rb") as stream:
+        dependencies = cast("list[str]", tomllib.load(stream)["project"]["dependencies"])
+    for dependency in dependencies:
+        requirement = Requirement(dependency)
+        installed = version(requirement.name)
+        assert installed in requirement.specifier, (
+            f"Installed {requirement.name}=={installed} violates {requirement}"
+        )
+
+
+def test_click_is_external_not_vendored() -> None:
+    """Typer 0.26+ vendors Click; importing it as typer._vendor.click breaks cli.py."""
+    result = subprocess.run(  # noqa: S603 - interpreter with fixed arguments
+        [sys.executable, "-c", "import click; print(click.__file__)"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    click_file = Path(result.stdout.strip()).resolve()
+    assert "typer" not in click_file.parts

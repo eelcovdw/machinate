@@ -1,5 +1,11 @@
 from .document_store import DocumentStore
-from .errors import DocumentExistsError, InvalidDocumentError, MissingDocumentError, StorageError
+from .errors import (
+    DocumentExistsError,
+    InvalidDocumentError,
+    MissingDocumentError,
+    StorageError,
+    SymbolicLinkError,
+)
 from .layout import Layout
 from .models import (
     ContextMetadata,
@@ -49,6 +55,7 @@ __all__ = [
     "ProjectState",
     "ProjectStateStore",
     "StorageError",
+    "SymbolicLinkError",
     "Tag",
     "TaskMetadata",
     "TaskQuery",

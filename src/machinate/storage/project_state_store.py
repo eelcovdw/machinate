@@ -1,8 +1,11 @@
+import stat
 import tomllib
+from pathlib import Path
 
 import tomli_w
 from upath import UPath
 
+from .atomic import atomic_write
 from .errors import InvalidDocumentError, MissingDocumentError, StorageError
 from .models import ProjectState
 
@@ -25,8 +28,10 @@ class ProjectStateStore:
 
     def write(self, state: ProjectState) -> None:
         try:
-            content = tomli_w.dumps(state.model_dump(exclude_none=True))
+            content = tomli_w.dumps(state.model_dump(exclude_none=True)).encode("utf-8")
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_bytes(content.encode("utf-8"))
+            # Preserve permissions on update; fresh files get the umask default.
+            mode = stat.S_IMODE(self.path.stat().st_mode) if self.path.exists() else None
+            atomic_write(Path(self.path.path), content, mode=mode)
         except OSError as exc:
             raise StorageError(self.path, exc) from exc

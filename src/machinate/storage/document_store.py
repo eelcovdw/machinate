@@ -1,7 +1,5 @@
 import logging
 import stat
-import sys
-import tempfile
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path, PurePosixPath
@@ -11,7 +9,14 @@ from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 from upath import UPath
 
-from .errors import DocumentExistsError, InvalidDocumentError, MissingDocumentError, StorageError
+from .atomic import atomic_write
+from .errors import (
+    DocumentExistsError,
+    InvalidDocumentError,
+    MissingDocumentError,
+    StorageError,
+    SymbolicLinkError,
+)
 from .models import Document, FileMetadata, Metadata, PathInput, StatusMetadata
 from .queries import DocumentCollection, DocumentQuery, DocumentRecord, DocumentScope, StatusQuery
 
@@ -66,7 +71,11 @@ class DocumentStore:
             yaml = YAML(typ="safe")
             yaml.default_flow_style = False
             # Only an authored summary is stored; derived ones are computed on demand.
-            yaml.dump(document.metadata.model_dump(exclude_none=True), output)  # pyright: ignore[reportUnknownMemberType]
+            # Custom extra metadata is preserved as-is, including explicit null values.
+            data = document.metadata.model_dump()
+            if data.get("summary") is None:
+                data.pop("summary", None)
+            yaml.dump(data, output)  # pyright: ignore[reportUnknownMemberType]
             return f"---\n{output.getvalue()}---\n{document.body}".encode()
         except (ValueError, YAMLError) as exc:
             raise InvalidDocumentError(path, exc) from exc
@@ -88,32 +97,18 @@ class DocumentStore:
         relative = PathInput.model_validate({"path": path}).path
         content = self._encode(relative, document)
         target = self.root / relative
-        temporary: Path | None = None
         try:
-            info = target.stat()  # Updates must not silently create missing documents.
+            info = target.lstat()  # Updates must not silently create missing documents.
+            if stat.S_ISLNK(info.st_mode):
+                # A rename would replace the link itself; refuse rather than rewrite it.
+                raise SymbolicLinkError(relative, OSError("Refusing to replace a symbolic link"))
             if not stat.S_ISREG(info.st_mode):
                 raise IsADirectoryError(str(target))
-            # A sibling temporary file keeps replacement on the same filesystem.
-            with tempfile.NamedTemporaryFile(dir=target.parent.path, delete=False) as stream:
-                temporary = Path(stream.name)
-                stream.write(content)
-            temporary.chmod(stat.S_IMODE(info.st_mode))
-            temporary.replace(target.path)
-            temporary = None  # Replacement consumed the temporary file.
+            atomic_write(Path(target.path), content, mode=stat.S_IMODE(info.st_mode))
         except FileNotFoundError as exc:
             raise MissingDocumentError(relative, exc) from exc
         except OSError as exc:
             raise StorageError(relative, exc) from exc
-        finally:
-            if temporary is not None:
-                failure = sys.exception()
-                try:
-                    temporary.unlink(missing_ok=True)
-                except OSError as exc:
-                    if failure is None:
-                        raise StorageError(relative, exc) from exc
-                    # Keep the write failure primary, but report the leftover temporary file.
-                    failure.add_note(f"Could not remove temporary file {temporary}: {exc}")
 
     def metadata(self, path: str | PurePosixPath) -> FileMetadata:
         relative = PathInput.model_validate({"path": path}).path
