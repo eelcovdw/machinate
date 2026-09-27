@@ -1,18 +1,13 @@
 from datetime import datetime
-from typing import ClassVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
-from machinate.storage.models import ContextMetadata, ContextName, Document, RelativePath, Tag
-from machinate.storage.queries import DocumentRecord
+from machinate.models.update import DocumentUpdate
+from machinate.storage.models import ContextMetadata, ContextName, Document, RelativePath
 
 
-class ContextUpdate(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", validate_assignment=True)
-
-    body: str = ""
-    summary: str | None = None
-    tags: list[Tag] | None = None
+class ContextUpdate(DocumentUpdate):
+    """A context update adds no fields beyond the shared ones."""
 
 
 class Context(BaseModel):
@@ -20,7 +15,3 @@ class Context(BaseModel):
     path: RelativePath
     document: Document[ContextMetadata]
     modified_at: datetime
-
-
-class ContextSummary(DocumentRecord[ContextMetadata]):
-    pass

@@ -3,32 +3,20 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from pydantic import ValidationError
 
-from machinate.cli.commands.selection import PlanSelectionError, select_plan
-from machinate.cli.dependencies import get_dependencies
-from machinate.cli.errors import describe_error
-from machinate.cli.formatting import Formatter, UnknownFormatError, select_formatter
+from machinate.cli.commands.selection import PlanSelectionError, resolve_plan_name
+from machinate.cli.execution import execute
 from machinate.cli.models import (
     ContextAddResult,
     ContextInfoResult,
     ContextListResult,
     ContextShowResult,
     ContextUpdateResult,
-    ErrorResult,
-    ProjectScope,
 )
-from machinate.cli.project_setup import ProjectError
-from machinate.cli.settings import Settings
+from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.context import ContextUpdate
 from machinate.storage import ContextMetadata
-from machinate.storage.errors import StorageError
-from machinate.storage.models import ContextNameInput, NameInput
 from machinate.storage.queries import DocumentQuery
-
-
-class ContextUpdateError(Exception):
-    """Raised when an update is requested with no fields to change."""
 
 
 def context_changes(
@@ -37,20 +25,11 @@ def context_changes(
     clear_tags: bool = False,
 ) -> ContextUpdate:
     """Validate provided options and build a context update with only the changed fields."""
-    changes: dict[str, object] = {}
-    if summary is not None:
-        changes["summary"] = summary
-    if clear_tags:
-        if tags is not None:
-            msg = "--tag and --clear-tags are mutually exclusive."
-            raise ContextUpdateError(msg)
-        changes["tags"] = []
-    elif tags is not None:
-        changes["tags"] = tags
-    if not changes:
-        msg = "Nothing to update; pass --summary, --tag, or --clear-tags."
-        raise ContextUpdateError(msg)
-    return ContextUpdate.model_validate(changes)
+    return build_update(
+        ContextUpdate,
+        UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
+        hint="--summary, --tag, or --clear-tags",
+    )
 
 
 def context_add(  # noqa: PLR0913
@@ -77,36 +56,18 @@ def context_add(  # noqa: PLR0913
     ] = None,
 ) -> None:
     """Create one or more context documents in a plan."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan, automation=settings.automation)
+    with execute(context, "context add", output_format, PlanSelectionError) as run:
+        project_context = run.prepare(project)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
+        )
         created, errors = project_context.contexts.create_batch(
-            selected.name, names, ContextMetadata(created=datetime.now(UTC), tags=tags or [])
+            plan_name, names, ContextMetadata(created=datetime.now(UTC), tags=tags or [])
         )
         result = ContextAddResult(
-            project=scope, plan=selected.name, contexts=created, errors=errors
+            project=project_context.project, plan=plan_name, contexts=created, errors=errors
         )
-    except (
-        ProjectError,
-        UnknownFormatError,
-        PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="context add", error=message, project=scope)),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        run.render(result)
     if result.errors:
         raise typer.Exit(1)  # Partial failure; the result still reports what was created.
 
@@ -126,10 +87,6 @@ def context_list(  # noqa: PLR0913
     output_format: Annotated[
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
-    search: Annotated[
-        str | None, typer.Option(help="Substring search in name and summary.")
-    ] = None,
-    search_body: Annotated[bool, typer.Option(help="Include document body in search.")] = False,
     tags: Annotated[
         list[str] | None,
         typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
@@ -139,45 +96,25 @@ def context_list(  # noqa: PLR0913
     limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
 ) -> None:
     """List context documents in a plan."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
+    with execute(context, "context list", output_format, PlanSelectionError) as run:
         query = DocumentQuery.model_validate(
             {
-                "search": search,
-                "search_body": search_body,
                 "tags": tags,
                 "sort": sort,
                 "descending": descending,
                 "limit": limit,
             }
         )
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan, automation=settings.automation)
+        project_context = run.prepare(project)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
+        )
         result = ContextListResult(
-            project=scope,
-            plan=selected.name,
-            contexts=project_context.contexts.list(selected.name, query),
+            project=project_context.project,
+            plan=plan_name,
+            contexts=project_context.contexts.list(plan_name, query),
         )
-    except (
-        ProjectError,
-        UnknownFormatError,
-        PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="context list", error=message, project=scope)),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        run.render(result)
 
 
 def context_show(
@@ -198,33 +135,16 @@ def context_show(
     ] = None,
 ) -> None:
     """Show context metadata and body."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        context_name = ContextNameInput(name=name).name
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan, automation=settings.automation)
-        document = project_context.contexts.get(selected.name, context_name)
-        result = ContextShowResult(project=scope, plan=selected.name, context=document)
-    except (
-        ProjectError,
-        UnknownFormatError,
-        PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="context show", error=message, project=scope)),
-            err=True,
+    with execute(context, "context show", output_format, PlanSelectionError) as run:
+        project_context = run.prepare(project)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
         )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        document = project_context.contexts.get(plan_name, name)
+        result = ContextShowResult(
+            project=project_context.project, plan=plan_name, context=document
+        )
+        run.render(result)
 
 
 def context_info(
@@ -245,33 +165,16 @@ def context_info(
     ] = None,
 ) -> None:
     """Show context metadata."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        context_name = ContextNameInput(name=name).name
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan, automation=settings.automation)
-        document = project_context.contexts.info(selected.name, context_name)
-        result = ContextInfoResult(project=scope, plan=selected.name, context=document)
-    except (
-        ProjectError,
-        UnknownFormatError,
-        PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="context info", error=message, project=scope)),
-            err=True,
+    with execute(context, "context info", output_format, PlanSelectionError) as run:
+        project_context = run.prepare(project)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
         )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        document = project_context.contexts.info(plan_name, name)
+        result = ContextInfoResult(
+            project=project_context.project, plan=plan_name, context=document
+        )
+        run.render(result)
 
 
 def context_update(  # noqa: PLR0913
@@ -304,33 +207,14 @@ def context_update(  # noqa: PLR0913
     ] = None,
 ) -> None:
     """Change context summary or tags."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        context_name = ContextNameInput(name=name).name
-        plan_name = None if plan is None else NameInput(name=plan).name
+    with execute(context, "context update", output_format, PlanSelectionError) as run:
         changes = context_changes(summary, tags, clear_tags)
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan_name, automation=settings.automation)
-        updated = project_context.contexts.update(selected.name, context_name, changes)
-        result = ContextUpdateResult(project=scope, plan=selected.name, context=updated)
-    except (
-        ContextUpdateError,
-        ProjectError,
-        UnknownFormatError,
-        PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="context update", error=message, project=scope)),
-            err=True,
+        project_context = run.prepare(project)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
         )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        updated = project_context.contexts.update(plan_name, name, changes)
+        result = ContextUpdateResult(
+            project=project_context.project, plan=plan_name, context=updated
+        )
+        run.render(result)

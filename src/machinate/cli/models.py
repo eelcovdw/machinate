@@ -4,11 +4,12 @@ from typing import Literal
 from pydantic import BaseModel
 
 from machinate.models.batch import BatchCreateError
-from machinate.models.context import Context, ContextSummary
-from machinate.models.plan import Plan, PlanOverview, PlanSummary, ProjectOverview
+from machinate.models.context import Context
+from machinate.models.plan import Plan, PlanOverview, ProjectOverview
 from machinate.models.search import FindEntry
-from machinate.models.task import Task, TaskSummary
-from machinate.storage import ProjectState
+from machinate.models.task import Task
+from machinate.storage import DocumentRecord, ProjectState
+from machinate.storage.models import ContextMetadata, PlanMetadata, TaskMetadata
 
 
 class ProjectScope(BaseModel):
@@ -20,7 +21,7 @@ class ProjectScope(BaseModel):
 class ListResult(BaseModel):
     command: Literal["plan list"] = "plan list"
     project: ProjectScope
-    plans: list[PlanSummary]
+    plans: list[DocumentRecord[PlanMetadata]]
     group_by: Literal["status"] | None = None
 
 
@@ -71,7 +72,7 @@ class TaskListResult(BaseModel):
     command: Literal["task list"] = "task list"
     project: ProjectScope
     plan: str
-    tasks: list[TaskSummary]
+    tasks: list[DocumentRecord[TaskMetadata]]
     group_by: Literal["status"] | None = None
 
 
@@ -86,7 +87,7 @@ class TaskInfoResult(BaseModel):
     command: Literal["task info"] = "task info"
     project: ProjectScope
     plan: str
-    task: TaskSummary
+    task: DocumentRecord[TaskMetadata]
 
 
 class TaskUpdateResult(BaseModel):
@@ -108,7 +109,7 @@ class ContextListResult(BaseModel):
     command: Literal["context list"] = "context list"
     project: ProjectScope
     plan: str
-    contexts: list[ContextSummary]
+    contexts: list[DocumentRecord[ContextMetadata]]
 
 
 class ContextShowResult(BaseModel):
@@ -122,7 +123,7 @@ class ContextInfoResult(BaseModel):
     command: Literal["context info"] = "context info"
     project: ProjectScope
     plan: str
-    context: ContextSummary
+    context: DocumentRecord[ContextMetadata]
 
 
 class ContextUpdateResult(BaseModel):

@@ -11,7 +11,7 @@ from rich.table import Table
 from rich.text import Text
 
 from machinate.models.batch import BatchCreateError
-from machinate.models.search import FindEntry, FindSnippet
+from machinate.models.search import FindEntry
 from machinate.storage import PlanStatus, TaskStatus
 
 from .models import (
@@ -493,41 +493,7 @@ def render_unselect(result: UnselectResult) -> str:
 
 
 def _find_locator(entry: FindEntry) -> str:
-    path = entry.path.as_posix()
-    if not entry.snippets:
-        return path
-    snippet = entry.snippets[0]
-    if snippet.line == snippet.line_end:
-        return f"{path}:{snippet.line}"
-    return f"{path}:{snippet.line}-{snippet.line_end}"
-
-
-def _append_highlights(
-    line: Text, content: str, base: int, highlights: list[tuple[int, int]]
-) -> None:
-    position = 0
-    for start, end in sorted(highlights):
-        low = max(start - base, position)
-        high = min(end - base, len(content))
-        if high <= low:
-            continue
-        line.append(content[position:low])
-        line.append(content[low:high], style="bold")
-        position = high
-    line.append(content[position:])
-
-
-def _snippet_lines(snippet: FindSnippet) -> list[Text]:
-    width = len(str(snippet.line_end))
-    output: list[Text] = []
-    base = 0
-    for index, content in enumerate(snippet.text.split("\n")):
-        line = Text()
-        line.append(f"{snippet.line + index:>{width}} │ ", style=MUTED)
-        _append_highlights(line, content, base, snippet.highlights)
-        output.append(line)
-        base += len(content) + 1
-    return output
+    return entry.path.as_posix()
 
 
 def _find_owner(entry: FindEntry) -> str:
@@ -542,23 +508,16 @@ def render_find(result: FindResult) -> str:
         lines.append(Text("No matches found.", style=MUTED))
         return _render(lines)
     ranked = any(entry.score is not None for entry in result.entries)
-    spaced = any(entry.snippets for entry in result.entries)
     lines.append(Text())
     table = Table.grid(padding=(0, 2))
     if ranked:
         table.add_column(justify="right", no_wrap=True, style=MUTED)
     table.add_column()
-    for index, entry in enumerate(result.entries):
-        if index and spaced:
-            table.add_row(*["" for _ in range(2 if ranked else 1)])
+    for entry in result.entries:
         block = Text()
         block.append(_find_locator(entry), style=PATH)
         block.append("  ")
         block.append(_find_owner(entry), style=MUTED)
-        for snippet in entry.snippets:
-            for line in _snippet_lines(snippet):
-                block.append("\n")
-                block.append_text(line)
         score = f"{entry.score:.1f}" if entry.score is not None else ""
         if ranked:
             table.add_row(score, block)

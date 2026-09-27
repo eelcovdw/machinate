@@ -325,32 +325,6 @@ def test_context_list_empty(project: Path) -> None:
     assert ContextListResult.model_validate(json.loads(result.stdout)).contexts == []
 
 
-def test_context_list_search(project: Path) -> None:
-    seed_context(project, "spec")
-    seed_context(project, "notes")
-    result = runner.invoke(
-        app,
-        [
-            "context",
-            "list",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--search",
-            "spec",
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    names = [
-        context.name
-        for context in ContextListResult.model_validate(json.loads(result.stdout)).contexts
-    ]
-    assert names == ["spec"]
-
-
 def test_context_list_limit_and_descending(project: Path) -> None:
     for name in ("a", "b", "c"):
         seed_context(project, name)

@@ -28,24 +28,6 @@ class FindQuery(BaseModel):
     limit: PositiveInt | None = None
     regex: bool = False
     exact: bool = False
-    snippets: bool = True
-    context: int = Field(default=0, ge=0)
-    snippet_chars: PositiveInt = 160
-
-
-class FindSnippet(BaseModel):
-    """A matched window of a document, with 1-based inclusive line numbers.
-
-    ``text`` is the raw file text for lines ``line``..``line_end`` (widened by the query's
-    context); ``highlights`` are character offsets into ``text`` for the matched terms.
-    """
-
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
-
-    line: PositiveInt
-    line_end: PositiveInt
-    text: str
-    highlights: list[tuple[int, int]] = Field(default_factory=list)
 
 
 class FindEntry(BaseModel):
@@ -62,4 +44,3 @@ class FindEntry(BaseModel):
     plan: str | None = None
     name: str | None = None
     score: float | None = None
-    snippets: list[FindSnippet] = Field(default_factory=list)

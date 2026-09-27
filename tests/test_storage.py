@@ -155,6 +155,43 @@ def test_invalid_documents(store: DocumentStore, tmp_path: Path, content: str) -
     assert error.value.__cause__ is error.value.reason
 
 
+def test_glob_files_matches_regular_files_only(store: DocumentStore, tmp_path: Path) -> None:
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "one.md").write_text("one")
+    (tmp_path / "a" / "two.txt").write_text("two")
+    (tmp_path / "a" / "sub").mkdir()
+    (tmp_path / "a" / "sub" / "three.md").write_text("three")
+    assert sorted(store.glob_files(PurePosixPath("a"), ["**/*.md"])) == [
+        PurePosixPath("a/one.md"),
+        PurePosixPath("a/sub/three.md"),
+    ]
+    assert store.glob_files(PurePosixPath("missing"), ["**/*.md"]) == []
+
+
+def test_glob_files_includes_dot_prefixed_files(store: DocumentStore, tmp_path: Path) -> None:
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / ".hidden.md").write_text("hidden")
+    (tmp_path / "a" / "visible.md").write_text("visible")
+    assert sorted(store.glob_files(PurePosixPath("a"), ["**/*.md"])) == [
+        PurePosixPath("a/.hidden.md"),
+        PurePosixPath("a/visible.md"),
+    ]
+
+
+def test_read_text_returns_raw_frontmatter(store: DocumentStore, tmp_path: Path) -> None:
+    (tmp_path / "raw.md").write_text("---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n")
+    assert store.read_text("raw.md") == "---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n"
+
+
+def test_read_text_errors_are_typed(store: DocumentStore, tmp_path: Path) -> None:
+    with pytest.raises(MissingDocumentError):
+        store.read_text("missing.md")
+    (tmp_path / "binary.md").write_bytes(b"\xff\xfe")
+    with pytest.raises(InvalidDocumentError) as error:
+        store.read_text("binary.md")
+    assert error.value.path == PurePosixPath("binary.md")
+
+
 def test_missing_frontmatter_uses_defaults(store: DocumentStore, tmp_path: Path) -> None:
     (tmp_path / "bare.md").write_text("just a body\n")
     document = store.read("bare.md", TaskMetadata)
@@ -287,6 +324,21 @@ def test_state_round_trip(tmp_path: Path) -> None:
     assert "current_plan" not in store.path.read_text()
     with pytest.raises(ValidationError):
         state.current_plan = "../escape"
+
+
+def test_state_write_rejects_symlink(tmp_path: Path) -> None:
+    external = tmp_path / "shared.toml"
+    external.write_text('project_name = "demo"\n')
+    link = tmp_path / "machinate.toml"
+    link.symlink_to(external)
+
+    with pytest.raises(SymbolicLinkError) as error:
+        ProjectStateStore(UPath(link)).write(ProjectState(project_name="demo", current_plan="auth"))
+    assert error.value.reason is None
+    assert "symbolic link" in str(error.value)
+
+    assert link.is_symlink()
+    assert external.read_text() == 'project_name = "demo"\n'
 
 
 @pytest.mark.parametrize(

@@ -1,13 +1,9 @@
 from typing import Annotated
 
 import typer
-from pydantic import ValidationError
 
-from machinate.cli.dependencies import get_dependencies
-from machinate.cli.errors import describe_error
-from machinate.cli.formatting import Formatter, UnknownFormatError, select_formatter
-from machinate.cli.models import ErrorResult, InstructionsResult
-from machinate.cli.settings import Settings
+from machinate.cli.execution import execute
+from machinate.cli.models import InstructionsResult
 
 # Paste-ready agent guidance. Kept as one literal so it stays word-for-word in
 # sync with the `## Machinate` section of this project's AGENTS.md.
@@ -54,10 +50,10 @@ machi task    add, list, show, info, path, update
 machi context add, list, show, info, path, update
 ```
 
-`list` subcommands take `--search`, `--search-body`, repeatable `--tag`/
-`--status`, `--sort name|created|updated`, `--descending`, `--limit`, and
-`--no-group-by` to drop status grouping. Plan statuses are `draft|active|done`;
-task statuses are `todo|in-progress|done`.
+`list` subcommands take repeatable `--tag`/`--status`, `--sort
+name|created|updated`, `--descending`, `--limit`, and `--no-group` to drop
+status grouping. Plan statuses are `draft|active|done`; task statuses are
+`todo|in-progress|done`.
 """
 
 
@@ -73,17 +69,5 @@ def instructions_command(
     ] = None,
 ) -> None:
     """Print a paste-ready description of the machinate CLI for agent instruction files."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()
-    try:
-        settings = Settings()
-        name = output_format or settings.format
-        formatter = select_formatter(name, dependencies.formatters)
-        result = InstructionsResult(text=build_instructions())
-    except (UnknownFormatError, ValidationError) as exc:
-        typer.echo(
-            formatter.format(ErrorResult(command="instructions", error=describe_error(exc))),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+    with execute(context, "instructions", output_format) as run:
+        run.render(InstructionsResult(text=build_instructions()))

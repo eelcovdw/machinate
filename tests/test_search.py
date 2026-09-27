@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -64,6 +65,15 @@ def test_default_listing_is_sorted_and_excludes_non_markdown(search: SearchServi
 def test_listing_has_no_scores(search: SearchService) -> None:
     entries = search.find(FindQuery())
     assert all(entry.score is None for entry in entries)
+
+
+def test_dot_prefixed_document_is_listed_and_searchable(search: SearchService) -> None:
+    search.document_store.create(
+        search.layout.task("auth", ".hidden"),
+        _doc(TaskMetadata(created=_NOW), "quokka hidden note"),
+    )
+    assert "plans/auth/tasks/.hidden.md" in paths(search, FindQuery())
+    assert paths(search, FindQuery(query="quokka")) == ["plans/auth/tasks/.hidden.md"]
 
 
 def test_membership_is_derived_from_path(search: SearchService) -> None:
@@ -191,6 +201,17 @@ def test_invalid_utf8_does_not_raise(search: SearchService) -> None:
     broken = search.document_store.root / "binary.md"
     broken.write_bytes(b"\xff\xfe\x00bad")
     assert "binary.md" in paths(search)
+
+
+def test_unreadable_document_is_reported_and_still_path_searchable(
+    search: SearchService, caplog: pytest.LogCaptureFixture
+) -> None:
+    broken = search.document_store.root / "binary.md"
+    broken.write_bytes(b"\xff\xfe\x00bad")
+    with caplog.at_level(logging.WARNING):
+        result = paths(search, FindQuery(query="binary"))
+    assert result == ["binary.md"]  # Path text is indexed even when the body cannot be read.
+    assert "binary.md" in caplog.text
 
 
 def test_frontmatter_is_indexed(search: SearchService) -> None:

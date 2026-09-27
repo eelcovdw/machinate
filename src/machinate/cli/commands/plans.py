@@ -1,50 +1,25 @@
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, cast, get_args
+from typing import Annotated
 
 import typer
-from pydantic import ValidationError
 
-from machinate.cli.commands.selection import PlanSelectionError, select_plan
-from machinate.cli.dependencies import get_dependencies
-from machinate.cli.errors import describe_error
-from machinate.cli.formatting import Formatter, UnknownFormatError, select_formatter
+from machinate.cli.commands.selection import PlanSelectionError, resolve_plan_name, select_plan
+from machinate.cli.execution import execute
 from machinate.cli.models import (
     AddResult,
-    ErrorResult,
     InfoResult,
     ListResult,
     PlanInfoResult,
-    ProjectScope,
     SelectResult,
     ShowResult,
     UnselectResult,
     UpdateResult,
 )
-from machinate.cli.project_setup import ProjectError
-from machinate.cli.settings import Settings
+from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.plan import PlanUpdate
-from machinate.storage import PlanMetadata, PlanStatus
-from machinate.storage.errors import StorageError
-from machinate.storage.models import NameInput
+from machinate.storage import PlanMetadata
 from machinate.storage.queries import PlanQuery
-
-
-class InvalidStatusError(Exception):
-    """Raised when a status value is not one of the accepted plan statuses."""
-
-
-class PlanUpdateError(Exception):
-    """Raised when an update is requested with no fields to change."""
-
-
-def plan_status(value: str) -> PlanStatus:
-    """Validate a plan status string."""
-    allowed = get_args(PlanStatus.__value__)  # pyright: ignore[reportAny]
-    if value not in allowed:
-        msg = f"Unknown status {value!r}; expected one of: {', '.join(allowed)}."
-        raise InvalidStatusError(msg)
-    return cast("PlanStatus", value)
 
 
 def plan_changes(
@@ -54,22 +29,11 @@ def plan_changes(
     clear_tags: bool = False,
 ) -> PlanUpdate:
     """Validate provided options and build a plan update with only the changed fields."""
-    changes: dict[str, object] = {}
-    if summary is not None:
-        changes["summary"] = summary
-    if status is not None:
-        changes["status"] = plan_status(status)
-    if clear_tags:
-        if tags is not None:
-            msg = "--tag and --clear-tags are mutually exclusive."
-            raise PlanUpdateError(msg)
-        changes["tags"] = []
-    elif tags is not None:
-        changes["tags"] = tags
-    if not changes:
-        msg = "Nothing to update; pass --summary, --status, --tag, or --clear-tags."
-        raise PlanUpdateError(msg)
-    return PlanUpdate.model_validate(changes)
+    return build_update(
+        PlanUpdate,
+        UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
+        hint="--summary, --status, --tag, or --clear-tags",
+    )
 
 
 def add_plan(  # noqa: PLR0913
@@ -92,42 +56,18 @@ def add_plan(  # noqa: PLR0913
     ] = None,
 ) -> None:
     """Create a plan."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        format_name = output_format or settings.format
-        formatter = select_formatter(format_name, dependencies.formatters)
-        plan_name = NameInput(name=name).name
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        plan = project_context.plans.create(
-            plan_name,
-            PlanMetadata(
-                created=datetime.now(UTC),
-                tags=tags or [],
-                summary=summary,
-                status="draft" if status is None else plan_status(status),
-            ),
+    with execute(context, "plan add", output_format) as run:
+        project_context = run.prepare(project)
+        metadata = PlanMetadata.model_validate(
+            {
+                "created": datetime.now(UTC),
+                "tags": tags or [],
+                "summary": summary,
+                "status": "draft" if status is None else status,
+            }
         )
-        result = AddResult(project=scope, plan=plan)
-    except (
-        InvalidStatusError,
-        ProjectError,
-        UnknownFormatError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        typer.echo(
-            formatter.format(
-                ErrorResult(command="plan add", error=describe_error(exc), project=scope)
-            ),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        plan = project_context.plans.create(name, metadata)
+        run.render(AddResult(project=project_context.project, plan=plan))
 
 
 def list_plans(  # noqa: PLR0913
@@ -139,10 +79,6 @@ def list_plans(  # noqa: PLR0913
     output_format: Annotated[
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
-    search: Annotated[
-        str | None, typer.Option(help="Substring search in name and summary.")
-    ] = None,
-    search_body: Annotated[bool, typer.Option(help="Include document body in search.")] = False,
     tags: Annotated[
         list[str] | None,
         typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
@@ -156,27 +92,19 @@ def list_plans(  # noqa: PLR0913
     ] = None,
     sort: Annotated[str, typer.Option(help="Sort by name, created, or updated.")] = "name",
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
-    group_by: Annotated[
+    group: Annotated[
         bool,
         typer.Option(
-            "--group-by/--no-group-by",
-            help="Group rows under status headers; use --no-group-by for a flat list.",
+            "--group/--no-group",
+            help="Group rows under status headers; use --no-group for a flat list.",
         ),
     ] = True,
     limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
 ) -> None:
     """List plans in the project."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        name = output_format or settings.format
-        formatter = select_formatter(name, dependencies.formatters)
+    with execute(context, "plan list", output_format) as run:
         query = PlanQuery.model_validate(
             {
-                "search": search,
-                "search_body": search_body,
                 "tags": tags,
                 "statuses": statuses,
                 "sort": sort,
@@ -184,22 +112,14 @@ def list_plans(  # noqa: PLR0913
                 "limit": limit,
             }
         )
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        result = ListResult(
-            project=scope,
-            plans=project_context.plans.list(query),
-            group_by="status" if group_by else None,
+        project_context = run.prepare(project)
+        run.render(
+            ListResult(
+                project=project_context.project,
+                plans=project_context.plans.list(query),
+                group_by="status" if group else None,
+            )
         )
-    except (ProjectError, UnknownFormatError, StorageError, ValidationError, OSError) as exc:
-        typer.echo(
-            formatter.format(
-                ErrorResult(command="plan list", error=describe_error(exc), project=scope)
-            ),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
 
 
 def info_command(
@@ -213,23 +133,14 @@ def info_command(
     ] = None,
 ) -> None:
     """Show a project overview."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        format_name = output_format or settings.format
-        formatter = select_formatter(format_name, dependencies.formatters)
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        result = InfoResult(project=scope, overview=project_context.plans.project_overview())
-    except (ProjectError, UnknownFormatError, StorageError, ValidationError, OSError) as exc:
-        typer.echo(
-            formatter.format(ErrorResult(command="info", error=describe_error(exc), project=scope)),
-            err=True,
+    with execute(context, "info", output_format) as run:
+        project_context = run.prepare(project)
+        run.render(
+            InfoResult(
+                project=project_context.project,
+                overview=project_context.plans.project_overview(),
+            )
         )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
 
 
 def plan_info_command(
@@ -247,36 +158,17 @@ def plan_info_command(
     ] = None,
 ) -> None:
     """Show plan metadata and task progress."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        format_name = output_format or settings.format
-        formatter = select_formatter(format_name, dependencies.formatters)
-        plan_name = None if plan is None else NameInput(name=plan).name
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan_name, automation=settings.automation)
-        result = PlanInfoResult(
-            project=scope, overview=project_context.plans.plan_overview(selected.name)
+    with execute(context, "plan info", output_format, PlanSelectionError) as run:
+        project_context = run.prepare(project)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
         )
-    except (
-        PlanSelectionError,
-        ProjectError,
-        UnknownFormatError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        typer.echo(
-            formatter.format(
-                ErrorResult(command="plan info", error=describe_error(exc), project=scope)
-            ),
-            err=True,
+        run.render(
+            PlanInfoResult(
+                project=project_context.project,
+                overview=project_context.plans.plan_overview(plan_name),
+            )
         )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
 
 
 def select_current_plan(
@@ -294,32 +186,10 @@ def select_current_plan(
     ] = None,
 ) -> None:
     """Set the project's current plan; commands use it when -p is omitted."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        plan_name = NameInput(name=name).name
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        state = project_context.plans.set_current(plan_name)
-        result = SelectResult(project=scope, state=state)
-    except (
-        ProjectError,
-        UnknownFormatError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        typer.echo(
-            formatter.format(
-                ErrorResult(command="plan select", error=describe_error(exc), project=scope)
-            ),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+    with execute(context, "plan select", output_format) as run:
+        project_context = run.prepare(project)
+        state = project_context.plans.set_current(name)
+        run.render(SelectResult(project=project_context.project, state=state))
 
 
 def unselect_plan(
@@ -333,31 +203,10 @@ def unselect_plan(
     ] = None,
 ) -> None:
     """Clear the current plan; does not change any plan's status."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
+    with execute(context, "plan unselect", output_format) as run:
+        project_context = run.prepare(project)
         state = project_context.plans.clear_current()
-        result = UnselectResult(project=scope, state=state)
-    except (
-        ProjectError,
-        UnknownFormatError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        typer.echo(
-            formatter.format(
-                ErrorResult(command="plan unselect", error=describe_error(exc), project=scope)
-            ),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        run.render(UnselectResult(project=project_context.project, state=state))
 
 
 def update_plan(  # noqa: PLR0913
@@ -390,37 +239,19 @@ def update_plan(  # noqa: PLR0913
     ] = None,
 ) -> None:
     """Change plan status, summary, or tags."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        format_name = output_format or settings.format
-        formatter = select_formatter(format_name, dependencies.formatters)
-        changes = plan_changes(summary, status, tags, clear_tags)
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan, automation=settings.automation)
-        updated = project_context.plans.update(selected.name, changes)
-        result = UpdateResult(project=scope, plan=updated)
-    except (
-        InvalidStatusError,
-        PlanUpdateError,
+    with execute(
+        context,
+        "plan update",
+        output_format,
         PlanSelectionError,
-        ProjectError,
-        UnknownFormatError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        typer.echo(
-            formatter.format(
-                ErrorResult(command="plan update", error=describe_error(exc), project=scope)
-            ),
-            err=True,
+    ) as run:
+        changes = plan_changes(summary, status, tags, clear_tags)
+        project_context = run.prepare(project)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
         )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        updated = project_context.plans.update(plan_name, changes)
+        run.render(UpdateResult(project=project_context.project, plan=updated))
 
 
 def show_plan(
@@ -438,31 +269,7 @@ def show_plan(
     ] = None,
 ) -> None:
     """Show plan metadata and body."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        format_name = output_format or settings.format
-        formatter = select_formatter(format_name, dependencies.formatters)
-        plan_name = None if plan is None else NameInput(name=plan).name
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan_name, automation=settings.automation)
-        result = ShowResult(project=scope, plan=selected)
-    except (
-        PlanSelectionError,
-        ProjectError,
-        UnknownFormatError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        typer.echo(
-            formatter.format(
-                ErrorResult(command="plan show", error=describe_error(exc), project=scope)
-            ),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+    with execute(context, "plan show", output_format, PlanSelectionError) as run:
+        project_context = run.prepare(project)
+        selected = select_plan(project_context.plans, plan, automation=run.settings.automation)
+        run.render(ShowResult(project=project_context.project, plan=selected))

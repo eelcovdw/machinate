@@ -2,16 +2,10 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from pydantic import ValidationError
 
-from machinate.cli.dependencies import get_dependencies
-from machinate.cli.errors import describe_error
-from machinate.cli.formatting import Formatter, UnknownFormatError, select_formatter
-from machinate.cli.models import ErrorResult, FindResult, ProjectScope
-from machinate.cli.project_setup import ProjectError
-from machinate.cli.settings import Settings
+from machinate.cli.execution import execute
+from machinate.cli.models import FindResult
 from machinate.models.search import DEFAULT_GLOB, FindQuery
-from machinate.storage.errors import StorageError
 
 
 def find_command(  # noqa: PLR0913
@@ -22,11 +16,13 @@ def find_command(  # noqa: PLR0913
     ] = None,
     glob: Annotated[
         list[str] | None,
-        typer.Option("--glob", help="Filesystem glob relative to the base; repeat for OR."),
+        typer.Option(
+            "--glob", help="Filesystem glob relative to the base (quote it); repeat for OR."
+        ),
     ] = None,
     plan: Annotated[
         str | None,
-        typer.Option("--plan", "-p", help="Restrict the search to one plan."),
+        typer.Option("--plan", "-p", help="Restrict the search to one plan; default all plans."),
     ] = None,
     project: Annotated[
         Path | None,
@@ -51,6 +47,31 @@ def find_command(  # noqa: PLR0913
 ) -> None:
     r"""Search files under the project's .machi store.
 
+    Scope
+
+      By default every plan in the project is searched. --plan narrows the
+      search to one plan; --project targets an exact project directory
+      instead of discovering one upward.
+
+    QUERY allows one typo and prefix matching by default: `authent`
+    matches `authentication`. `--exact` disables both. Quote phrases: an
+    unquoted multi-word query is rejected as extra arguments.
+
+    --glob filters by filesystem path and is ANDed with QUERY; repeats are
+    ORed. Patterns are relative to the search scope -- the .machi store
+    without --plan, the selected plan's directory with --plan -- so quote
+    them and include the `plans/` prefix only at project scope. Regexes
+    are field-scoped and need --regex.
+
+    Examples
+
+      machi find auth
+      machi find '"auth token"'
+      machi find body:config --plan v2
+      machi find --glob 'plans/*/tasks/**/*.md'
+      machi find --plan v2 --glob 'tasks/**/*.md'
+      machi find 'path:/conf.*/' --regex
+
     QUERY uses the tantivy query language:
 
       term              token match; fuzzy (one typo) and prefix by default
@@ -65,50 +86,27 @@ def find_command(  # noqa: PLR0913
       field: IN \[a b]   set membership
       *                 every document
 
-    Fuzzy matching tolerates one typo and matches prefixes; disable it with --exact.
-    Regexes are field-scoped and need --regex, e.g. path:/conf.*/.
-
-    Results list matching paths only; snippets are not shown.
+    Results list matching paths only.
     """
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        format_name = output_format or settings.format
-        formatter = select_formatter(format_name, dependencies.formatters)
+    with execute(context, "find", output_format, ValueError) as run:
         payload: dict[str, object] = {
             "query": query,
             "globs": glob or [],
             "regex": regex,
             "exact": exact,
-            "snippets": False,
         }
         if plan is not None:
             payload["plan"] = plan
         if limit is not None:
             payload["limit"] = limit
         find_query = FindQuery.model_validate(payload)
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        result = FindResult(
-            project=scope,
-            plan=find_query.plan,
-            query=find_query.query,
-            globs=find_query.globs or [DEFAULT_GLOB],
-            entries=project_context.search.find(find_query),
+        project_context = run.prepare(project)
+        run.render(
+            FindResult(
+                project=project_context.project,
+                plan=find_query.plan,
+                query=find_query.query,
+                globs=find_query.globs or [DEFAULT_GLOB],
+                entries=project_context.search.find(find_query),
+            )
         )
-    except (
-        ProjectError,
-        UnknownFormatError,
-        StorageError,
-        ValidationError,
-        ValueError,
-        OSError,
-    ) as exc:
-        typer.echo(
-            formatter.format(ErrorResult(command="find", error=describe_error(exc), project=scope)),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))

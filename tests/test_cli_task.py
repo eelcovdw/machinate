@@ -331,11 +331,11 @@ def test_task_list_empty(project: Path) -> None:
     assert TaskListResult.model_validate(json.loads(result.stdout)).tasks == []
 
 
-def test_task_list_status_search_and_body(project: Path) -> None:
+def test_task_list_status_filter(project: Path) -> None:
     seed_task(project, "alpha", summary="first")
     seed_task(project, "beta", summary="second")
     seed_task(project, "gamma", body="gamma notes\n\nsecret needle")
-    prepare_project(project).tasks.set_status("auth", "beta", "done")
+    prepare_project(project).tasks.update("auth", "beta", TaskUpdate(status="done"))
 
     by_status = runner.invoke(
         app,
@@ -355,62 +355,6 @@ def test_task_list_status_search_and_body(project: Path) -> None:
     assert [
         task.name for task in TaskListResult.model_validate(json.loads(by_status.stdout)).tasks
     ] == ["beta"]
-
-    by_search = runner.invoke(
-        app,
-        [
-            "task",
-            "list",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--search",
-            "second",
-            "--format",
-            "json",
-        ],
-    )
-    assert [
-        task.name for task in TaskListResult.model_validate(json.loads(by_search.stdout)).tasks
-    ] == ["beta"]
-
-    without_body = runner.invoke(
-        app,
-        [
-            "task",
-            "list",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--search",
-            "needle",
-            "--format",
-            "json",
-        ],
-    )
-    assert TaskListResult.model_validate(json.loads(without_body.stdout)).tasks == []
-
-    with_body = runner.invoke(
-        app,
-        [
-            "task",
-            "list",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--search",
-            "needle",
-            "--search-body",
-            "--format",
-            "json",
-        ],
-    )
-    assert [
-        task.name for task in TaskListResult.model_validate(json.loads(with_body.stdout)).tasks
-    ] == ["gamma"]
 
 
 def test_task_list_sort_and_limit(project: Path) -> None:
@@ -751,7 +695,7 @@ def test_task_update_invalid_status_preserves_task(project: Path) -> None:
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.command == "task update"
-    assert "bogus" in error.error
+    assert "Input should be 'todo', 'in-progress' or 'done'" in error.error
     assert snapshot(project) == before
 
 

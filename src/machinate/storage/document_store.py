@@ -8,6 +8,7 @@ from typing import cast
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 from upath import UPath
+from wcmatch import glob as wcglob
 
 from .atomic import atomic_write
 from .errors import (
@@ -55,6 +56,40 @@ class DocumentStore:
             raise StorageError(relative, exc) from exc
         else:
             return document
+
+    def glob_files(self, path: str | PurePosixPath, patterns: list[str]) -> list[PurePosixPath]:
+        """Return project-relative regular files under path matching any GLOBSTAR pattern."""
+        relative = PathInput.model_validate({"path": path}).path
+        directory = self.root / relative
+        if not directory.is_dir():
+            return []
+        try:
+            matched = wcglob.glob(
+                patterns,
+                root_dir=str(directory.path),
+                flags=wcglob.GLOBSTAR | wcglob.DOTGLOB,
+            )
+            files: list[PurePosixPath] = []
+            for match in matched:
+                candidate = relative / PurePosixPath(match)
+                if (self.root / candidate).is_file():
+                    files.append(candidate)
+        except OSError as exc:
+            raise StorageError(relative, exc) from exc
+        else:
+            return files
+
+    def read_text(self, path: str | PurePosixPath) -> str:
+        """Read a document's raw text, including any frontmatter, without parsing it."""
+        relative = PathInput.model_validate({"path": path}).path
+        try:
+            return (self.root / relative).read_bytes().decode("utf-8")
+        except FileNotFoundError as exc:
+            raise MissingDocumentError(relative, exc) from exc
+        except UnicodeDecodeError as exc:
+            raise InvalidDocumentError(relative, exc) from exc
+        except OSError as exc:
+            raise StorageError(relative, exc) from exc
 
     def _without_frontmatter[M: Metadata](
         self, relative: PurePosixPath, text: str, metadata_type: type[M]
@@ -184,7 +219,7 @@ class DocumentStore:
             last_activity_at = self.get_last_activity_at(
                 file_metadata.path, collection.activity_scopes
             )
-            if self._matches_query(name, document, last_activity_at, query):
+            if self._matches_query(document, last_activity_at, query):
                 matching_documents.append(
                     DocumentRecord(
                         name=name,
@@ -210,7 +245,7 @@ class DocumentStore:
 
     @staticmethod
     def _matches_query[M: Metadata](
-        name: str, document: Document[M], last_activity_at: datetime, query: DocumentQuery
+        document: Document[M], last_activity_at: datetime, query: DocumentQuery
     ) -> bool:
         metadata = document.metadata
         if query.tags is not None:
@@ -233,9 +268,4 @@ class DocumentStore:
                 or (bounds.lte is not None and value > bounds.lte)
             ):
                 return False
-        if query.search:
-            values = [name, document.get_or_derive_summary() or "", *metadata.tags]
-            if query.search_body:
-                values.append(document.body)
-            return any(query.search.casefold() in value.casefold() for value in values)
         return True

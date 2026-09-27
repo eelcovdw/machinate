@@ -1,26 +1,19 @@
 from datetime import datetime
-from typing import ClassVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
+from machinate.models.update import DocumentUpdate
 from machinate.storage.models import (
     Document,
     RelativePath,
-    Tag,
     TaskMetadata,
     TaskName,
     TaskStatus,
 )
-from machinate.storage.queries import DocumentRecord
 
 
-class TaskUpdate(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", validate_assignment=True)
-
-    body: str = ""
+class TaskUpdate(DocumentUpdate):
     status: TaskStatus = "todo"
-    summary: str | None = None
-    tags: list[Tag] | None = None
 
 
 class Task(BaseModel):
@@ -28,7 +21,3 @@ class Task(BaseModel):
     path: RelativePath
     document: Document[TaskMetadata]
     modified_at: datetime
-
-
-class TaskSummary(DocumentRecord[TaskMetadata]):
-    pass

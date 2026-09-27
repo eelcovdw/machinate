@@ -1,47 +1,22 @@
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, cast, get_args
+from typing import Annotated
 
 import typer
-from pydantic import ValidationError
 
-from machinate.cli.commands.selection import PlanSelectionError, select_plan
-from machinate.cli.dependencies import get_dependencies
-from machinate.cli.errors import describe_error
-from machinate.cli.formatting import Formatter, UnknownFormatError, select_formatter
+from machinate.cli.commands.selection import PlanSelectionError, resolve_plan_name
+from machinate.cli.execution import execute
 from machinate.cli.models import (
-    ErrorResult,
-    ProjectScope,
     TaskAddResult,
     TaskInfoResult,
     TaskListResult,
     TaskShowResult,
     TaskUpdateResult,
 )
-from machinate.cli.project_setup import ProjectError
-from machinate.cli.settings import Settings
+from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.task import TaskUpdate
 from machinate.storage import TaskMetadata
-from machinate.storage.errors import StorageError
-from machinate.storage.models import NameInput, TaskNameInput, TaskStatus
 from machinate.storage.queries import TaskQuery
-
-
-class InvalidTaskStatusError(Exception):
-    """Raised when a status value is not one of the accepted task statuses."""
-
-
-class TaskUpdateError(Exception):
-    """Raised when an update is requested with no fields to change."""
-
-
-def task_status(value: str) -> TaskStatus:
-    """Validate a task status string."""
-    allowed = get_args(TaskStatus.__value__)  # pyright: ignore[reportAny]
-    if value not in allowed:
-        msg = f"Unknown status {value!r}; expected one of: {', '.join(allowed)}."
-        raise InvalidTaskStatusError(msg)
-    return cast("TaskStatus", value)
 
 
 def task_changes(
@@ -51,22 +26,11 @@ def task_changes(
     clear_tags: bool = False,
 ) -> TaskUpdate:
     """Validate provided options and build a task update with only the changed fields."""
-    changes: dict[str, object] = {}
-    if summary is not None:
-        changes["summary"] = summary
-    if status is not None:
-        changes["status"] = task_status(status)
-    if clear_tags:
-        if tags is not None:
-            msg = "--tag and --clear-tags are mutually exclusive."
-            raise TaskUpdateError(msg)
-        changes["tags"] = []
-    elif tags is not None:
-        changes["tags"] = tags
-    if not changes:
-        msg = "Nothing to update; pass --summary, --status, --tag, or --clear-tags."
-        raise TaskUpdateError(msg)
-    return TaskUpdate.model_validate(changes)
+    return build_update(
+        TaskUpdate,
+        UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
+        hint="--summary, --status, --tag, or --clear-tags",
+    )
 
 
 def task_add(  # noqa: PLR0913
@@ -91,34 +55,18 @@ def task_add(  # noqa: PLR0913
     ] = None,
 ) -> None:
     """Create one or more tasks in a plan."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan, automation=settings.automation)
+    with execute(context, "task add", output_format, PlanSelectionError) as run:
+        project_context = run.prepare(project)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
+        )
         created, errors = project_context.tasks.create_batch(
-            selected.name, names, TaskMetadata(created=datetime.now(UTC), tags=tags or [])
+            plan_name, names, TaskMetadata(created=datetime.now(UTC), tags=tags or [])
         )
-        result = TaskAddResult(project=scope, plan=selected.name, tasks=created, errors=errors)
-    except (
-        ProjectError,
-        UnknownFormatError,
-        PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="task add", error=message, project=scope)),
-            err=True,
+        result = TaskAddResult(
+            project=project_context.project, plan=plan_name, tasks=created, errors=errors
         )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        run.render(result)
     if result.errors:
         raise typer.Exit(1)  # Partial failure; the result still reports what was created.
 
@@ -138,10 +86,6 @@ def task_list(  # noqa: PLR0913
     output_format: Annotated[
         str | None, typer.Option("--format", help="Formatter name (text or json by default).")
     ] = None,
-    search: Annotated[
-        str | None, typer.Option(help="Substring search in name and summary.")
-    ] = None,
-    search_body: Annotated[bool, typer.Option(help="Include document body in search.")] = False,
     tags: Annotated[
         list[str] | None,
         typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
@@ -155,26 +99,19 @@ def task_list(  # noqa: PLR0913
     ] = None,
     sort: Annotated[str, typer.Option(help="Sort by name, created, or updated.")] = "name",
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
-    group_by: Annotated[
+    group: Annotated[
         bool,
         typer.Option(
-            "--group-by/--no-group-by",
-            help="Group rows under status headers; use --no-group-by for a flat list.",
+            "--group/--no-group",
+            help="Group rows under status headers; use --no-group for a flat list.",
         ),
     ] = True,
     limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
 ) -> None:
     """List tasks in a plan."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
+    with execute(context, "task list", output_format, PlanSelectionError) as run:
         query = TaskQuery.model_validate(
             {
-                "search": search,
-                "search_body": search_body,
                 "tags": tags,
                 "statuses": statuses,
                 "sort": sort,
@@ -182,30 +119,17 @@ def task_list(  # noqa: PLR0913
                 "limit": limit,
             }
         )
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan, automation=settings.automation)
+        project_context = run.prepare(project)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
+        )
         result = TaskListResult(
-            project=scope,
-            plan=selected.name,
-            tasks=project_context.tasks.list(selected.name, query),
-            group_by="status" if group_by else None,
+            project=project_context.project,
+            plan=plan_name,
+            tasks=project_context.tasks.list(plan_name, query),
+            group_by="status" if group else None,
         )
-    except (
-        ProjectError,
-        UnknownFormatError,
-        PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="task list", error=message, project=scope)),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        run.render(result)
 
 
 def task_show(
@@ -226,33 +150,14 @@ def task_show(
     ] = None,
 ) -> None:
     """Show task metadata and body."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        task_name = TaskNameInput(name=name).name
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan, automation=settings.automation)
-        task = project_context.tasks.get(selected.name, task_name)
-        result = TaskShowResult(project=scope, plan=selected.name, task=task)
-    except (
-        ProjectError,
-        UnknownFormatError,
-        PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="task show", error=message, project=scope)),
-            err=True,
+    with execute(context, "task show", output_format, PlanSelectionError) as run:
+        project_context = run.prepare(project)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
         )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        task = project_context.tasks.get(plan_name, name)
+        result = TaskShowResult(project=project_context.project, plan=plan_name, task=task)
+        run.render(result)
 
 
 def task_info(
@@ -273,33 +178,14 @@ def task_info(
     ] = None,
 ) -> None:
     """Show task metadata."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        task_name = TaskNameInput(name=name).name
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan, automation=settings.automation)
-        task = project_context.tasks.info(selected.name, task_name)
-        result = TaskInfoResult(project=scope, plan=selected.name, task=task)
-    except (
-        ProjectError,
-        UnknownFormatError,
-        PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="task info", error=message, project=scope)),
-            err=True,
+    with execute(context, "task info", output_format, PlanSelectionError) as run:
+        project_context = run.prepare(project)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
         )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        task = project_context.tasks.info(plan_name, name)
+        result = TaskInfoResult(project=project_context.project, plan=plan_name, task=task)
+        run.render(result)
 
 
 def update_task(  # noqa: PLR0913
@@ -335,34 +221,17 @@ def update_task(  # noqa: PLR0913
     ] = None,
 ) -> None:
     """Change task status, summary, or tags."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        task_name = TaskNameInput(name=name).name
-        plan_name = None if plan is None else NameInput(name=plan).name
-        changes = task_changes(summary, status, tags, clear_tags)
-        project_context = dependencies.prepare_project(project)
-        scope = project_context.project
-        selected = select_plan(project_context.plans, plan_name, automation=settings.automation)
-        updated = project_context.tasks.update(selected.name, task_name, changes)
-        result = TaskUpdateResult(project=scope, plan=selected.name, task=updated)
-    except (
-        InvalidTaskStatusError,
-        TaskUpdateError,
-        ProjectError,
-        UnknownFormatError,
+    with execute(
+        context,
+        "task update",
+        output_format,
         PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="task update", error=message, project=scope)),
-            err=True,
+    ) as run:
+        changes = task_changes(summary, status, tags, clear_tags)
+        project_context = run.prepare(project)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
         )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        updated = project_context.tasks.update(plan_name, name, changes)
+        result = TaskUpdateResult(project=project_context.project, plan=plan_name, task=updated)
+        run.render(result)

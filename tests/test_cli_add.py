@@ -101,7 +101,10 @@ def test_add_invalid_status_preserves_target(project: Path) -> None:
         ["plan", "add", "alpha", "-P", str(project), "--status", "nonsense", "--format", "json"],
     )
     assert result.exit_code == 1, result.output
-    assert "Unknown status" in ErrorResult.model_validate_json(result.stderr).error
+    assert (
+        "Input should be 'draft', 'active' or 'done'"
+        in ErrorResult.model_validate_json(result.stderr).error
+    )
     assert snapshot(project) == before
 
 

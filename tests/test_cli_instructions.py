@@ -43,18 +43,6 @@ def test_instructions_json_default_in_automation(monkeypatch: pytest.MonkeyPatch
     assert InstructionsResult.model_validate_json(result.stdout).command == "instructions"
 
 
-def test_instructions_help() -> None:
-    result = runner.invoke(app, ["instructions", "--help"])
-    assert result.exit_code == 0
-    assert "Usage" in result.stdout
-
-
-def test_instructions_uses_yaml_frontmatter_wording() -> None:
-    guidance = " ".join(build_instructions().split())
-    assert "YAML frontmatter" in guidance
-    assert "TOML" not in guidance
-
-
 def test_instructions_stay_in_sync_with_agents_md() -> None:
     agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text()
     start = agents.index("## Machinate")

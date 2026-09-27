@@ -88,7 +88,7 @@ def test_select_requires_name(project: Path) -> None:
     before = snapshot(project)
     result = runner.invoke(app, ["plan", "select", "-P", str(project), "--format", "json"])
     assert result.exit_code == 2, result.output
-    assert "Missing argument" in ErrorResult.model_validate_json(result.stderr).error
+    assert ErrorResult.model_validate_json(result.stderr).command == "plan select"
     assert read_state(project).current_plan is None
     assert snapshot(project) == before
 

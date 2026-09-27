@@ -61,6 +61,20 @@ Verification for a change: targeted `pytest`, then the full suite, plus `ruff fo
 - Add a `Result` model for each command and a matching `render_text` in `formatting.py`.
 - Tests with `pytest`.
 
+## Tests
+
+Test Machinate, not its dependencies or its wording.
+
+- Do not test third-party behavior: typer, rich, click, tantivy, pydantic, upath internals are out
+  of scope. If a test can only pass or fail because of a library's implementation detail, delete it.
+- Do not assert on rendered prose: help text, docstrings, error wording, or CLI output strings are
+  free to change. Assert the structured result (models, exit codes, file state), not the sentence.
+- Do not re-test one behavior at every layer. Cover it once, at the layer that owns the logic;
+  a service test does not need a matching CLI test unless wiring is what changed.
+- No test per fix by default. Add a regression test when the bug is subtle enough to come back
+  silently (ordering, offsets, escaping, state transitions), not for mechanical changes.
+- Weak tests are worse than no tests: they pin incidental behavior and break on unrelated edits.
+
 ## Machinate
 
 Plans, tasks, and context are plain Markdown files with YAML frontmatter under
@@ -103,7 +117,7 @@ machi task    add, list, show, info, path, update
 machi context add, list, show, info, path, update
 ```
 
-`list` subcommands take `--search`, `--search-body`, repeatable `--tag`/
-`--status`, `--sort name|created|updated`, `--descending`, `--limit`, and
-`--no-group-by` to drop status grouping. Plan statuses are `draft|active|done`;
-task statuses are `todo|in-progress|done`.
+`list` subcommands take repeatable `--tag`/`--status`, `--sort
+name|created|updated`, `--descending`, `--limit`, and `--no-group` to drop
+status grouping. Plan statuses are `draft|active|done`; task statuses are
+`todo|in-progress|done`.

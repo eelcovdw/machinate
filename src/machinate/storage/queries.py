@@ -3,7 +3,7 @@ from typing import ClassVar, Literal, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, PositiveInt, model_validator
 
-from .models import Metadata, PlanStatus, RelativePath, Tag, TaskStatus
+from .models import Document, Metadata, PlanStatus, RelativePath, Tag, TaskStatus
 
 
 class DocumentScope(BaseModel):
@@ -48,8 +48,6 @@ class DateTimeRange(BaseModel):
 class DocumentQuery(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    search: str | None = None
-    search_body: bool = False
     tags: set[Tag] | None = None
     created_range: DateTimeRange | None = None
     updated_range: DateTimeRange | None = None
@@ -77,3 +75,21 @@ class DocumentRecord[M: Metadata](BaseModel):
     last_activity_at: datetime
     # Effective summary: the authored one, otherwise derived from the body.
     summary: str | None = None
+
+    @classmethod
+    def from_document(
+        cls,
+        document: Document[M],
+        *,
+        name: str,
+        path: RelativePath,
+        last_activity_at: datetime,
+    ) -> Self:
+        """Summarize a loaded document as this domain summary type."""
+        return cls.model_construct(
+            name=name,
+            path=path,
+            metadata=document.metadata,
+            last_activity_at=last_activity_at,
+            summary=document.get_or_derive_summary(),
+        )

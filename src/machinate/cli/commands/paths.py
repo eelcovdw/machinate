@@ -2,17 +2,10 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from pydantic import ValidationError
 
-from machinate.cli.commands.selection import PlanSelectionError, select_plan
-from machinate.cli.dependencies import get_dependencies
-from machinate.cli.errors import describe_error
-from machinate.cli.formatting import Formatter, UnknownFormatError, select_formatter
-from machinate.cli.models import ErrorResult, PathResult, ProjectScope
-from machinate.cli.project_setup import ProjectError
-from machinate.cli.settings import Settings
-from machinate.storage.errors import StorageError
-from machinate.storage.models import ContextNameInput, TaskNameInput
+from machinate.cli.commands.selection import PlanSelectionError, resolve_plan_name
+from machinate.cli.execution import execute
+from machinate.cli.models import PathResult
 
 _PLAN = Annotated[
     str | None,
@@ -34,38 +27,22 @@ def plan_path(
     output_format: _OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute editing path of a plan document."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        project_context = dependencies.prepare_project(project)
+    with execute(context, "plan path", output_format, PlanSelectionError) as run:
+        project_context = run.prepare(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, automation=settings.automation)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
+        )
+        target = scope.storage / project_context.plans.path(plan_name)
         result = PathResult(
             command="plan path",
             project=scope,
-            plan=selected.name,
-            path=scope.storage / selected.path,
+            plan=plan_name,
+            path=target,
             kind="plan",
-            exists=True,
+            exists=target.is_file(),
         )
-    except (
-        ProjectError,
-        UnknownFormatError,
-        PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="plan path", error=message, project=scope)),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        run.render(result)
 
 
 def task_path(
@@ -79,51 +56,34 @@ def task_path(
     output_format: _OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute path of a task document or the tasks directory."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        task_name = None if name is None else TaskNameInput(name=name).name
-        project_context = dependencies.prepare_project(project)
+    with execute(context, "task path", output_format, PlanSelectionError) as run:
+        task_name = name
+        project_context = run.prepare(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, automation=settings.automation)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
+        )
         if task_name is None:
-            target = scope.storage / project_context.tasks.directory(selected.name)
+            target = scope.storage / project_context.tasks.directory(plan_name)
             result = PathResult(
                 command="task path",
                 project=scope,
-                plan=selected.name,
+                plan=plan_name,
                 path=target,
                 kind="tasks_directory",
                 exists=target.is_dir(),
             )
         else:
-            task = project_context.tasks.get(selected.name, task_name)
+            target = scope.storage / project_context.tasks.path(plan_name, task_name)
             result = PathResult(
                 command="task path",
                 project=scope,
-                plan=selected.name,
-                path=scope.storage / task.path,
+                plan=plan_name,
+                path=target,
                 kind="task",
-                exists=True,
+                exists=target.is_file(),
             )
-    except (
-        ProjectError,
-        UnknownFormatError,
-        PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="task path", error=message, project=scope)),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        run.render(result)
 
 
 def context_path(
@@ -137,48 +97,31 @@ def context_path(
     output_format: _OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute path of a context document or the context directory."""
-    dependencies = get_dependencies(context)
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
-    scope: ProjectScope | None = None
-    try:
-        settings = Settings()
-        formatter = select_formatter(output_format or settings.format, dependencies.formatters)
-        context_name = None if name is None else ContextNameInput(name=name).name
-        project_context = dependencies.prepare_project(project)
+    with execute(context, "context path", output_format, PlanSelectionError) as run:
+        context_name = name
+        project_context = run.prepare(project)
         scope = project_context.project
-        selected = select_plan(project_context.plans, plan, automation=settings.automation)
+        plan_name = resolve_plan_name(
+            project_context.plans, plan, automation=run.settings.automation
+        )
         if context_name is None:
-            target = scope.storage / project_context.contexts.directory(selected.name)
+            target = scope.storage / project_context.contexts.directory(plan_name)
             result = PathResult(
                 command="context path",
                 project=scope,
-                plan=selected.name,
+                plan=plan_name,
                 path=target,
                 kind="context_directory",
                 exists=target.is_dir(),
             )
         else:
-            document = project_context.contexts.get(selected.name, context_name)
+            target = scope.storage / project_context.contexts.path(plan_name, context_name)
             result = PathResult(
                 command="context path",
                 project=scope,
-                plan=selected.name,
-                path=scope.storage / document.path,
+                plan=plan_name,
+                path=target,
                 kind="context",
-                exists=True,
+                exists=target.is_file(),
             )
-    except (
-        ProjectError,
-        UnknownFormatError,
-        PlanSelectionError,
-        StorageError,
-        ValidationError,
-        OSError,
-    ) as exc:
-        message = describe_error(exc)
-        typer.echo(
-            formatter.format(ErrorResult(command="context path", error=message, project=scope)),
-            err=True,
-        )
-        raise typer.Exit(1) from exc
-    typer.echo(formatter.format(result))
+        run.render(result)

@@ -202,21 +202,52 @@ def test_context_path_directory_exists(project: Path) -> None:
     assert PathResult.model_validate(json.loads(result.stdout)).exists is True
 
 
-def test_task_path_help() -> None:
-    result = runner.invoke(app, ["task", "path", "--help"])
-    assert result.exit_code == 0
-    assert "[NAME]" in result.stdout
-
-
 def test_path_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     application = prepare_project(project)
     factory = Mock(return_value=application)
-    get = Mock(wraps=application.plans.get)
-    monkeypatch.setattr(application.plans, "get", get)
+    path = Mock(wraps=application.plans.path)
+    monkeypatch.setattr(application.plans, "path", path)
     result = runner.invoke(
         create_cli(Dependencies(prepare_project=factory)),
         ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"],
     )
     assert result.exit_code == 0, result.output
     factory.assert_called_once_with(project)
-    get.assert_called_once_with("auth")
+    path.assert_called_once_with("auth")
+
+
+def test_plan_path_ignores_malformed_contents(project: Path) -> None:
+    (project / ".machi/plans/auth/plan.md").write_text("---\nnot: [valid\n---\nbody\n")
+    result = runner.invoke(
+        app, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = PathResult.model_validate(json.loads(result.stdout))
+    assert parsed.path == project / ".machi/plans/auth/plan.md"
+    assert parsed.exists is True
+
+
+def test_task_path_ignores_malformed_contents(project: Path) -> None:
+    seed_task(project, "login")
+    target = project / ".machi/plans/auth/tasks/login.md"
+    target.write_text("---\nnot: [valid\n---\nbody\n")
+    result = runner.invoke(
+        app, ["task", "path", "login", "-p", "auth", "-P", str(project), "--format", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = PathResult.model_validate(json.loads(result.stdout))
+    assert parsed.path == target
+    assert parsed.exists is True
+
+
+def test_context_path_ignores_malformed_contents(project: Path) -> None:
+    seed_context(project, "spec")
+    target = project / ".machi/plans/auth/context/spec.md"
+    target.write_text("---\nnot: [valid\n---\nbody\n")
+    result = runner.invoke(
+        app, ["context", "path", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
+    )
+    assert result.exit_code == 0, result.output
+    parsed = PathResult.model_validate(json.loads(result.stdout))
+    assert parsed.path == target
+    assert parsed.exists is True

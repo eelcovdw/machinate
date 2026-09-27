@@ -61,8 +61,6 @@ def names(store: DocumentStore, query: PlanQuery) -> list[str]:
             ["beta", "gamma"],
         ),
         (PlanQuery(created_range=DateTimeRange(lte=datetime(2026, 9, 1, tzinfo=UTC))), ["alpha"]),
-        (PlanQuery(search="ALP"), ["alpha"]),
-        (PlanQuery(search="oauth", search_body=True), ["alpha", "beta", "gamma"]),
         (PlanQuery(statuses=set()), []),
         (PlanQuery(statuses={"active", "done"}), ["alpha", "gamma"]),
         (PlanQuery(tags={"frontend"}), ["alpha", "gamma"]),
@@ -77,7 +75,6 @@ def names(store: DocumentStore, query: PlanQuery) -> list[str]:
         (PlanQuery(sort="created"), ["alpha", "beta", "gamma"]),
         (
             PlanQuery(
-                search="oauth",
                 statuses={"draft", "done"},
                 created_range=DateTimeRange(
                     gte=datetime(2026, 9, 2, tzinfo=UTC), lte=datetime(2026, 9, 2, tzinfo=UTC)
@@ -87,7 +84,7 @@ def names(store: DocumentStore, query: PlanQuery) -> list[str]:
                 descending=True,
                 limit=1,
             ),
-            ["gamma"],
+            ["beta"],
         ),
     ],
 )
@@ -198,7 +195,7 @@ def test_unknown_query_fields_are_rejected(query_type: type[DocumentQuery]) -> N
 
 
 @pytest.mark.parametrize("folder", ["tasks", "context"])
-def test_nested_document_names_support_search_and_ordering(
+def test_nested_document_names_support_ordering(
     store: DocumentStore, tmp_path: Path, folder: str
 ) -> None:
     collection = DocumentCollection(
@@ -220,9 +217,6 @@ def test_nested_document_names_support_search_and_ordering(
         records = store.list(collection, TaskMetadata, query)
         assert [record.name for record in records] == ["login.v2", "one/login", "two/login"]
 
-    records = store.list(collection, TaskMetadata, DocumentQuery(search="ONE/LOGIN"))
-    assert [record.name for record in records] == ["one/login"]
-    assert records[0].path == collection.path / "one/login.md"
     records = store.list(collection, TaskMetadata, DocumentQuery(descending=True, limit=1))
     assert [record.name for record in records] == ["two/login"]
 
@@ -239,8 +233,6 @@ def test_nested_document_names_support_search_and_ordering(
         (
             TaskQuery(
                 statuses={"in-progress", "done"},
-                search="oauth",
-                search_body=True,
                 created_range=DateTimeRange(
                     gte=datetime(2026, 9, 2, tzinfo=UTC), lte=datetime(2026, 9, 2, tzinfo=UTC)
                 ),

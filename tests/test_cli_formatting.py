@@ -14,6 +14,8 @@ from machinate.cli.cli import app
 from machinate.cli.models import ErrorResult
 from machinate.cli.project_setup import prepare_project
 from machinate.cli.styles import status_style
+from machinate.models.plan import PlanUpdate
+from machinate.models.task import TaskUpdate
 from machinate.storage import PlanMetadata, ProjectState, ProjectStateStore, TaskMetadata
 
 runner = CliRunner()
@@ -82,14 +84,6 @@ def test_color_when_terminal(project: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert "# Auth\n\nDetails" in plain
 
 
-def test_status_badges_use_theme_colors(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(formatting, "_use_color", lambda: True)
-    monkeypatch.chdir(project)
-    result = runner.invoke(app, ["plan", "list"], color=True)
-    assert result.exit_code == 0, result.output
-    assert "\x1b[2m" in result.stdout  # draft badge renders dim
-
-
 def test_plan_list_groups_by_status(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     application = prepare_project(project)
     application.plans.create(
@@ -97,7 +91,7 @@ def test_plan_list_groups_by_status(project: Path, monkeypatch: pytest.MonkeyPat
         PlanMetadata(created=datetime(2026, 1, 2, tzinfo=UTC), summary="Billing"),
         body="",
     )
-    application.plans.set_status("billing", "active")
+    application.plans.update("billing", PlanUpdate(status="active"))
     monkeypatch.chdir(project)
     result = runner.invoke(app, ["plan", "list"])
     assert result.exit_code == 0, result.output
@@ -106,7 +100,6 @@ def test_plan_list_groups_by_status(project: Path, monkeypatch: pytest.MonkeyPat
     assert "active (1)" in out
     assert "done (0)" not in out  # only statuses present are shown
     assert out.index("draft (1)") < out.index("active (1)")
-    assert "\u250c" not in out  # no table borders
 
 
 def test_plan_list_no_group_by_keeps_sort_order(
@@ -118,9 +111,9 @@ def test_plan_list_no_group_by_keeps_sort_order(
         PlanMetadata(created=datetime(2026, 1, 2, tzinfo=UTC), summary="Billing"),
         body="",
     )
-    application.plans.set_status("auth", "active")
+    application.plans.update("auth", PlanUpdate(status="active"))
     monkeypatch.chdir(project)
-    result = runner.invoke(app, ["plan", "list", "--no-group-by"])
+    result = runner.invoke(app, ["plan", "list", "--no-group"])
     assert result.exit_code == 0, result.output
     out = result.stdout
     # With grouping off, sort order wins: auth (active) before billing (draft).
@@ -135,7 +128,7 @@ def test_task_list_groups_by_status(project: Path, monkeypatch: pytest.MonkeyPat
         application.tasks.create(
             "auth", name, TaskMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)), body=""
         )
-    application.tasks.set_status("auth", "t2", "in-progress")
+    application.tasks.update("auth", "t2", TaskUpdate(status="in-progress"))
     monkeypatch.chdir(project)
     result = runner.invoke(app, ["task", "list", "-p", "auth"])
     assert result.exit_code == 0, result.output
@@ -153,9 +146,9 @@ def test_task_list_no_group_by_keeps_sort_order(
         application.tasks.create(
             "auth", name, TaskMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)), body=""
         )
-    application.tasks.set_status("auth", "t2", "in-progress")
+    application.tasks.update("auth", "t2", TaskUpdate(status="in-progress"))
     monkeypatch.chdir(project)
-    result = runner.invoke(app, ["task", "list", "-p", "auth", "--no-group-by"])
+    result = runner.invoke(app, ["task", "list", "-p", "auth", "--no-group"])
     assert result.exit_code == 0, result.output
     out = result.stdout
     assert "todo (1)" not in out

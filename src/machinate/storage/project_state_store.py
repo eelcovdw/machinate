@@ -6,7 +6,7 @@ import tomli_w
 from upath import UPath
 
 from .atomic import atomic_write
-from .errors import InvalidDocumentError, MissingDocumentError, StorageError
+from .errors import InvalidDocumentError, MissingDocumentError, StorageError, SymbolicLinkError
 from .models import ProjectState
 
 
@@ -33,10 +33,14 @@ class ProjectStateStore:
             # Preserve permissions on update; fresh files are 0600 (NamedTemporaryFile
             # is always owner-only), not the umask default.
             try:
-                info = self.path.stat()
+                info = self.path.lstat()
             except FileNotFoundError:
                 mode = None
             else:
+                if stat.S_ISLNK(info.st_mode):
+                    # A rename would replace the link itself; refuse rather than rewrite it.
+                    # No underlying OS error, so no fabricated reason.
+                    raise SymbolicLinkError(self.path)
                 mode = stat.S_IMODE(info.st_mode)
             atomic_write(Path(self.path.path), content, mode=mode)
         except OSError as exc:

@@ -173,7 +173,7 @@ def test_update_invalid_status_preserves_plan(project: Path) -> None:
     )
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
-    assert "Unknown status 'nope'" in error.error
+    assert "Input should be 'draft', 'active' or 'done'" in error.error
     assert read_metadata(project).status == "draft"
     assert snapshot(project) == before
 

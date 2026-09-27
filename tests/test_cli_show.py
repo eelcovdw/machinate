@@ -176,13 +176,12 @@ def test_show_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None
 def test_show_delegation_uses_current(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     application = prepare_project(project)
     seed_plan(project, current=True)
-    plan = application.plans.get("auth")
-    get_current = Mock(return_value=plan)
-    monkeypatch.setattr(application.plans, "get_current", get_current)
+    current_name = Mock(return_value="auth")
+    monkeypatch.setattr(application.plans, "current_name", current_name)
     result = runner.invoke(
         create_cli(Dependencies(prepare_project=Mock(return_value=application))),
         ["plan", "show", "-P", str(project), "--format", "json"],
     )
     assert result.exit_code == 0, result.output
-    get_current.assert_called_once_with()
+    current_name.assert_called_once_with()
     assert ShowResult.model_validate(json.loads(result.stdout)).plan.name == "auth"

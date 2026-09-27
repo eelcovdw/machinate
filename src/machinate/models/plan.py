@@ -1,27 +1,22 @@
 from datetime import datetime
-from typing import ClassVar, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
+from machinate.models.update import DocumentUpdate
 from machinate.storage.models import (
     Document,
     Name,
     PlanMetadata,
     PlanStatus,
     RelativePath,
-    Tag,
     TaskStatus,
 )
 from machinate.storage.queries import DocumentRecord
 
 
-class PlanUpdate(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", validate_assignment=True)
-
-    body: str = ""
+class PlanUpdate(DocumentUpdate):
     status: PlanStatus = "draft"
-    summary: str | None = None
-    tags: list[Tag] | None = None
 
 
 class Plan(BaseModel):
@@ -31,12 +26,8 @@ class Plan(BaseModel):
     modified_at: datetime
 
 
-class PlanSummary(DocumentRecord[PlanMetadata]):
-    pass
-
-
 class PlanInfo(BaseModel):
-    plan: PlanSummary
+    plan: DocumentRecord[PlanMetadata]
     task_counts: dict[TaskStatus, int]
     context_count: int
 
@@ -51,7 +42,7 @@ class ProjectOverview(BaseModel):
     plans_by_status: dict[PlanStatus, int]
     task_totals: dict[TaskStatus, int]
     context_count: int
-    recent_plans: list[PlanSummary]
+    recent_plans: list[DocumentRecord[PlanMetadata]]
 
 
 class PlanOverview(BaseModel):

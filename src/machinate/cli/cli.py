@@ -11,13 +11,20 @@ from .commands.catalog import ALIASES, COMMANDS, CommandSpec
 from .commands.schema import schema_command
 from .dependencies import Dependencies, get_dependencies
 from .errors import describe_error
-from .formatting import Formatter, UnknownFormatError, select_formatter
+from .execution import resolve_formatter
+from .formatting import Formatter, UnknownFormatError
+from .help import plain_help_sections
 from .models import ErrorResult
 from .settings import Settings
 
 
 class Command(TyperCommand):
     """Render leaf-command parsing failures through the configured formatter."""
+
+    @override
+    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        with plain_help_sections():
+            super().format_help(ctx, formatter)
 
     @override
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
@@ -31,6 +38,11 @@ class Command(TyperCommand):
 
 class Group(TyperGroup):
     """Render group parsing failures through the configured formatter."""
+
+    @override
+    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        with plain_help_sections():
+            super().format_help(ctx, formatter)
 
     @override
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
@@ -76,9 +88,8 @@ def _report_usage_error(
         with recovered:
             override_name = recovered.params.get("output_format")
     try:
-        settings = Settings()
-        name = override_name if isinstance(override_name, str) else settings.format
-        formatter = select_formatter(name, get_dependencies(ctx).formatters)
+        override = override_name if isinstance(override_name, str) else None
+        _, formatter = resolve_formatter(override, get_dependencies(ctx))
     except (ValidationError, UnknownFormatError) as formatting_error:
         message = describe_error(formatting_error)
     typer.echo(

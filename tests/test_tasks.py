@@ -98,7 +98,7 @@ def test_create_batch_reads_plan_once(
 
 def test_patches(service: TaskService, metadata: TaskMetadata) -> None:
     service.create("alpha", "login", metadata, "Body")
-    task = service.set_status("alpha", "login", "in-progress")
+    task = service.update("alpha", "login", TaskUpdate(status="in-progress"))
     assert task.document.body == "Body"
     assert task.document.metadata.status == "in-progress"
     assert task.document.get_or_derive_summary() == "Body"
@@ -130,7 +130,7 @@ def test_missing_tasks_and_plans(service: TaskService, metadata: TaskMetadata, p
     for operation in (
         lambda: service.get(plan, "missing"),
         lambda: service.update(plan, "missing", TaskUpdate()),
-        lambda: service.set_status(plan, "missing", "done"),
+        lambda: service.update(plan, "missing", TaskUpdate(status="done")),
     ):
         with pytest.raises(MissingDocumentError):
             operation()
@@ -186,7 +186,7 @@ def test_method_validation(service: TaskService, metadata: TaskMetadata) -> None
     with pytest.raises(ValidationError):
         service.create("alpha", "login", metadata, None)  # pyright: ignore[reportArgumentType]
     with pytest.raises(ValidationError):
-        service.set_status("alpha", "login", "active")  # pyright: ignore[reportArgumentType]
+        service.update("alpha", "login", {"status": "active"})  # pyright: ignore[reportArgumentType]
     with pytest.raises(ValidationError):
         service.list("alpha", {"limit": 0})  # pyright: ignore[reportArgumentType]
 
@@ -199,10 +199,11 @@ def test_nested_round_trip_and_query(service: TaskService, metadata: TaskMetadat
         assert task.path == summary.path
         assert task.modified_at == summary.last_activity_at
         assert "body" not in summary.model_dump()
-        service.set_status("alpha", summary.name, "done")
+        service.update("alpha", summary.name, TaskUpdate(status="done"))
     service.update("alpha", "nested/login", TaskUpdate(body="OAuth"))
-    found = service.list("alpha", TaskQuery(statuses={"done"}, search="oauth", search_body=True))
-    assert [task.name for task in found] == ["nested/login"]
+    assert service.get("alpha", "nested/login").document.body == "OAuth"
+    found = service.list("alpha", TaskQuery(statuses={"done"}))
+    assert [task.name for task in found] == ["login.v2", "nested/login", "other/login"]
 
 
 def test_explicit_plan_isolation(
@@ -217,7 +218,7 @@ def test_explicit_plan_isolation(
     plans.set_current("beta")
     service.create("alpha", "login", metadata, "Alpha")
     service.update("alpha", "login", TaskUpdate(body="Alpha only"))
-    service.set_status("alpha", "login", "done")
+    service.update("alpha", "login", TaskUpdate(status="done"))
     assert service.get("beta", "login").document.body == "Beta"
     assert service.list("beta")[0].metadata.model_dump(exclude={"summary"}) == metadata.model_dump(
         exclude={"summary"}
@@ -239,7 +240,3 @@ def test_delegation(
     query = TaskQuery(statuses=set(), limit=1)
     assert [item.name for item in service.list("alpha", query)] == ["zulu", "alpha"]
     listing.assert_called_once_with(service.layout.task_collection("alpha"), TaskMetadata, query)
-    update = Mock()
-    monkeypatch.setattr(service, "update", update)
-    service.set_status("alpha", "zulu", "done")
-    update.assert_called_once_with("alpha", "zulu", TaskUpdate(status="done"))

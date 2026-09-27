@@ -101,7 +101,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "basedpyright" },
-    { name = "packaging" },
     { name = "prek" },
     { name = "pytest" },
     { name = "ruff" },
@@ -125,7 +124,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "basedpyright", specifier = ">=1.38.0" },
-    { name = "packaging", specifier = ">=26" },
     { name = "prek", specifier = ">=0.3.2" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "ruff", specifier = ">=0.15.1" },

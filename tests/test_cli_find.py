@@ -165,11 +165,6 @@ def test_find_text_listing_omits_scores(project: Path) -> None:
     assert re.search(r"\d+\.\d", output) is None
 
 
-def test_find_text_empty_reports_no_matches(project: Path) -> None:
-    output = invoke_text(project, "kangaroo", "--glob", "plans/billing/**/*.md")
-    assert "No matches found." in output
-
-
 def test_find_text_and_json_expose_the_same_entries(project: Path) -> None:
     parsed = invoke(project, "kangaroo")
     output = invoke_text(project, "kangaroo")
@@ -178,24 +173,22 @@ def test_find_text_and_json_expose_the_same_entries(project: Path) -> None:
         assert entry.path.as_posix() in output
 
 
-def test_find_text_lists_paths_without_snippets(project: Path) -> None:
+def test_find_text_lists_paths_only(project: Path) -> None:
     output = invoke_text(project, "kangaroo")
     assert "plans/auth/tasks/login.md" in output
     assert "kangaroo login flow" not in output
-    assert "│" not in output
     assert ":8" not in output
 
 
 def test_find_json_entries_have_no_snippets(project: Path) -> None:
     parsed = invoke(project, "kangaroo")
-    assert all(entry.snippets == [] for entry in parsed.entries)
+    assert all("snippets" not in entry.model_dump() for entry in parsed.entries)
 
 
 def test_find_prefix_and_typo_queries(project: Path) -> None:
     for query in ("kang", "kanguroo"):
         parsed = invoke(project, query)
         assert parsed.entries, query
-        assert parsed.entries[0].snippets == []
 
 
 def test_find_via_installed_cli(project: Path) -> None:
