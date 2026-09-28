@@ -27,7 +27,12 @@ def validate_name(value: str) -> str:
     return value
 
 
-Name = Annotated[str, AfterValidator(validate_name)]
+def normalize_name(value: str) -> str:
+    """Drop a trailing ``.md``; names map to ``{name}.md`` files."""
+    return value[: -len(".md")] if value.lower().endswith(".md") else value
+
+
+Name = Annotated[str, BeforeValidator(normalize_name), AfterValidator(validate_name)]
 
 
 def validate_collection_name(value: str) -> str:
@@ -36,8 +41,11 @@ def validate_collection_name(value: str) -> str:
     return value
 
 
-TaskName = Annotated[str, AfterValidator(validate_collection_name)]
-ContextName = Annotated[str, AfterValidator(validate_collection_name)]
+TaskName = Annotated[str, BeforeValidator(normalize_name), AfterValidator(validate_collection_name)]
+ContextName = Annotated[
+    str, BeforeValidator(normalize_name), AfterValidator(validate_collection_name)
+]
+DocName = Annotated[str, BeforeValidator(normalize_name), AfterValidator(validate_collection_name)]
 
 
 class TaskNameInput(BaseModel):
@@ -46,6 +54,10 @@ class TaskNameInput(BaseModel):
 
 class ContextNameInput(BaseModel):
     name: ContextName
+
+
+class DocNameInput(BaseModel):
+    name: DocName
 
 
 class NameInput(BaseModel):
@@ -125,6 +137,10 @@ class TaskMetadata(StatusMetadata[TaskStatus]):
 
 
 class ContextMetadata(Metadata):
+    pass
+
+
+class DocMetadata(Metadata):
     pass
 
 

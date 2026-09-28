@@ -10,6 +10,14 @@ from machinate.cli.commands.contexts import (
     context_show,
     context_update,
 )
+from machinate.cli.commands.docs import (
+    doc_add,
+    doc_info,
+    doc_list,
+    doc_path,
+    doc_show,
+    doc_update,
+)
 from machinate.cli.commands.find import find_command
 from machinate.cli.commands.instructions import instructions_command
 from machinate.cli.commands.paths import context_path, plan_path, task_path
@@ -38,6 +46,11 @@ from machinate.cli.models import (
     ContextListResult,
     ContextShowResult,
     ContextUpdateResult,
+    DocAddResult,
+    DocInfoResult,
+    DocListResult,
+    DocShowResult,
+    DocUpdateResult,
     FindResult,
     InfoResult,
     InitResult,
@@ -117,6 +130,18 @@ COMMANDS: tuple[CommandSpec, ...] = (
             CommandSpec("list", context_list, ContextListResult),
             CommandSpec("show", context_show, ContextShowResult),
             CommandSpec("update", context_update, ContextUpdateResult),
+        ),
+    ),
+    CommandSpec(
+        "doc",
+        help="Manage project-level documents.",
+        children=(
+            CommandSpec("add", doc_add, DocAddResult),
+            CommandSpec("info", doc_info, DocInfoResult),
+            CommandSpec("path", doc_path, PathResult),
+            CommandSpec("list", doc_list, DocListResult),
+            CommandSpec("show", doc_show, DocShowResult),
+            CommandSpec("update", doc_update, DocUpdateResult),
         ),
     ),
 )

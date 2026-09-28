@@ -1,11 +1,12 @@
 from pathlib import PurePosixPath
 
-from .models import ContextNameInput, NameInput, TaskNameInput
+from .models import ContextNameInput, DocNameInput, NameInput, TaskNameInput
 from .queries import DocumentCollection, DocumentKind, DocumentMembership, DocumentScope
 
 _PLANS_DIRECTORY = PurePosixPath("plans")
 _TASKS_DIRECTORY = PurePosixPath("tasks")
 _CONTEXT_DIRECTORY = PurePosixPath("context")
+_DOCS_DIRECTORY = PurePosixPath("docs")
 _PLAN_DOCUMENT = PurePosixPath("plan.md")
 
 _COLLECTION_KINDS: dict[str, DocumentKind] = {
@@ -30,14 +31,22 @@ class Layout:
         name = ContextNameInput(name=name).name
         return self.plan(plan).parent / _CONTEXT_DIRECTORY / f"{name}.md"
 
+    def doc(self, name: str) -> PurePosixPath:
+        name = DocNameInput(name=name).name
+        return _DOCS_DIRECTORY / f"{name}.md"
+
     def resolve(self, path: PurePosixPath) -> DocumentMembership:
         """Reverse a storage-relative path to its kind and owning plan/name.
 
         Mirrors the forward conventions: plans live at ``plans/{plan}/plan.md`` and are
         flat, while tasks and context may be nested and keep their collection-relative
-        directory path as the name.
+        directory path as the name. Project docs live at ``docs/{name}.md`` and may be
+        nested, with no owning plan.
         """
         parts = path.parts
+        if parts[:1] == (_DOCS_DIRECTORY.name,) and len(parts) > 1 and path.suffix == ".md":
+            name = PurePosixPath(*parts[1:]).with_suffix("").as_posix()
+            return DocumentMembership(kind="doc", name=name)
         if parts[:1] != (_PLANS_DIRECTORY.name,):
             return DocumentMembership(kind="unknown")
 
@@ -82,3 +91,6 @@ class Layout:
         return DocumentCollection(
             path=self.plan(plan).parent / _CONTEXT_DIRECTORY, pattern=PurePosixPath("**/*.md")
         )
+
+    def docs_collection(self) -> DocumentCollection:
+        return DocumentCollection(path=_DOCS_DIRECTORY, pattern=PurePosixPath("**/*.md"))

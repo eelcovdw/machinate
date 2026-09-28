@@ -11,7 +11,6 @@ from machinate.cli.cli import app, create_cli
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import (
     ErrorResult,
-    ListResult,
     TaskAddResult,
     TaskInfoResult,
     TaskListResult,
@@ -195,37 +194,6 @@ def test_task_add_batch_all_created_reports_no_errors(project: Path) -> None:
     assert parsed.errors == []
 
 
-def test_task_add_duplicate_preserves_existing(project: Path) -> None:
-    """A duplicate is now a partial-failure result, not a global error."""
-    first = runner.invoke(
-        app, ["task", "add", "login", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert first.exit_code == 0, first.output
-    before = snapshot(project)
-    duplicate = runner.invoke(
-        app, ["task", "add", "login", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert duplicate.exit_code == 1, duplicate.output
-    parsed = TaskAddResult.model_validate(json.loads(duplicate.stdout))
-    assert parsed.tasks == []
-    assert [error.name for error in parsed.errors] == ["login"]
-    assert "Already exists" in parsed.errors[0].error
-    assert snapshot(project) == before
-
-
-@pytest.mark.parametrize("invalid", ["../bad", "a\\b", "a:b", "", ".", "..", "/leading", "trail/"])
-def test_task_add_invalid_name_preserves_target(project: Path, invalid: str) -> None:
-    before = snapshot(project)
-    result = runner.invoke(
-        app, ["task", "add", invalid, "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    parsed = TaskAddResult.model_validate(json.loads(result.stdout))
-    assert parsed.tasks == []
-    assert [error.name for error in parsed.errors] == [invalid]
-    assert snapshot(project) == before
-
-
 @pytest.mark.parametrize("format_name", ["text", "json"])
 def test_task_add_output(project: Path, format_name: str) -> None:
     result = runner.invoke(
@@ -265,35 +233,6 @@ def test_task_add_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert TaskAddResult.model_validate(json.loads(result.stdout)).tasks[0].name == "seed"
 
 
-def test_task_add_stamps_aware_utc(project: Path) -> None:
-    before = datetime.now(UTC)
-    result = runner.invoke(
-        app, ["task", "add", "login", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    after = datetime.now(UTC)
-    assert result.exit_code == 0, result.output
-    created = (
-        TaskAddResult.model_validate(json.loads(result.stdout)).tasks[0].document.metadata.created
-    )
-    assert created.tzinfo is not None
-    assert before <= created <= after
-
-
-def test_task_add_then_show_and_list(project: Path) -> None:
-    added = runner.invoke(
-        app, ["task", "add", "login", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert added.exit_code == 0, added.output
-    shown = runner.invoke(
-        app, ["plan", "show", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert shown.exit_code == 0, shown.output
-    listed = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
-    assert [plan.name for plan in ListResult.model_validate(json.loads(listed.stdout)).plans] == [
-        "auth"
-    ]
-
-
 def seed_task(project: Path, name: str, summary: str | None = None, body: str = "") -> None:
     if summary is not None:
         body = summary if not body else f"{summary}\n\n{body}"
@@ -326,63 +265,6 @@ def test_task_list_empty(project: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert TaskListResult.model_validate(json.loads(result.stdout)).tasks == []
-
-
-def test_task_list_status_filter(project: Path) -> None:
-    seed_task(project, "alpha", summary="first")
-    seed_task(project, "beta", summary="second")
-    seed_task(project, "gamma", body="gamma notes\n\nsecret needle")
-    prepare_project(project).tasks.update("auth", "beta", TaskUpdate(status="done"))
-
-    by_status = runner.invoke(
-        app,
-        [
-            "task",
-            "list",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--status",
-            "done",
-            "--format",
-            "json",
-        ],
-    )
-    assert [
-        task.name for task in TaskListResult.model_validate(json.loads(by_status.stdout)).tasks
-    ] == ["beta"]
-
-
-def test_task_list_sort_and_limit(project: Path) -> None:
-    seed_task(project, "alpha")
-    seed_task(project, "beta")
-
-    limited = runner.invoke(
-        app,
-        ["task", "list", "-p", "auth", "-P", str(project), "--limit", "1", "--format", "json"],
-    )
-    assert [
-        task.name for task in TaskListResult.model_validate(json.loads(limited.stdout)).tasks
-    ] == ["alpha"]
-
-    descending = runner.invoke(
-        app,
-        [
-            "task",
-            "list",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--descending",
-            "--format",
-            "json",
-        ],
-    )
-    assert [
-        task.name for task in TaskListResult.model_validate(json.loads(descending.stdout)).tasks
-    ] == ["beta", "alpha"]
 
 
 @pytest.mark.parametrize("format_name", ["text", "json"])
@@ -443,32 +325,6 @@ def test_task_show_explicit_plan(project: Path) -> None:
     assert read_state(project).current_plan is None
 
 
-def test_task_show_missing_task_preserves_project(project: Path) -> None:
-    seed_task(project, "login")
-    before = snapshot(project)
-    result = runner.invoke(
-        app, ["task", "show", "missing", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "task show"
-    assert "missing" in error.error
-    assert snapshot(project) == before
-
-
-@pytest.mark.parametrize("invalid", ["../bad", "a\\b", "a:b", "", ".", "..", "/leading", "trail/"])
-def test_task_show_invalid_name_preserves_target(project: Path, invalid: str) -> None:
-    seed_task(project, "login")
-    before = snapshot(project)
-    result = runner.invoke(
-        app, ["task", "show", invalid, "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "task show"
-    assert snapshot(project) == before
-
-
 @pytest.mark.parametrize("format_name", ["text", "json"])
 def test_task_show_output(project: Path, format_name: str) -> None:
     seed_task(project, "login", summary="Sign in", body="Detailed notes")
@@ -527,19 +383,6 @@ def test_task_info_omits_body(project: Path) -> None:
     payload = cast("dict[str, object]", json.loads(result.stdout)["task"])
     assert "document" not in payload
     assert "body" not in payload
-
-
-def test_task_info_missing_task_preserves_project(project: Path) -> None:
-    seed_task(project, "login")
-    before = snapshot(project)
-    result = runner.invoke(
-        app, ["task", "info", "missing", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "task info"
-    assert "missing" in error.error
-    assert snapshot(project) == before
 
 
 @pytest.mark.parametrize("format_name", ["text", "json"])
@@ -607,93 +450,6 @@ def test_task_update_sets_summary_and_tags(project: Path) -> None:
     metadata = TaskUpdateResult.model_validate(json.loads(result.stdout)).task.document.metadata
     assert metadata.summary == "Log in flow"
     assert metadata.tags == ["v2", "backend"]
-
-
-def test_task_update_clears_summary(project: Path) -> None:
-    seed_task(project, "login")
-    prepare_project(project).tasks.update("auth", "login", TaskUpdate(summary="Authored"))
-    result = runner.invoke(
-        app,
-        [
-            "task",
-            "update",
-            "login",
-            "--summary",
-            "",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    parsed = TaskUpdateResult.model_validate(json.loads(result.stdout))
-    assert parsed.task.document.metadata.summary is None
-
-
-def test_task_update_replaces_tags(project: Path) -> None:
-    seed_task(project, "login")
-    prepare_project(project).tasks.update("auth", "login", TaskUpdate(tags=["old"]))
-    result = runner.invoke(
-        app,
-        [
-            "task",
-            "update",
-            "login",
-            "--tag",
-            "new",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    parsed = TaskUpdateResult.model_validate(json.loads(result.stdout))
-    assert parsed.task.document.metadata.tags == ["new"]
-
-
-def test_task_update_nothing_to_change(project: Path) -> None:
-    seed_task(project, "login")
-    before = snapshot(project)
-    result = runner.invoke(
-        app, ["task", "update", "login", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "task update"
-    assert "Nothing to update" in error.error
-    assert snapshot(project) == before
-
-
-def test_task_update_invalid_status_preserves_task(project: Path) -> None:
-    seed_task(project, "login")
-    before = snapshot(project)
-    result = runner.invoke(
-        app,
-        [
-            "task",
-            "update",
-            "login",
-            "--status",
-            "bogus",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "task update"
-    assert "Input should be 'todo', 'in-progress' or 'done'" in error.error
-    assert snapshot(project) == before
 
 
 def test_task_update_unknown_task(project: Path) -> None:

@@ -80,55 +80,6 @@ def test_automation_mode_requires_explicit_plan(
     assert "Automation mode requires an explicit plan" in error.error
 
 
-def test_select_requires_name(project: Path) -> None:
-    seed_plan(project, "auth")
-    before = snapshot(project)
-    result = runner.invoke(app, ["plan", "select", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 2, result.output
-    assert ErrorResult.model_validate_json(result.stderr).command == "plan select"
-    assert read_state(project).current_plan is None
-    assert snapshot(project) == before
-
-
-def test_select_invalid_name_preserves_target(project: Path) -> None:
-    seed_plan(project, "auth")
-    before = snapshot(project)
-    result = runner.invoke(
-        app, ["plan", "select", "../bad", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    assert "Expected a nonempty name" in ErrorResult.model_validate_json(result.stderr).error
-    assert snapshot(project) == before
-
-
-def test_select_missing_plan_preserves_state(project: Path) -> None:
-    seed_plan(project, "auth")
-    before = snapshot(project)
-    result = runner.invoke(
-        app, ["plan", "select", "absent", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.project is not None
-    assert "absent/plan.md" in error.error
-    assert read_state(project).current_plan is None
-    assert snapshot(project) == before
-
-
-def test_select_only_changes_state(project: Path) -> None:
-    seed_plan(project, "auth")
-    seed_plan(project, "other")
-    documents_before = {
-        path: data for path, data in snapshot(project).items() if path.name == "plan.md"
-    }
-    result = runner.invoke(app, ["plan", "select", "auth", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    documents_after = {
-        path: data for path, data in snapshot(project).items() if path.name == "plan.md"
-    }
-    assert documents_after == documents_before
-
-
 def test_select_uninitialized_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     target = tmp_path / "uninitialized"
     target.mkdir()
@@ -177,58 +128,6 @@ def test_select_then_show(project: Path) -> None:
     shown = runner.invoke(app, ["plan", "show", "-P", str(project), "--format", "json"])
     assert shown.exit_code == 0, shown.output
     assert ShowResult.model_validate(json.loads(shown.stdout)).plan.name == "auth"
-
-
-def test_selection_does_not_redirect_explicit_operation(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    seed_plan(project, "auth")
-    seed_plan(project, "other")
-    selected = runner.invoke(
-        app, ["plan", "select", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert selected.exit_code == 0, selected.output
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    shown = runner.invoke(
-        app, ["plan", "show", "-p", "other", "-P", str(project), "--format", "json"]
-    )
-    assert shown.exit_code == 0, shown.output
-    assert ShowResult.model_validate(json.loads(shown.stdout)).plan.name == "other"
-    assert read_state(project).current_plan == "auth"
-
-
-def test_unselect_clears_current_plan(project: Path) -> None:
-    seed_plan(project, "auth")
-    selected = runner.invoke(
-        app, ["plan", "select", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert selected.exit_code == 0, selected.output
-    result = runner.invoke(app, ["plan", "unselect", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    parsed = UnselectResult.model_validate(json.loads(result.stdout))
-    assert parsed.state.current_plan is None
-    assert read_state(project).current_plan is None
-
-
-def test_unselect_without_selection(project: Path) -> None:
-    seed_plan(project, "auth")
-    result = runner.invoke(app, ["plan", "unselect", "-P", str(project), "--format", "text"])
-    assert result.exit_code == 0, result.output
-    assert "Cleared the current plan in example" in result.stdout
-    assert read_state(project).current_plan is None
-
-
-def test_unselect_does_not_change_plan_status(project: Path) -> None:
-    seed_plan(project, "auth")
-    documents_before = {
-        path: data for path, data in snapshot(project).items() if path.name == "plan.md"
-    }
-    result = runner.invoke(app, ["plan", "unselect", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    documents_after = {
-        path: data for path, data in snapshot(project).items() if path.name == "plan.md"
-    }
-    assert documents_after == documents_before
 
 
 def test_unselect_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:

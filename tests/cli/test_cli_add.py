@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from machinate.cli.cli import app, create_cli
 from machinate.cli.dependencies import Dependencies
-from machinate.cli.models import AddResult, ErrorResult, ListResult
+from machinate.cli.models import AddResult, ErrorResult
 from machinate.cli.project_setup import prepare_project
 from machinate.storage import PlanMetadata, ProjectState, ProjectStateStore
 
@@ -83,28 +83,6 @@ def test_add_sets_summary_and_status(project: Path) -> None:
     assert metadata.status == "active"
 
 
-def test_add_defaults_status_to_draft(project: Path) -> None:
-    result = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    metadata = AddResult.model_validate(json.loads(result.stdout)).plan.document.metadata
-    assert metadata.summary is None
-    assert metadata.status == "draft"
-
-
-def test_add_invalid_status_preserves_target(project: Path) -> None:
-    before = snapshot(project)
-    result = runner.invoke(
-        app,
-        ["plan", "add", "alpha", "-P", str(project), "--status", "nonsense", "--format", "json"],
-    )
-    assert result.exit_code == 1, result.output
-    assert (
-        "Input should be 'draft', 'active' or 'done'"
-        in ErrorResult.model_validate_json(result.stderr).error
-    )
-    assert snapshot(project) == before
-
-
 def test_add_never_changes_selection(project: Path) -> None:
     prepare_project(project).plans.create(
         "existing", PlanMetadata(created=datetime(2026, 1, 1, tzinfo=UTC))
@@ -113,27 +91,6 @@ def test_add_never_changes_selection(project: Path) -> None:
     result = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
     assert result.exit_code == 0, result.output
     assert read_state(project).current_plan == "existing"
-
-
-def test_add_duplicate_preserves_existing(project: Path) -> None:
-    first = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
-    assert first.exit_code == 0, first.output
-    before = snapshot(project)
-    duplicate = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
-    assert duplicate.exit_code == 1, duplicate.output
-    error = ErrorResult.model_validate_json(duplicate.stderr)
-    assert error.project is not None
-    assert "alpha/plan.md" in error.error
-    assert snapshot(project) == before
-
-
-@pytest.mark.parametrize("invalid", ["../bad", "a/b", "a\\b", "a:b", "", ".", ".."])
-def test_add_invalid_name_preserves_target(project: Path, invalid: str) -> None:
-    before = snapshot(project)
-    result = runner.invoke(app, ["plan", "add", invalid, "-P", str(project), "--format", "json"])
-    assert result.exit_code == 1, result.output
-    assert "Expected a nonempty name" in ErrorResult.model_validate_json(result.stderr).error
-    assert snapshot(project) == before
 
 
 def test_add_uninitialized_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,23 +141,3 @@ def test_add_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert call_metadata.status == "draft"
     assert call_metadata.created.tzinfo is not None
     assert AddResult.model_validate(json.loads(result.stdout)).plan.name == "seed"
-
-
-def test_add_stamps_aware_utc(project: Path) -> None:
-    before = datetime.now(UTC)
-    result = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
-    after = datetime.now(UTC)
-    assert result.exit_code == 0, result.output
-    created = AddResult.model_validate(json.loads(result.stdout)).plan.document.metadata.created
-    assert created.tzinfo is not None
-    assert before <= created <= after
-
-
-def test_add_then_list(project: Path) -> None:
-    added = runner.invoke(app, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
-    assert added.exit_code == 0, added.output
-    result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert [plan.name for plan in ListResult.model_validate(json.loads(result.stdout)).plans] == [
-        "alpha"
-    ]

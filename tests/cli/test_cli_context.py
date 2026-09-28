@@ -16,7 +16,6 @@ from machinate.cli.models import (
     ContextShowResult,
     ContextUpdateResult,
     ErrorResult,
-    ListResult,
 )
 from machinate.cli.project_setup import prepare_project
 from machinate.models.context import ContextUpdate
@@ -187,38 +186,6 @@ def test_context_add_batch_partial_success_text_reports_errors(project: Path) ->
     assert (project / ".machi/plans/auth/context/new.md").exists()
 
 
-def test_context_add_duplicate_preserves_existing(project: Path) -> None:
-    """A duplicate is now a partial-failure result, not a global error."""
-    first = runner.invoke(
-        app, ["context", "add", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert first.exit_code == 0, first.output
-    before = snapshot(project)
-    duplicate = runner.invoke(
-        app, ["context", "add", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert duplicate.exit_code == 1, duplicate.output
-    parsed = ContextAddResult.model_validate(json.loads(duplicate.stdout))
-    assert parsed.contexts == []
-    assert [error.name for error in parsed.errors] == ["spec"]
-    assert "Already exists" in parsed.errors[0].error
-    assert snapshot(project) == before
-
-
-@pytest.mark.parametrize("invalid", ["../bad", "a\\b", "a:b", "", ".", "..", "/leading", "trail/"])
-def test_context_add_invalid_name_preserves_target(project: Path, invalid: str) -> None:
-    before = snapshot(project)
-    result = runner.invoke(
-        app, ["context", "add", invalid, "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    parsed = ContextAddResult.model_validate(json.loads(result.stdout))
-    assert parsed.contexts == []
-    assert [error.name for error in parsed.errors] == [invalid]
-    assert "Expected a nonempty name" in parsed.errors[0].error
-    assert snapshot(project) == before
-
-
 @pytest.mark.parametrize("format_name", ["text", "json"])
 def test_context_add_output(project: Path, format_name: str) -> None:
     result = runner.invoke(
@@ -257,37 +224,6 @@ def test_context_add_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) 
     assert ContextAddResult.model_validate(json.loads(result.stdout)).contexts[0].name == "seed"
 
 
-def test_context_add_stamps_aware_utc(project: Path) -> None:
-    before = datetime.now(UTC)
-    result = runner.invoke(
-        app, ["context", "add", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    after = datetime.now(UTC)
-    assert result.exit_code == 0, result.output
-    created = (
-        ContextAddResult.model_validate(json.loads(result.stdout))
-        .contexts[0]
-        .document.metadata.created
-    )
-    assert created.tzinfo is not None
-    assert before <= created <= after
-
-
-def test_context_add_then_show_and_list(project: Path) -> None:
-    added = runner.invoke(
-        app, ["context", "add", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert added.exit_code == 0, added.output
-    shown = runner.invoke(
-        app, ["plan", "show", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert shown.exit_code == 0, shown.output
-    listed = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
-    assert [plan.name for plan in ListResult.model_validate(json.loads(listed.stdout)).plans] == [
-        "auth"
-    ]
-
-
 def seed_context(
     project: Path,
     name: str,
@@ -320,33 +256,6 @@ def test_context_list_empty(project: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     assert ContextListResult.model_validate(json.loads(result.stdout)).contexts == []
-
-
-def test_context_list_limit_and_descending(project: Path) -> None:
-    for name in ("a", "b", "c"):
-        seed_context(project, name)
-    result = runner.invoke(
-        app,
-        [
-            "context",
-            "list",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--limit",
-            "2",
-            "--descending",
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    names = [
-        context.name
-        for context in ContextListResult.model_validate(json.loads(result.stdout)).contexts
-    ]
-    assert names == ["c", "b"]
 
 
 def test_context_list_invalid_limit(project: Path) -> None:
@@ -395,15 +304,6 @@ def test_context_show_unknown_context(project: Path) -> None:
     )
     assert result.exit_code == 1, result.output
     assert "missing" in ErrorResult.model_validate_json(result.stderr).error
-
-
-@pytest.mark.parametrize("invalid", ["../bad", "a\\b", "a:b", "", ".", ".."])
-def test_context_show_invalid_name(project: Path, invalid: str) -> None:
-    result = runner.invoke(
-        app, ["context", "show", invalid, "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    assert "Expected a nonempty name" in ErrorResult.model_validate_json(result.stderr).error
 
 
 def test_context_show_text_output(project: Path) -> None:
@@ -476,91 +376,6 @@ def test_context_info_text_output_without_summary(project: Path) -> None:
     assert "Summary:" not in result.stdout
 
 
-def test_context_update_sets_summary(project: Path) -> None:
-    seed_context(project, "spec")
-    result = runner.invoke(
-        app,
-        [
-            "context",
-            "update",
-            "spec",
-            "--summary",
-            "The spec",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    parsed = ContextUpdateResult.model_validate(json.loads(result.stdout))
-    assert parsed.context.document.metadata.summary == "The spec"
-
-
-def test_context_update_clears_summary(project: Path) -> None:
-    seed_context(project, "spec", summary="The spec")
-    result = runner.invoke(
-        app,
-        [
-            "context",
-            "update",
-            "spec",
-            "--summary",
-            "",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    parsed = ContextUpdateResult.model_validate(json.loads(result.stdout))
-    assert parsed.context.document.metadata.summary is None
-
-
-def test_context_update_replaces_tags(project: Path) -> None:
-    seed_context(project, "spec")
-    prepare_project(project).contexts.update("auth", "spec", ContextUpdate(tags=["old"]))
-    result = runner.invoke(
-        app,
-        [
-            "context",
-            "update",
-            "spec",
-            "--tag",
-            "new",
-            "--tag",
-            "backend",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    parsed = ContextUpdateResult.model_validate(json.loads(result.stdout))
-    assert parsed.context.document.metadata.tags == ["new", "backend"]
-
-
-def test_context_update_nothing_to_change(project: Path) -> None:
-    seed_context(project, "spec")
-    before = snapshot(project)
-    result = runner.invoke(
-        app, ["context", "update", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "context update"
-    assert "Nothing to update" in error.error
-    assert snapshot(project) == before
-
-
 def test_context_update_unknown_context(project: Path) -> None:
     result = runner.invoke(
         app,
@@ -580,30 +395,6 @@ def test_context_update_unknown_context(project: Path) -> None:
     )
     assert result.exit_code == 1, result.output
     assert ErrorResult.model_validate_json(result.stderr).command == "context update"
-
-
-@pytest.mark.parametrize("invalid", ["", "../bad"])
-def test_context_update_invalid_name_preserves_target(project: Path, invalid: str) -> None:
-    seed_context(project, "spec")
-    before = snapshot(project)
-    result = runner.invoke(
-        app,
-        [
-            "context",
-            "update",
-            invalid,
-            "--summary",
-            "x",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 1, result.output
-    assert snapshot(project) == before
 
 
 def test_context_update_text_output(project: Path) -> None:

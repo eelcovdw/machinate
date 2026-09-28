@@ -5,11 +5,12 @@ from pydantic import BaseModel
 
 from machinate.models.batch import BatchCreateError
 from machinate.models.context import Context
+from machinate.models.doc import Doc
 from machinate.models.plan import Plan, PlanOverview, ProjectOverview
 from machinate.models.search import FindEntry
 from machinate.models.task import Task
 from machinate.storage import DocumentRecord, ProjectState
-from machinate.storage.models import ContextMetadata, PlanMetadata, TaskMetadata
+from machinate.storage.models import ContextMetadata, DocMetadata, PlanMetadata, TaskMetadata
 
 
 class ProjectScope(BaseModel):
@@ -133,12 +134,51 @@ class ContextUpdateResult(BaseModel):
     context: Context
 
 
-class PathResult(BaseModel):
-    command: Literal["plan path", "task path", "context path"]
+class DocAddResult(BaseModel):
+    command: Literal["doc add"] = "doc add"
     project: ProjectScope
-    plan: str
+    docs: list[Doc]
+    errors: list[BatchCreateError] = []
+
+
+class DocListResult(BaseModel):
+    command: Literal["doc list"] = "doc list"
+    project: ProjectScope
+    docs: list[DocumentRecord[DocMetadata]]
+
+
+class DocShowResult(BaseModel):
+    command: Literal["doc show"] = "doc show"
+    project: ProjectScope
+    doc: Doc
+
+
+class DocInfoResult(BaseModel):
+    command: Literal["doc info"] = "doc info"
+    project: ProjectScope
+    doc: DocumentRecord[DocMetadata]
+
+
+class DocUpdateResult(BaseModel):
+    command: Literal["doc update"] = "doc update"
+    project: ProjectScope
+    doc: Doc
+
+
+class PathResult(BaseModel):
+    command: Literal["plan path", "task path", "context path", "doc path"]
+    project: ProjectScope
+    plan: str | None = None
     path: Path
-    kind: Literal["plan", "task", "context", "tasks_directory", "context_directory"]
+    kind: Literal[
+        "plan",
+        "task",
+        "context",
+        "tasks_directory",
+        "context_directory",
+        "doc",
+        "docs_directory",
+    ]
     exists: bool
 
 
@@ -196,6 +236,11 @@ type CommandResult = (
     | ContextListResult
     | ContextShowResult
     | ContextUpdateResult
+    | DocAddResult
+    | DocInfoResult
+    | DocListResult
+    | DocShowResult
+    | DocUpdateResult
     | InstructionsResult
     | ErrorResult
 )

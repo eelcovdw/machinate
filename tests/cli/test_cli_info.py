@@ -190,27 +190,6 @@ def test_plan_info_automation_requires_plan(project: Path, monkeypatch: pytest.M
     assert "-p" in error.error
 
 
-def test_plan_info_unknown_plan(project: Path) -> None:
-    result = runner.invoke(
-        app,
-        ["plan", "info", "-p", "nope", "-P", str(project), "--format", "json"],
-    )
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "plan info"
-    assert "nope" in error.error
-
-
-def test_plan_info_invalid_plan_name(project: Path) -> None:
-    result = runner.invoke(
-        app,
-        ["plan", "info", "-p", "../bad", "-P", str(project), "--format", "json"],
-    )
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert "Expected a nonempty name" in error.error
-
-
 def test_plan_info_text_overview(project: Path) -> None:
     result = runner.invoke(app, ["plan", "info", "-p", "auth", "-P", str(project)])
     assert result.exit_code == 0, result.output

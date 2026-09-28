@@ -17,7 +17,7 @@ class DocumentCollection(DocumentScope):
     activity_scopes: tuple[DocumentScope, ...] = ()
 
 
-type DocumentKind = Literal["plan", "task", "context", "unknown"]
+type DocumentKind = Literal["plan", "task", "context", "doc", "unknown"]
 
 
 class DocumentMembership(BaseModel):

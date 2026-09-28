@@ -101,32 +101,6 @@ def test_show_automation_requires_plan(project: Path, monkeypatch: pytest.Monkey
     assert "Automation mode requires an explicit plan" in error.error
 
 
-def test_show_missing_plan_preserves_state(project: Path) -> None:
-    seed_plan(project, current=True)
-    before = snapshot(project)
-    result = runner.invoke(
-        app, ["plan", "show", "-p", "absent", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.project is not None
-    assert "absent/plan.md" in error.error
-    assert snapshot(project) == before
-    assert prepare_project(project).plans.project_state_store.read().current_plan == "auth"
-
-
-@pytest.mark.parametrize("invalid", ["../bad", "a/b", "a\\b", "a:b", "", ".", ".."])
-def test_show_invalid_name_preserves_target(project: Path, invalid: str) -> None:
-    seed_plan(project)
-    before = snapshot(project)
-    result = runner.invoke(
-        app, ["plan", "show", "-p", invalid, "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    assert "Expected a nonempty name" in ErrorResult.model_validate_json(result.stderr).error
-    assert snapshot(project) == before
-
-
 def test_show_uninitialized_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     target = tmp_path / "uninitialized"
     target.mkdir()

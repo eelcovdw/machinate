@@ -22,6 +22,11 @@ from .models import (
     ContextListResult,
     ContextShowResult,
     ContextUpdateResult,
+    DocAddResult,
+    DocInfoResult,
+    DocListResult,
+    DocShowResult,
+    DocUpdateResult,
     ErrorResult,
     FindResult,
     InfoResult,
@@ -421,6 +426,79 @@ def render_context_update(result: ContextUpdateResult) -> str:
     line = Text("Updated context ")
     line.append(result.context.name, style=HEADING)
     line.append(f" in {result.project.name}/{result.plan}")
+    return _render([line])
+
+
+@render_text.register
+def render_doc_add(result: DocAddResult) -> str:
+    lines = [
+        Text(f"Created {len(result.docs)} document(s) in {result.project.name}", style=HEADING)
+    ]
+    lines.extend(_bullet(doc.name, str(result.project.storage / doc.path)) for doc in result.docs)
+    lines.extend(_not_created(result.errors))
+    return _render(lines)
+
+
+@render_text.register
+def render_doc_list(result: DocListResult) -> str:
+    lines = [Text(result.project.name, style=PROJECT)]
+    if not result.docs:
+        lines.append(Text("No documents found.", style=MUTED))
+        return _render(lines)
+    lines.append(Text())
+    name_width = max(len(entry.name) for entry in result.docs)
+    tags = [", ".join(entry.metadata.tags) for entry in result.docs]
+    tags_width = max((len(value) for value in tags), default=0)
+    lines.extend(
+        _entry(entry.name, name_width, tag, tags_width, entry.summary)
+        for entry, tag in zip(result.docs, tags, strict=True)
+    )
+    return _render(lines)
+
+
+@render_text.register
+def render_doc_show(result: DocShowResult) -> str:
+    metadata = result.doc.document.metadata
+    lines = [
+        _title("Doc", result.doc.name),
+        _field("Project", result.project.name),
+        _field("Path", str(result.project.storage / result.doc.path), style=PATH),
+        _field("Created", metadata.created.isoformat(), style=TIMESTAMP),
+        _field("Modified", result.doc.modified_at.isoformat(), style=TIMESTAMP),
+    ]
+    doc_summary = result.doc.document.get_or_derive_summary()
+    if doc_summary:
+        lines.append(_field("Summary", doc_summary))
+    if metadata.tags:
+        lines.append(_field("Tags", ", ".join(metadata.tags)))
+    body = result.doc.document.body.rstrip("\n")
+    if body:
+        lines.extend((Text(""), Text(body)))
+    return _render(lines)
+
+
+@render_text.register
+def render_doc_info(result: DocInfoResult) -> str:
+    metadata = result.doc.metadata
+    lines = [
+        _title("Doc", result.doc.name),
+        _field("Project", result.project.name),
+        _field("Path", str(result.project.storage / result.doc.path), style=PATH),
+        _field("Created", metadata.created.isoformat(), style=TIMESTAMP),
+        _field("Modified", result.doc.last_activity_at.isoformat(), style=TIMESTAMP),
+    ]
+    if result.doc.summary:
+        lines.append(_field("Summary", result.doc.summary))
+    if metadata.tags:
+        lines.append(_field("Tags", ", ".join(metadata.tags)))
+    return _render(lines)
+
+
+@render_text.register
+def render_doc_update(result: DocUpdateResult) -> str:
+    line = Text("Updated doc ")
+    line.append(result.doc.name, style=HEADING)
+    line.append(f" in {result.project.name}")
     return _render([line])
 
 

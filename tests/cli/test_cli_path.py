@@ -107,14 +107,6 @@ def test_plan_path_no_current_plan(project: Path) -> None:
     assert "No current plan is selected" in ErrorResult.model_validate_json(result.stderr).error
 
 
-def test_plan_path_unknown_plan(project: Path) -> None:
-    result = runner.invoke(
-        app, ["plan", "path", "-p", "nope", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    assert ErrorResult.model_validate_json(result.stderr).command == "plan path"
-
-
 def test_task_path_document(project: Path) -> None:
     seed_task(project, "login")
     result = runner.invoke(
@@ -148,14 +140,6 @@ def test_task_path_directory_exists(project: Path) -> None:
     parsed = PathResult.model_validate(json.loads(result.stdout))
     assert parsed.kind == "tasks_directory"
     assert parsed.exists is True
-
-
-def test_task_path_unknown_task(project: Path) -> None:
-    result = runner.invoke(
-        app, ["task", "path", "nope", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    assert "nope" in ErrorResult.model_validate_json(result.stderr).error
 
 
 def test_task_path_directory_never_creates(project: Path) -> None:

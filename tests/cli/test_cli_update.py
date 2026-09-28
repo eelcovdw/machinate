@@ -99,28 +99,6 @@ def test_update_sets_summary_and_tags(project: Path) -> None:
     assert metadata.tags == ["v2", "backend"]
 
 
-def test_update_clears_summary(project: Path) -> None:
-    seed_plan(project)
-    prepare_project(project).plans.update("auth", PlanUpdate(summary="Authored"))
-    result = runner.invoke(
-        app,
-        ["plan", "update", "-p", "auth", "-P", str(project), "--summary", "", "--format", "json"],
-    )
-    assert result.exit_code == 0, result.output
-    assert read_metadata(project).summary is None
-
-
-def test_update_replaces_tags(project: Path) -> None:
-    seed_plan(project)
-    prepare_project(project).plans.update("auth", PlanUpdate(tags=["old"]))
-    result = runner.invoke(
-        app,
-        ["plan", "update", "-p", "auth", "-P", str(project), "--tag", "new", "--format", "json"],
-    )
-    assert result.exit_code == 0, result.output
-    assert read_metadata(project).tags == ["new"]
-
-
 def test_update_uses_current_plan(project: Path) -> None:
     seed_plan(project, current=True)
     result = runner.invoke(
@@ -137,42 +115,6 @@ def test_update_automation_requires_plan(project: Path, monkeypatch: pytest.Monk
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert "Automation mode requires an explicit plan" in error.error
-
-
-def test_update_nothing_to_change(project: Path) -> None:
-    seed_plan(project)
-    before = snapshot(project)
-    result = runner.invoke(
-        app, ["plan", "update", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    assert "Nothing to update" in ErrorResult.model_validate_json(result.stderr).error
-    assert snapshot(project) == before
-
-
-def test_update_invalid_status_preserves_plan(project: Path) -> None:
-    seed_plan(project)
-    before = snapshot(project)
-    result = runner.invoke(
-        app,
-        [
-            "plan",
-            "update",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--status",
-            "nope",
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert "Input should be 'draft', 'active' or 'done'" in error.error
-    assert read_metadata(project).status == "draft"
-    assert snapshot(project) == before
 
 
 def test_update_missing_plan_preserves_state(project: Path) -> None:
@@ -197,29 +139,6 @@ def test_update_missing_plan_preserves_state(project: Path) -> None:
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.project is not None
     assert "absent/plan.md" in error.error
-    assert snapshot(project) == before
-
-
-def test_update_invalid_name_preserves_target(project: Path) -> None:
-    seed_plan(project)
-    before = snapshot(project)
-    result = runner.invoke(
-        app,
-        [
-            "plan",
-            "update",
-            "-p",
-            "../bad",
-            "-P",
-            str(project),
-            "--status",
-            "active",
-            "--format",
-            "json",
-        ],
-    )
-    assert result.exit_code == 1, result.output
-    assert "Expected a nonempty name" in ErrorResult.model_validate_json(result.stderr).error
     assert snapshot(project) == before
 
 

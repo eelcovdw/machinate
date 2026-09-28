@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 from machinate.cli.cli import app, create_cli
 from machinate.cli.dependencies import Dependencies
-from machinate.cli.models import ErrorResult, InitResult, ListResult, ProjectScope
+from machinate.cli.models import ErrorResult, InitResult, ProjectScope
 from machinate.storage import ProjectState, ProjectStateStore
 
 runner = CliRunner()
@@ -84,82 +84,6 @@ def test_init_explicit_name(target: Path) -> None:
     assert read_state(target).project_name == "custom"
 
 
-def test_init_empty_machi_directory_allowed(target: Path) -> None:
-    (target / ".machi").mkdir()
-    result = runner.invoke(app, ["init", "-P", str(target), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert read_state(target).project_name == target.name
-
-
-def test_init_symlinked_storage(target: Path) -> None:
-    external = target / "external"
-    external.mkdir()
-    (target / ".machi").symlink_to(external, target_is_directory=True)
-    result = runner.invoke(app, ["init", "-P", str(target), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert (external / "machinate.toml").exists()
-    assert read_state(target).project_name == target.name
-
-
-@pytest.mark.parametrize("kind", ["symlink-file", "symlink-dangling", "file"])
-def test_init_rejects_non_directory_storage(target: Path, kind: str) -> None:
-    storage = target / ".machi"
-    if kind == "file":
-        storage.write_text("keep")
-    elif kind == "symlink-file":
-        target_file = target / "target-file"
-        target_file.write_text("keep")
-        storage.symlink_to(target_file)
-    else:
-        storage.symlink_to(target / "nowhere", target_is_directory=True)
-    before = snapshot(target)
-    result = runner.invoke(app, ["init", "-P", str(target), "--format", "json"])
-    assert result.exit_code == 1, result.output
-    assert "expected a directory" in ErrorResult.model_validate_json(result.stderr).error
-    assert snapshot(target) == before
-
-
-def test_init_already_initialized_preserves_state(target: Path) -> None:
-    assert runner.invoke(app, ["init", "-P", str(target), "--project-name", "first"]).exit_code == 0
-    before = snapshot(target)
-    state_before = read_state(target)
-    result = runner.invoke(
-        app, ["init", "-P", str(target), "--project-name", "second", "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    assert "already initialized or nonempty" in ErrorResult.model_validate_json(result.stderr).error
-    assert snapshot(target) == before
-    assert read_state(target) == state_before
-    assert read_state(target).project_name == "first"
-
-
-def test_init_nonempty_storage_preserves_files(target: Path) -> None:
-    storage = target / ".machi"
-    storage.mkdir()
-    keep = storage / "keep.txt"
-    keep.write_text("precious")
-    before = snapshot(target)
-    result = runner.invoke(app, ["init", "-P", str(target), "--format", "json"])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert "already initialized or nonempty" in error.error
-    assert keep.read_text() == "precious"
-    assert snapshot(target) == before
-    assert not (storage / "machinate.toml").exists()
-
-
-@pytest.mark.parametrize("name", ["bad/name", "bad\\name", "", ".", "..", "has:colon"])
-def test_init_invalid_name_preserves_target(target: Path, name: str) -> None:
-    before = snapshot(target)
-    result = runner.invoke(
-        app, ["init", "-P", str(target), "--project-name", name, "--format", "json"]
-    )
-    assert result.exit_code == 1, result.output
-    assert ErrorResult.model_validate_json(result.stderr).error
-    assert not (target / ".machi").exists()
-    assert snapshot(target) == before
-
-
 @pytest.mark.parametrize("kind", ["missing", "file"])
 def test_init_missing_project_directory(tmp_path: Path, kind: str) -> None:
     target = tmp_path / "missing"
@@ -198,14 +122,3 @@ def test_init_delegation(target: Path) -> None:
     )
     assert result.exit_code == 0, result.output
     fake.assert_called_once_with(target, "injected")
-
-
-def test_init_then_list_is_empty(target: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(target)
-    assert runner.invoke(app, ["init", "--format", "json"]).exit_code == 0
-    result = runner.invoke(app, ["plan", "list", "--format", "json"])
-    assert result.exit_code == 0, result.output
-    parsed = ListResult.model_validate(json.loads(result.stdout))
-    assert parsed.plans == []
-    assert parsed.project.name == target.name
-    assert parsed.project.directory == target

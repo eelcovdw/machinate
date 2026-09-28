@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from machinate.services.context import ContextService
+from machinate.services.doc import DocService
 from machinate.services.plan import PlanService
 from machinate.services.search import SearchService
 from machinate.services.task import TaskService
@@ -21,6 +22,7 @@ class ProjectContext:
     plans: PlanService
     tasks: TaskService
     contexts: ContextService
+    docs: DocService
     search: SearchService
 
 
@@ -78,5 +80,6 @@ def prepare_project(explicit: Path | None = None) -> ProjectContext:
         plans=PlanService(document_store, layout, state_store),
         tasks=TaskService(document_store, layout),
         contexts=ContextService(document_store, layout),
+        docs=DocService(document_store, layout),
         search=SearchService(document_store, layout),
     )

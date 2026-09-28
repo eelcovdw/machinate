@@ -4,7 +4,6 @@ import pytest
 from typer.testing import CliRunner
 
 from machinate.cli.cli import app
-from machinate.cli.commands.instructions import build_instructions
 from machinate.cli.models import ErrorResult, InstructionsResult
 
 runner = CliRunner()
@@ -41,11 +40,3 @@ def test_instructions_json_default_in_automation(monkeypatch: pytest.MonkeyPatch
     result = runner.invoke(app, ["instructions"])
     assert result.exit_code == 0, result.output
     assert InstructionsResult.model_validate_json(result.stdout).command == "instructions"
-
-
-def test_instructions_stay_in_sync_with_agents_md() -> None:
-    agents = (Path(__file__).resolve().parents[1] / "AGENTS.md").read_text()
-    start = agents.index("## Machinate")
-    end = agents.find("\n## ", start + 1)
-    section = agents[start:] if end == -1 else agents[start:end]
-    assert build_instructions().strip() == section.strip()

@@ -13,6 +13,11 @@ from machinate.storage import DocumentMembership, Layout
         ("plans/auth/tasks/abcd/efg/h.md", ("task", "auth", "abcd/efg/h")),
         ("plans/auth/context/notes.md", ("context", "auth", "notes")),
         ("plans/auth/context/deep/nested/x.md", ("context", "auth", "deep/nested/x")),
+        ("docs/spec.md", ("doc", None, "spec")),
+        ("docs/topic/spec.md", ("doc", None, "topic/spec")),
+        ("docs/spec.txt", ("unknown", None, None)),
+        ("docs", ("unknown", None, None)),
+        ("docs/topic", ("unknown", None, None)),
         ("machinate.toml", ("unknown", None, None)),
         ("project.md", ("unknown", None, None)),
         ("plans", ("unknown", None, None)),
@@ -37,4 +42,7 @@ def test_resolve_matches_forward_conventions() -> None:
     )
     assert layout.resolve(layout.context("auth", "deep/nested/x")) == DocumentMembership(
         kind="context", plan="auth", name="deep/nested/x"
+    )
+    assert layout.resolve(layout.doc("topic/spec")) == DocumentMembership(
+        kind="doc", name="topic/spec"
     )

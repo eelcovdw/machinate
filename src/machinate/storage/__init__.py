@@ -9,6 +9,7 @@ from .errors import (
 from .layout import Layout
 from .models import (
     ContextMetadata,
+    DocMetadata,
     Document,
     FileMetadata,
     Metadata,
@@ -35,6 +36,7 @@ from .queries import (
 __all__ = [
     "ContextMetadata",
     "DateTimeRange",
+    "DocMetadata",
     "Document",
     "DocumentCollection",
     "DocumentExistsError",

@@ -22,6 +22,12 @@ from machinate.storage import (
     SymbolicLinkError,
     TaskMetadata,
 )
+from machinate.storage.models import (
+    ContextNameInput,
+    DocNameInput,
+    NameInput,
+    TaskNameInput,
+)
 from machinate.storage.summary import derive_summary
 
 
@@ -541,3 +547,20 @@ def test_created_preserves_precision_and_offset(store: DocumentStore) -> None:
     store.create("precise.md", Document(metadata=metadata, body=""))
     result = store.read("precise.md", TaskMetadata)
     assert result.metadata.created.isoformat() == "2026-09-22T12:34:56.123456+02:00"
+
+
+@pytest.mark.parametrize(
+    ("model", "name", "expected"),
+    [
+        (NameInput, "spec.md", "spec"),
+        (TaskNameInput, "topic/spec.md", "topic/spec"),
+        (ContextNameInput, "topic/spec.md", "topic/spec"),
+        (DocNameInput, "topic/spec.md", "topic/spec"),
+    ],
+)
+def test_input_names_ignore_markdown_suffix(
+    model: type[NameInput | TaskNameInput | ContextNameInput | DocNameInput],
+    name: str,
+    expected: str,
+) -> None:
+    assert model(name=name).name == expected
