@@ -18,7 +18,6 @@ dependencies = [
     "tomlkit>=0.13.3,<0.15",
     # Typer 0.26+ vendors Click
     "typer>=0.23.1,<0.26",
-    "universal-pathlib>=0.3.10",
     "wcmatch>=11.0.1",
 ]
 
@@ -64,6 +63,10 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "src/machinate/cli/**/*.py" = [
     "FBT",     # Boolean positional args are fine for typer CLI flags
+    "PLC0415", # Imports are deferred inside functions to keep CLI startup fast
+]
+"src/machinate/storage/document_store.py" = [
+    "PLC0415", # YAML/glob imports deferred so listing plans avoids ruamel/wcmatch
 ]
 "tests/*.py" = [
     "INP001",  # implicit namespace package

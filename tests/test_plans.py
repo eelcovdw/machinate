@@ -6,7 +6,6 @@ from unittest.mock import Mock
 
 import pytest
 from pydantic import ValidationError
-from upath import UPath
 
 from machinate.models.plan import PlanUpdate
 from machinate.services.plan import PlanService
@@ -33,9 +32,9 @@ from machinate.storage.models import NameInput
 
 @pytest.fixture
 def service(tmp_path: Path) -> PlanService:
-    state = ProjectStateStore(UPath(tmp_path / "state.toml"))
+    state = ProjectStateStore(tmp_path / "state.toml")
     state.write(ProjectState(project_name="demo"))
-    return PlanService(DocumentStore(UPath(tmp_path / "docs")), Layout(), state)
+    return PlanService(DocumentStore(tmp_path / "docs"), Layout(), state)
 
 
 @pytest.fixture
@@ -79,7 +78,7 @@ def test_empty_patch_never_writes(
 ) -> None:
     service.create("alpha", metadata, "Body")
     target = service.document_store.root / "plans/alpha/plan.md"
-    os.utime(target.path, ns=(1234567890123456789, 1234567890123456789))
+    os.utime(target, ns=(1234567890123456789, 1234567890123456789))
     before = target.read_bytes(), target.stat().st_mtime_ns
     write = Mock(side_effect=AssertionError("empty patch must not write"))
     monkeypatch.setattr(service.document_store, "write", write)
@@ -253,17 +252,17 @@ def test_replacement_layout_controls_query_and_activity(
     service.create("alpha", metadata)
     service.create("beta", metadata)
     for name in ("alpha", "beta"):
-        os.utime((service.document_store.root / service.layout.plan(name)).path, (100, 100))
+        os.utime(service.document_store.root / service.layout.plan(name), (100, 100))
     child = PurePosixPath("registry/alpha/work/nested/one.task")
     service.document_store.create(
         child, Document(metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body="")
     )
-    os.utime((service.document_store.root / child).path, (300, 300))
+    os.utime(service.document_store.root / child, (300, 300))
     service.document_store.create(
         PurePosixPath("registry/alpha/notes/one.note"),
         Document(metadata=ContextMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""),
     )
-    os.utime((service.document_store.root / "registry/alpha/notes/one.note").path, (200, 200))
+    os.utime(service.document_store.root / "registry/alpha/notes/one.note", (200, 200))
     # A document in the default layout must not enter this layout's results.
     service.document_store.create(Layout().plan("ignored"), Document(metadata=metadata, body=""))
     records = service.list(

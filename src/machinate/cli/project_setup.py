@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from upath import UPath
-
 from machinate.services.context import ContextService
 from machinate.services.plan import PlanService
 from machinate.services.search import SearchService
@@ -63,7 +61,7 @@ def initialize_project(explicit: Path | None, project_name: str | None = None) -
         if next(storage.iterdir(), None) is not None:
             msg = f"{storage}: already initialized or nonempty; refusing to overwrite"
             raise ProjectError(msg)
-    state_store = ProjectStateStore(UPath(storage / "machinate.toml"))
+    state_store = ProjectStateStore(storage / "machinate.toml")
     state_store.write(ProjectState(project_name=name, current_plan=None))
     return ProjectScope(name=name, directory=target, storage=storage)
 
@@ -71,10 +69,10 @@ def initialize_project(explicit: Path | None, project_name: str | None = None) -
 def prepare_project(explicit: Path | None = None) -> ProjectContext:
     directory = select_project_directory(explicit)
     storage = directory / ".machi"
-    state_store = ProjectStateStore(UPath(storage / "machinate.toml"))
+    state_store = ProjectStateStore(storage / "machinate.toml")
     state = state_store.read()
     layout = Layout()
-    document_store = DocumentStore(UPath(storage))
+    document_store = DocumentStore(storage)
     return ProjectContext(
         project=ProjectScope(name=state.project_name, directory=directory, storage=storage),
         plans=PlanService(document_store, layout, state_store),

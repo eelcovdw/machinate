@@ -1,6 +1,5 @@
-import logging
 from contextlib import suppress
-from typing import TextIO, cast, override
+from typing import cast, override
 
 import click
 import typer
@@ -109,14 +108,17 @@ def _command_label(ctx: click.Context) -> str:
     return " ".join(reversed(names)) or "machi"
 
 
-class _DiagnosticHandler(logging.StreamHandler[TextIO]):
-    """stderr handler for opt-in diagnostics; the subclass prevents duplicates."""
-
-
 def configure_logging(settings: Settings) -> None:
     """Route Machinate logs to stderr when MACHI_LOG_LEVEL is set."""
     if settings.log_level is None:
         return
+    # Imported lazily: logging is only needed when diagnostics are actually enabled.
+    import logging
+    from typing import TextIO
+
+    class _DiagnosticHandler(logging.StreamHandler[TextIO]):
+        """stderr handler for opt-in diagnostics; the subclass prevents duplicates."""
+
     logger = logging.getLogger("machinate")
     for handler in list(logger.handlers):
         if isinstance(handler, _DiagnosticHandler):

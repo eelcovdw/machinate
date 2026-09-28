@@ -3,7 +3,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from upath import UPath
 
 from machinate.models.search import FindQuery
 from machinate.services.search import SearchService
@@ -27,7 +26,7 @@ def _doc(metadata: Metadata, body: str) -> Document[Metadata]:
 
 @pytest.fixture
 def search(tmp_path: Path) -> SearchService:
-    store = DocumentStore(UPath(tmp_path))
+    store = DocumentStore(tmp_path)
     layout = Layout()
     store.create(layout.plan("auth"), _doc(PlanMetadata(created=_NOW), "gamma plan body"))
     store.create(layout.plan("billing"), _doc(PlanMetadata(created=_NOW), "delta plan body"))

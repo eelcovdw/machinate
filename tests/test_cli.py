@@ -7,7 +7,6 @@ from unittest.mock import Mock
 
 import pytest
 from typer.testing import CliRunner
-from upath import UPath
 
 from machinate.cli.cli import app, create_cli
 from machinate.cli.dependencies import Dependencies
@@ -36,14 +35,14 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     root = tmp_path / "project"
-    ProjectStateStore(UPath(root / ".machi/machinate.toml")).write(
+    ProjectStateStore(root / ".machi/machinate.toml").write(
         ProjectState(project_name="example", current_plan="dangling")
     )
     return root
 
 
 def populate(project: Path) -> None:
-    store = DocumentStore(UPath(project / ".machi"))
+    store = DocumentStore(project / ".machi")
     for name, status in (("beta", "done"), ("alpha", "active")):
         store.create(
             Layout().plan(name),
@@ -77,9 +76,7 @@ def test_explicit_and_upward(project: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_nearest_project(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     nested = project / "nested"
-    ProjectStateStore(UPath(nested / ".machi/machinate.toml")).write(
-        ProjectState(project_name="inner")
-    )
+    ProjectStateStore(nested / ".machi/machinate.toml").write(ProjectState(project_name="inner"))
     monkeypatch.chdir(nested)
     result = runner.invoke(app, ["plan", "list", "--format", "json"])
     assert ListResult.model_validate(json.loads(result.stdout)).project.name == "inner"
@@ -146,9 +143,7 @@ def test_missing_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_symlinked_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     real = tmp_path / "real"
-    ProjectStateStore(UPath(real / ".machi/machinate.toml")).write(
-        ProjectState(project_name="linked")
-    )
+    ProjectStateStore(real / ".machi/machinate.toml").write(ProjectState(project_name="linked"))
     linked = tmp_path / "linked"
     linked.mkdir()
     (linked / ".machi").symlink_to(real / ".machi", target_is_directory=True)

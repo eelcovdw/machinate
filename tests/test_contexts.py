@@ -5,7 +5,6 @@ from typing import override
 
 import pytest
 from pydantic import ValidationError
-from upath import UPath
 
 from machinate.models.context import Context, ContextUpdate
 from machinate.services.context import ContextService
@@ -23,7 +22,7 @@ from machinate.storage.models import ContextNameInput, NameInput
 
 @pytest.fixture
 def service(tmp_path: Path) -> ContextService:
-    store = DocumentStore(UPath(tmp_path / "docs"))
+    store = DocumentStore(tmp_path / "docs")
     store.create(
         Layout().plan("alpha"),
         Document(metadata=PlanMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""),

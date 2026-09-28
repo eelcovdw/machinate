@@ -5,7 +5,6 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 from pydantic import ValidationError
-from upath import UPath
 
 from machinate.storage import (
     ContextMetadata,
@@ -28,7 +27,7 @@ from machinate.storage.summary import derive_summary
 
 @pytest.fixture
 def store(tmp_path: Path) -> DocumentStore:
-    return DocumentStore(UPath(tmp_path))
+    return DocumentStore(tmp_path)
 
 
 @pytest.fixture
@@ -312,7 +311,7 @@ def test_failed_atomic_update_keeps_original(
 
 
 def test_state_round_trip(tmp_path: Path) -> None:
-    store = ProjectStateStore(UPath(tmp_path / "nested" / "machinate.toml"))
+    store = ProjectStateStore(tmp_path / "nested" / "machinate.toml")
     with pytest.raises(MissingDocumentError):
         store.read()
     state = ProjectState(project_name="Café", current_plan="auth")
@@ -333,7 +332,7 @@ def test_state_write_rejects_symlink(tmp_path: Path) -> None:
     link.symlink_to(external)
 
     with pytest.raises(SymbolicLinkError) as error:
-        ProjectStateStore(UPath(link)).write(ProjectState(project_name="demo", current_plan="auth"))
+        ProjectStateStore(link).write(ProjectState(project_name="demo", current_plan="auth"))
     assert error.value.reason is None
     assert "symbolic link" in str(error.value)
 
@@ -345,7 +344,7 @@ def test_state_write_rejects_symlink(tmp_path: Path) -> None:
     "text", ["", "invalid [", 'project_name = "../bad"', 'current_plan = "auth"']
 )
 def test_invalid_state(tmp_path: Path, text: str) -> None:
-    path = UPath(tmp_path / "machinate.toml")
+    path = tmp_path / "machinate.toml"
     path.write_text(text)
     with pytest.raises(InvalidDocumentError):
         ProjectStateStore(path).read()
@@ -355,7 +354,7 @@ def test_failed_state_write_keeps_original(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path = UPath(tmp_path / "nested" / "machinate.toml")
+    path = tmp_path / "nested" / "machinate.toml"
     store = ProjectStateStore(path)
     original = ProjectState(project_name="Café", current_plan="auth")
     store.write(original)
@@ -480,7 +479,7 @@ def test_io_errors_have_path_and_reason(
         store.create("file/child.md", document)
     assert error.value.path == PurePosixPath("file/child.md")
     assert isinstance(error.value.reason, OSError)
-    state_store = ProjectStateStore(UPath(tmp_path / "file" / "state.toml"))
+    state_store = ProjectStateStore(tmp_path / "file" / "state.toml")
     with pytest.raises(StorageError):
         state_store.write(ProjectState(project_name="demo"))
 

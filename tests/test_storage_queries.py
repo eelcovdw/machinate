@@ -4,7 +4,6 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 from pydantic import ValidationError
-from upath import UPath
 
 from machinate.storage import (
     DateTimeRange,
@@ -24,7 +23,7 @@ from machinate.storage import (
 
 @pytest.fixture
 def store(tmp_path: Path) -> DocumentStore:
-    store = DocumentStore(UPath(tmp_path))
+    store = DocumentStore(tmp_path)
     for name, day, status, body, stamp, tags in [
         ("alpha", 1, "active", "OAuth", 100, ["frontend"]),
         ("beta", 2, "draft", "Other\n\nOAuth body", 200, ["backend", "v2"]),
@@ -174,10 +173,7 @@ def test_non_directory_collection_is_error(store: DocumentStore) -> None:
 
 
 def test_missing_root_is_empty(tmp_path: Path) -> None:
-    assert (
-        DocumentStore(UPath(tmp_path / "absent")).list(Layout().plan_collection(), PlanMetadata)
-        == []
-    )
+    assert DocumentStore(tmp_path / "absent").list(Layout().plan_collection(), PlanMetadata) == []
 
 
 def test_summary_has_no_body(store: DocumentStore) -> None:
@@ -265,7 +261,7 @@ def test_task_status_queries(store: DocumentStore, query: TaskQuery, expected: l
                 body=body,
             ),
         )
-        os.utime((store.root / path).path, (stamp, stamp))
+        os.utime(store.root / path, (stamp, stamp))
     records = store.list(Layout().task_collection("alpha"), TaskMetadata, query)
     assert [record.name for record in records] == expected
 
@@ -322,7 +318,7 @@ def test_updated_upper_bound_uses_recursive_activity(store: DocumentStore) -> No
     store.create(
         path, Document(metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body="")
     )
-    os.utime((store.root / path).path, (300, 300))
+    os.utime(store.root / path, (300, 300))
     assert names(
         store,
         PlanQuery(

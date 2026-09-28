@@ -1,14 +1,8 @@
-import logging
 import stat
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path, PurePosixPath
 from typing import cast
-
-from ruamel.yaml import YAML
-from ruamel.yaml.error import YAMLError
-from upath import UPath
-from wcmatch import glob as wcglob
 
 from .atomic import atomic_write
 from .errors import (
@@ -21,16 +15,15 @@ from .errors import (
 from .models import Document, FileMetadata, Metadata, PathInput, StatusMetadata
 from .queries import DocumentCollection, DocumentQuery, DocumentRecord, DocumentScope, StatusQuery
 
-logger = logging.getLogger(__name__)
-
 
 class DocumentStore:
-    def __init__(self, root: UPath) -> None:
-        if root.protocol not in {"", "file", "local"}:
-            raise ValueError("DocumentStore currently supports local roots only")
-        self.root: UPath = root
+    def __init__(self, root: Path) -> None:
+        self.root: Path = root
 
     def read[M: Metadata](self, path: str | PurePosixPath, metadata_type: type[M]) -> Document[M]:
+        from ruamel.yaml import YAML
+        from ruamel.yaml.error import YAMLError
+
         relative = PathInput.model_validate({"path": path}).path
         try:
             # Decode bytes directly so universal-newline translation cannot alter the body.
@@ -59,6 +52,8 @@ class DocumentStore:
 
     def glob_files(self, path: str | PurePosixPath, patterns: list[str]) -> list[PurePosixPath]:
         """Return project-relative regular files under path matching any GLOBSTAR pattern."""
+        from wcmatch import glob as wcglob
+
         relative = PathInput.model_validate({"path": path}).path
         directory = self.root / relative
         if not directory.is_dir():
@@ -66,7 +61,7 @@ class DocumentStore:
         try:
             matched = wcglob.glob(
                 patterns,
-                root_dir=str(directory.path),
+                root_dir=str(directory),
                 flags=wcglob.GLOBSTAR | wcglob.DOTGLOB,
             )
             files: list[PurePosixPath] = []
@@ -95,12 +90,19 @@ class DocumentStore:
         self, relative: PurePosixPath, text: str, metadata_type: type[M]
     ) -> Document[M]:
         """Treat a file with no frontmatter block as a bare body with default metadata."""
-        logger.debug("Missing YAML frontmatter in %s; using defaults", relative)
+        import logging
+
+        logging.getLogger(__name__).debug(
+            "Missing YAML frontmatter in %s; using defaults", relative
+        )
         modified = (self.root / relative).stat().st_mtime
         metadata = metadata_type.model_validate({"created": datetime.fromtimestamp(modified, UTC)})
         return Document[metadata_type](metadata=metadata, body=text)
 
     def _encode[M: Metadata](self, path: PurePosixPath, document: Document[M]) -> bytes:
+        from ruamel.yaml import YAML
+        from ruamel.yaml.error import YAMLError
+
         try:
             output = StringIO()
             yaml = YAML(typ="safe")
@@ -140,7 +142,7 @@ class DocumentStore:
                 raise SymbolicLinkError(relative)
             if not stat.S_ISREG(info.st_mode):
                 raise IsADirectoryError(str(target))
-            atomic_write(Path(target.path), content, mode=stat.S_IMODE(info.st_mode))
+            atomic_write(target, content, mode=stat.S_IMODE(info.st_mode))
         except FileNotFoundError as exc:
             raise MissingDocumentError(relative, exc) from exc
         except OSError as exc:

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
-from upath import UPath
 
 from machinate.cli.cli import app
 from machinate.cli.models import ErrorResult, InfoResult, PlanInfoResult
@@ -32,9 +31,7 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     root = tmp_path / "project"
-    ProjectStateStore(UPath(root / ".machi/machinate.toml")).write(
-        ProjectState(project_name="example")
-    )
+    ProjectStateStore(root / ".machi/machinate.toml").write(ProjectState(project_name="example"))
     context = prepare_project(root)
     context.plans.create("auth", PlanMetadata(created=_CREATED))
     context.plans.create("billing", PlanMetadata(created=_CREATED, status="active"))
@@ -78,7 +75,7 @@ def test_info_project_overview_current_plan(project: Path) -> None:
 
 
 def test_info_project_overview_stale_selection(project: Path) -> None:
-    ProjectStateStore(UPath(project / ".machi/machinate.toml")).write(
+    ProjectStateStore(project / ".machi/machinate.toml").write(
         ProjectState(project_name="example", current_plan="ghost")
     )
     result = runner.invoke(app, ["info", "-P", str(project), "--format", "json"])
@@ -91,9 +88,7 @@ def test_info_project_overview_stale_selection(project: Path) -> None:
 
 def test_info_project_overview_limits_recent_plans(tmp_path: Path) -> None:
     root = tmp_path / "project"
-    ProjectStateStore(UPath(root / ".machi/machinate.toml")).write(
-        ProjectState(project_name="example")
-    )
+    ProjectStateStore(root / ".machi/machinate.toml").write(ProjectState(project_name="example"))
     for index in range(6):
         seed_plan(root, f"plan{index}")
     result = runner.invoke(app, ["info", "-P", str(root), "--format", "json"])
@@ -106,9 +101,7 @@ def test_info_project_overview_limits_recent_plans(tmp_path: Path) -> None:
 
 def test_info_empty_project(tmp_path: Path) -> None:
     root = tmp_path / "project"
-    ProjectStateStore(UPath(root / ".machi/machinate.toml")).write(
-        ProjectState(project_name="example")
-    )
+    ProjectStateStore(root / ".machi/machinate.toml").write(ProjectState(project_name="example"))
     result = runner.invoke(app, ["info", "-P", str(root), "--format", "json"])
     assert result.exit_code == 0, result.output
     overview = InfoResult.model_validate(json.loads(result.stdout)).overview

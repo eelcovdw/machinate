@@ -1,18 +1,16 @@
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import cast
-
-from upath import UPath
 
 
 class StorageError(Exception):
     def __init__(
         self,
-        path: PurePosixPath | UPath,
+        path: PurePosixPath | Path,
         reason: Exception | None = None,
         *,
         message: str | None = None,
     ) -> None:
-        self.path: PurePosixPath | UPath = path
+        self.path: PurePosixPath | Path = path
         self.reason: Exception | None = reason
         if reason is not None:
             detail = f"{path}: {reason}"
@@ -33,7 +31,7 @@ class MissingDocumentError(StorageError):
 
 
 class SymbolicLinkError(StorageError):
-    def __init__(self, path: PurePosixPath | UPath) -> None:
+    def __init__(self, path: PurePosixPath | Path) -> None:
         super().__init__(path, message="Refusing to replace a symbolic link")
 
 

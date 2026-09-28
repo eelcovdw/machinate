@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
-from upath import UPath
 
 from machinate.cli.cli import app
 from machinate.cli.models import ErrorResult, FindResult
@@ -36,10 +35,10 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
     root = tmp_path / "project"
-    ProjectStateStore(UPath(root / ".machi/machinate.toml")).write(
+    ProjectStateStore(root / ".machi/machinate.toml").write(
         ProjectState(project_name="example", current_plan=None)
     )
-    store = DocumentStore(UPath(root / ".machi"))
+    store = DocumentStore(root / ".machi")
     layout = Layout()
     store.create(layout.plan("auth"), Document(metadata=PlanMetadata(created=_NOW), body="auth"))
     store.create(

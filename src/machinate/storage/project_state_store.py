@@ -3,7 +3,6 @@ import tomllib
 from pathlib import Path
 
 import tomli_w
-from upath import UPath
 
 from .atomic import atomic_write
 from .errors import InvalidDocumentError, MissingDocumentError, StorageError, SymbolicLinkError
@@ -11,8 +10,8 @@ from .models import ProjectState
 
 
 class ProjectStateStore:
-    def __init__(self, path: UPath) -> None:
-        self.path: UPath = path
+    def __init__(self, path: Path) -> None:
+        self.path: Path = path
 
     def read(self) -> ProjectState:
         try:
@@ -42,6 +41,6 @@ class ProjectStateStore:
                     # No underlying OS error, so no fabricated reason.
                     raise SymbolicLinkError(self.path)
                 mode = stat.S_IMODE(info.st_mode)
-            atomic_write(Path(self.path.path), content, mode=mode)
+            atomic_write(self.path, content, mode=mode)
         except OSError as exc:
             raise StorageError(self.path, exc) from exc

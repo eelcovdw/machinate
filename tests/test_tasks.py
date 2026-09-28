@@ -6,7 +6,6 @@ from unittest.mock import Mock
 
 import pytest
 from pydantic import ValidationError
-from upath import UPath
 
 from machinate.models.task import TaskUpdate
 from machinate.services.plan import PlanService
@@ -27,7 +26,7 @@ from machinate.storage import (
 
 @pytest.fixture
 def service(tmp_path: Path) -> TaskService:
-    store = DocumentStore(UPath(tmp_path / "docs"))
+    store = DocumentStore(tmp_path / "docs")
     store.create(
         Layout().plan("alpha"),
         Document(metadata=PlanMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""),
@@ -115,7 +114,7 @@ def test_empty_patch(
 ) -> None:
     task = service.create("alpha", "login", metadata, "Body")
     target = service.document_store.root / task.path
-    os.utime(target.path, ns=(1234567890123456789, 1234567890123456789))
+    os.utime(target, ns=(1234567890123456789, 1234567890123456789))
     before = target.read_bytes(), target.stat().st_mtime_ns
     task = service.get("alpha", "login")
     write = Mock(side_effect=AssertionError("empty patch must not write"))
@@ -209,7 +208,7 @@ def test_nested_round_trip_and_query(service: TaskService, metadata: TaskMetadat
 def test_explicit_plan_isolation(
     service: TaskService, metadata: TaskMetadata, tmp_path: Path
 ) -> None:
-    state = ProjectStateStore(UPath(tmp_path / "state.toml"))
+    state = ProjectStateStore(tmp_path / "state.toml")
     state.write(ProjectState(project_name="demo"))
     plans = PlanService(service.document_store, service.layout, state)
     plans.create("beta", PlanMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)))

@@ -4,7 +4,6 @@ from unittest.mock import Mock
 
 import pytest
 from typer.testing import CliRunner
-from upath import UPath
 
 from machinate.cli.cli import app, create_cli
 from machinate.cli.dependencies import Dependencies
@@ -28,7 +27,7 @@ def target(tmp_path: Path) -> Path:
 
 
 def read_state(directory: Path) -> ProjectState:
-    return ProjectStateStore(UPath(directory / ".machi/machinate.toml")).read()
+    return ProjectStateStore(directory / ".machi/machinate.toml").read()
 
 
 def snapshot(directory: Path) -> dict[Path, tuple[bytes | None, int]]:

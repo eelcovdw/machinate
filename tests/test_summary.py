@@ -1,8 +1,6 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from upath import UPath
-
 from machinate.storage import ContextMetadata, Document, DocumentStore
 from machinate.storage.summary import derive_summary
 
@@ -36,7 +34,7 @@ def test_multiline_paragraph_is_joined() -> None:
 
 
 def test_summary_is_not_persisted(tmp_path: Path) -> None:
-    store = DocumentStore(UPath(tmp_path))
+    store = DocumentStore(tmp_path)
     store.create(
         "note.md",
         Document(metadata=ContextMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)), body="Hello"),
@@ -49,12 +47,12 @@ def test_stored_summary_wins(tmp_path: Path) -> None:
     (tmp_path / "note.md").write_text(
         "---\ncreated: 2026-01-01T00:00:00Z\nsummary: Curated\n---\nBody paragraph.\n"
     )
-    document = DocumentStore(UPath(tmp_path)).read("note.md", ContextMetadata)
+    document = DocumentStore(tmp_path).read("note.md", ContextMetadata)
     assert document.metadata.summary == "Curated"
 
 
 def test_stored_summary_survives_rewrite(tmp_path: Path) -> None:
-    store = DocumentStore(UPath(tmp_path))
+    store = DocumentStore(tmp_path)
     store.create(
         "note.md",
         Document(
