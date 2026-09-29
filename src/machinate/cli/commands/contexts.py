@@ -13,17 +13,17 @@ from machinate.cli.models import (
     ContextUpdateResult,
 )
 from machinate.cli.update_changes import UpdateOptions, build_update
-from machinate.models.operations import ContextUpdate, CreateInput, DocumentQuery
+from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 
 
 def context_changes(
     summary: str | None,
     tags: list[str] | None,
     clear_tags: bool = False,
-) -> ContextUpdate:
+) -> DocumentUpdate:
     """Validate provided options and build a context update with only the changed fields."""
     return build_update(
-        ContextUpdate,
+        DocumentUpdate,
         UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
         hint="--summary, --tag, or --clear-tags",
     )
@@ -56,18 +56,19 @@ def context_add(  # noqa: PLR0913
     with execute(context, "context add", output_format, PlanSelectionError) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
-        created, errors = project_context.contexts.create_batch(
+        batch = project_context.contexts.create_batch(
             plan_name, names, CreateInput(tags=tags or [])
         )
         result = ContextAddResult(
+            command="context add",
             project=project_context.project,
             plan=plan_name,
-            contexts=[context.record for context in created],
-            body="",
-            errors=errors,
+            batch=BatchCreated(
+                created=[context.record for context in batch.created], errors=batch.errors
+            ),
         )
         run.render(result)
-    if result.errors:
+    if result.batch.errors:
         raise typer.Exit(1)  # Partial failure; the result still reports what was created.
 
 
@@ -107,6 +108,7 @@ def context_list(  # noqa: PLR0913
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         result = ContextListResult(
+            command="context list",
             project=project_context.project,
             plan=plan_name,
             contexts=project_context.contexts.list(plan_name, query),
@@ -137,6 +139,7 @@ def context_show(
         plan_name = run.determine_plan_name(project_context.plans, plan)
         document = project_context.contexts.get(plan_name, name)
         result = ContextShowResult(
+            command="context show",
             project=project_context.project,
             plan=plan_name,
             context=document.record,
@@ -168,7 +171,10 @@ def context_info(
         plan_name = run.determine_plan_name(project_context.plans, plan)
         document = project_context.contexts.info(plan_name, name)
         result = ContextInfoResult(
-            project=project_context.project, plan=plan_name, context=document
+            command="context info",
+            project=project_context.project,
+            plan=plan_name,
+            context=document,
         )
         run.render(result)
 
@@ -209,6 +215,7 @@ def context_update(  # noqa: PLR0913
         plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.contexts.update(plan_name, name, changes)
         result = ContextUpdateResult(
+            command="context update",
             project=project_context.project,
             plan=plan_name,
             context=updated.record,

@@ -6,7 +6,7 @@ from typer.testing import CliRunner
 
 from machinate.cli.cli import app, create_cli
 from machinate.cli.dependencies import Dependencies
-from machinate.cli.models import ErrorResult, ListResult
+from machinate.cli.models import ErrorResult, PlanListResult
 from machinate.cli.settings import Settings
 
 runner = CliRunner()
@@ -57,7 +57,7 @@ def test_repeated_invocations_reload_settings(
     monkeypatch.setenv("MACHI_AI_AGENT", "claude-code")
     second = runner.invoke(custom, args)
     assert second.exit_code == 0
-    assert ListResult.model_validate_json(second.stdout).plans == []
+    assert PlanListResult.model_validate_json(second.stdout).plans == []
 
 
 @pytest.mark.parametrize(

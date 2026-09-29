@@ -71,4 +71,4 @@ def instructions_command(
 ) -> None:
     """Print a paste-ready description of the machinate CLI for agent instruction files."""
     with execute(context, "instructions", output_format) as run:
-        run.render(InstructionsResult(text=build_instructions()))
+        run.render(InstructionsResult(command="instructions", text=build_instructions()))

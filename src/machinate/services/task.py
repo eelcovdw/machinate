@@ -14,7 +14,7 @@ from machinate.models.documents import (
     TaskMetadata,
     TaskStatus,
 )
-from machinate.models.operations import BatchCreateError, StatusCreateInput, TaskQuery, TaskUpdate
+from machinate.models.operations import BatchCreated, StatusCreateInput, StatusUpdate, TaskQuery
 from machinate.services.batch import create_documents
 from machinate.storage import DocumentStore, Layout
 
@@ -54,24 +54,24 @@ class TaskService:
 
     @validate_call
     def create(
-        self, plan: Name, name: NestedName, create: StatusCreateInput[TaskStatus], body: str = ""
+        self, plan: Name, name: NestedName, create: StatusCreateInput[TaskStatus]
     ) -> LoadedDocument[TaskMetadata]:
         self._require_plan(plan)
-        return self._create(plan, name, self._build_metadata(create), body)
+        return self._create(plan, name, self._build_metadata(create))
 
     def _create(
-        self, plan: Name, name: NestedName, metadata: TaskMetadata, body: str = ""
+        self, plan: Name, name: NestedName, metadata: TaskMetadata
     ) -> LoadedDocument[TaskMetadata]:
         """Write a task without re-checking the plan; callers must have required it."""
         path = self.layout.task(plan, name)
-        document = ParsedDocument(metadata=metadata, body=body)
+        document = ParsedDocument(metadata=metadata, body="")
         self.document_store.create(path, document)
         return self._loaded(path, name, document)
 
     @validate_call
     def create_batch(
-        self, plan: Name, names: list[str], create: StatusCreateInput[TaskStatus], body: str = ""
-    ) -> tuple[list[LoadedDocument[TaskMetadata]], list[BatchCreateError]]:
+        self, plan: Name, names: list[str], create: StatusCreateInput[TaskStatus]
+    ) -> BatchCreated[LoadedDocument[TaskMetadata]]:
         """Create many tasks, reporting per-name failures instead of aborting the batch."""
         self._require_plan(plan)
         metadata = self._build_metadata(create)
@@ -80,7 +80,7 @@ class TaskService:
             document_store=self.document_store,
             validate_name=NESTED_NAME_ADAPTER.validate_python,
             path_for=lambda name: self.layout.task(plan, name),
-            create=lambda name: self._create(plan, name, metadata, body),
+            create=lambda name: self._create(plan, name, metadata),
         )
 
     @validate_call
@@ -120,16 +120,14 @@ class TaskService:
 
     @validate_call
     def update(
-        self, plan: Name, name: NestedName, changes: TaskUpdate
+        self, plan: Name, name: NestedName, changes: StatusUpdate[TaskStatus]
     ) -> LoadedDocument[TaskMetadata]:
         self._require_plan(plan)
         path, document = self._read(plan, name)
-        changed = changes.apply_to(document)
-        if "status" in changes.model_fields_set:
-            document.metadata.status = changes.status
-            changed = True
-        if changed:
-            self.document_store.write(path, document)
+        updated = changes.apply_to(document)
+        if updated is not None:
+            self.document_store.write(path, updated)
+            document = updated
         return self._loaded(path, name, document)
 
     @validate_call

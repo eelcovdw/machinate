@@ -13,7 +13,7 @@ from machinate.models.documents import (
     ParsedDocument,
     PlanMetadata,
 )
-from machinate.models.operations import BatchCreateError, ContextUpdate, CreateInput, DocumentQuery
+from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 from machinate.services.batch import create_documents
 from machinate.storage import DocumentStore, Layout
 
@@ -50,24 +50,24 @@ class ContextService:
 
     @validate_call
     def create(
-        self, plan: Name, name: NestedName, create: CreateInput, body: str = ""
+        self, plan: Name, name: NestedName, create: CreateInput
     ) -> LoadedDocument[ContextMetadata]:
         self._require_plan(plan)
-        return self._create(plan, name, self._build_metadata(create), body)
+        return self._create(plan, name, self._build_metadata(create))
 
     def _create(
-        self, plan: Name, name: NestedName, metadata: ContextMetadata, body: str = ""
+        self, plan: Name, name: NestedName, metadata: ContextMetadata
     ) -> LoadedDocument[ContextMetadata]:
         """Write a context without re-checking the plan; callers must have required it."""
         path = self.layout.context(plan, name)
-        document = ParsedDocument(metadata=metadata, body=body)
+        document = ParsedDocument(metadata=metadata, body="")
         self.document_store.create(path, document)
         return self._loaded(path, name, document)
 
     @validate_call
     def create_batch(
-        self, plan: Name, names: list[str], create: CreateInput, body: str = ""
-    ) -> tuple[list[LoadedDocument[ContextMetadata]], list[BatchCreateError]]:
+        self, plan: Name, names: list[str], create: CreateInput
+    ) -> BatchCreated[LoadedDocument[ContextMetadata]]:
         """Create many contexts, reporting per-name failures instead of aborting the batch."""
         self._require_plan(plan)
         metadata = self._build_metadata(create)
@@ -76,7 +76,7 @@ class ContextService:
             document_store=self.document_store,
             validate_name=NESTED_NAME_ADAPTER.validate_python,
             path_for=lambda name: self.layout.context(plan, name),
-            create=lambda name: self._create(plan, name, metadata, body),
+            create=lambda name: self._create(plan, name, metadata),
         )
 
     @validate_call
@@ -116,12 +116,14 @@ class ContextService:
 
     @validate_call
     def update(
-        self, plan: Name, name: NestedName, changes: ContextUpdate
+        self, plan: Name, name: NestedName, changes: DocumentUpdate
     ) -> LoadedDocument[ContextMetadata]:
         self._require_plan(plan)
         path, document = self._read(plan, name)
-        if changes.apply_to(document):
-            self.document_store.write(path, document)
+        updated = changes.apply_to(document)
+        if updated is not None:
+            self.document_store.write(path, updated)
+            document = updated
         return self._loaded(path, name, document)
 
     @validate_call

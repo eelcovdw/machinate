@@ -21,7 +21,10 @@ from pydantic import (
     BeforeValidator,
     ConfigDict,
     Field,
+    PlainSerializer,
+    PlainValidator,
     TypeAdapter,
+    WithJsonSchema,
     field_validator,
 )
 
@@ -76,7 +79,12 @@ def validate_relative_path(value: object) -> PurePosixPath:
     return path
 
 
-RelativePath = Annotated[PurePosixPath, BeforeValidator(validate_relative_path)]
+RelativePath = Annotated[
+    PurePosixPath,
+    PlainValidator(validate_relative_path),
+    PlainSerializer(str, return_type=str),
+    WithJsonSchema({"type": "string"}, mode="serialization"),
+]
 RELATIVE_PATH_ADAPTER: TypeAdapter[RelativePath] = TypeAdapter(RelativePath)
 
 
@@ -97,9 +105,8 @@ class Metadata(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow", validate_assignment=True)
 
     created_at: AwareDatetime
-    # Optional authored summary; kept out of serialized output because the effective
-    # summary is the record's `summary`. Readers fall back to a derived one
-    # (see ParsedDocument.get_or_derive_summary).
+    # Authored summary; excluded from serialization because the record carries the
+    # effective summary top-level. Storage still writes it to frontmatter explicitly.
     summary: str | None = Field(default=None, exclude=True)
     tags: list[Tag] = Field(default_factory=list)
 
@@ -140,6 +147,10 @@ type TaskStatus = Literal["todo", "in-progress", "done"]
 
 class StatusMetadata[S: str](Metadata):
     status: S
+
+    def status_matches(self, status: object) -> bool:
+        """Return whether the given status equals this metadata's status."""
+        return self.status == status
 
 
 class PlanMetadata(StatusMetadata[PlanStatus]):

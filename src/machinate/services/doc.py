@@ -11,7 +11,7 @@ from machinate.models.documents import (
     NestedName,
     ParsedDocument,
 )
-from machinate.models.operations import BatchCreateError, CreateInput, DocumentQuery, DocUpdate
+from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 from machinate.services.batch import create_documents
 from machinate.storage import DocumentStore, Layout
 
@@ -42,24 +42,20 @@ class DocService:
         return LoadedDocument(record=self._record(path, name, document), body=document.body)
 
     @validate_call
-    def create(
-        self, name: NestedName, create: CreateInput, body: str = ""
-    ) -> LoadedDocument[DocMetadata]:
-        return self._create(name, self._build_metadata(create), body)
+    def create(self, name: NestedName, create: CreateInput) -> LoadedDocument[DocMetadata]:
+        return self._create(name, self._build_metadata(create))
 
-    def _create(
-        self, name: NestedName, metadata: DocMetadata, body: str = ""
-    ) -> LoadedDocument[DocMetadata]:
+    def _create(self, name: NestedName, metadata: DocMetadata) -> LoadedDocument[DocMetadata]:
         """Write a doc without re-checking anything; docs are project-level."""
         path = self.layout.doc(name)
-        document = ParsedDocument(metadata=metadata, body=body)
+        document = ParsedDocument(metadata=metadata, body="")
         self.document_store.create(path, document)
         return self._loaded(path, name, document)
 
     @validate_call
     def create_batch(
-        self, names: list[str], create: CreateInput, body: str = ""
-    ) -> tuple[list[LoadedDocument[DocMetadata]], list[BatchCreateError]]:
+        self, names: list[str], create: CreateInput
+    ) -> BatchCreated[LoadedDocument[DocMetadata]]:
         """Create many docs, reporting per-name failures instead of aborting the batch."""
         metadata = self._build_metadata(create)
         return create_documents(
@@ -67,7 +63,7 @@ class DocService:
             document_store=self.document_store,
             validate_name=NESTED_NAME_ADAPTER.validate_python,
             path_for=self.layout.doc,
-            create=lambda name: self._create(name, metadata, body),
+            create=lambda name: self._create(name, metadata),
         )
 
     @validate_call
@@ -99,10 +95,12 @@ class DocService:
         return target
 
     @validate_call
-    def update(self, name: NestedName, changes: DocUpdate) -> LoadedDocument[DocMetadata]:
+    def update(self, name: NestedName, changes: DocumentUpdate) -> LoadedDocument[DocMetadata]:
         path, document = self._read(name)
-        if changes.apply_to(document):
-            self.document_store.write(path, document)
+        updated = changes.apply_to(document)
+        if updated is not None:
+            self.document_store.write(path, updated)
+            document = updated
         return self._loaded(path, name, document)
 
     @validate_call

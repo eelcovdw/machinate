@@ -5,7 +5,6 @@ importing pytest's special ``conftest`` module. Only fixtures that need ``tmp_pa
 or per-test patching stay in ``tests/conftest.py``.
 """
 
-import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +24,7 @@ from machinate.models.documents import (
     DocMetadata,
     LoadedDocument,
     LoadedPlan,
+    ParsedDocument,
     PlanStatus,
     TaskMetadata,
     TaskStatus,
@@ -91,9 +91,14 @@ class Seed:
         summary: str | None = None,
         body: str = "",
     ) -> LoadedPlan:
-        return prepare_project(project).plans.create(
-            name, StatusCreateInput[PlanStatus](status=status, summary=summary), body
-        )
+        service = prepare_project(project).plans
+        loaded = service.create(name, StatusCreateInput[PlanStatus](status=status, summary=summary))
+        if body:
+            service.document_store.write(
+                service.path(name), ParsedDocument(metadata=loaded.record.metadata, body=body)
+            )
+            return loaded.model_copy(update={"body": body})
+        return loaded
 
     def task(  # noqa: PLR0913 -- helper mirrors the document options
         self,
@@ -105,9 +110,17 @@ class Seed:
         summary: str | None = None,
         body: str = "",
     ) -> LoadedDocument[TaskMetadata]:
-        return prepare_project(project).tasks.create(
-            plan, name, StatusCreateInput[TaskStatus](status=status, summary=summary), body
+        service = prepare_project(project).tasks
+        loaded = service.create(
+            plan, name, StatusCreateInput[TaskStatus](status=status, summary=summary)
         )
+        if body:
+            service.document_store.write(
+                service.path(plan, name),
+                ParsedDocument(metadata=loaded.record.metadata, body=body),
+            )
+            return loaded.model_copy(update={"body": body})
+        return loaded
 
     def context(
         self,
@@ -118,9 +131,15 @@ class Seed:
         summary: str | None = None,
         body: str = "",
     ) -> LoadedDocument[ContextMetadata]:
-        return prepare_project(project).contexts.create(
-            plan, name, CreateInput(summary=summary), body
-        )
+        service = prepare_project(project).contexts
+        loaded = service.create(plan, name, CreateInput(summary=summary))
+        if body:
+            service.document_store.write(
+                service.path(plan, name),
+                ParsedDocument(metadata=loaded.record.metadata, body=body),
+            )
+            return loaded.model_copy(update={"body": body})
+        return loaded
 
     def doc(
         self,
@@ -130,7 +149,14 @@ class Seed:
         summary: str | None = None,
         body: str = "",
     ) -> LoadedDocument[DocMetadata]:
-        return prepare_project(project).docs.create(name, CreateInput(summary=summary), body)
+        service = prepare_project(project).docs
+        loaded = service.create(name, CreateInput(summary=summary))
+        if body:
+            service.document_store.write(
+                service.path(name), ParsedDocument(metadata=loaded.record.metadata, body=body)
+            )
+            return loaded.model_copy(update={"body": body})
+        return loaded
 
 
 seed = Seed()
@@ -153,7 +179,7 @@ class CLI:
     ) -> ModelT:
         result = self.run(args, dependencies=dependencies)
         assert result.exit_code == expect, result.output + result.stderr
-        return result_type.model_validate(json.loads(result.stdout))
+        return result_type.model_validate_json(result.stdout)
 
     def error(
         self,

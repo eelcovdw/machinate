@@ -136,14 +136,6 @@ def root(ctx: typer.Context) -> None:
         configure_logging(get_settings(ctx))
 
 
-_ROOT_EPILOG = """\
-Examples: `machi plan select auth` sets the current plan; `machi plan show -p auth`
-shows it, with shared options after the leaf command; `machi task add notes` adds to the
-current plan; `machi task path notes` prints the file to edit. Task and context names may
-contain "/" and omit the appended ".md"; edit bodies through their path command and an editor.
-"""
-
-
 def _register(parent: typer.Typer, spec: CommandSpec) -> None:
     if spec.children:
         group = typer.Typer(no_args_is_help=True, cls=Group)
@@ -158,7 +150,6 @@ def create_cli(dependencies: Dependencies | None = None) -> typer.Typer:
     cli = typer.Typer(
         no_args_is_help=True,
         cls=Group,
-        epilog=_ROOT_EPILOG,
         context_settings={"obj": dependencies if dependencies is not None else Dependencies()},
     )
     cli.callback()(root)

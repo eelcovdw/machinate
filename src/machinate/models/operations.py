@@ -9,7 +9,7 @@ search, batch results, then overviews.
 
 from typing import ClassVar, Literal, override
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator
 
 from .documents import (
     DocumentMembership,
@@ -19,6 +19,7 @@ from .documents import (
     PlanRecord,
     PlanStatus,
     RelativePath,
+    StatusMetadata,
     Tag,
     TaskStatus,
     validate_relative_path,
@@ -46,40 +47,51 @@ class DocumentUpdate(BaseModel):
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", validate_assignment=True)
 
-    body: str = ""
     summary: str | None = None
     tags: list[Tag] | None = None
 
-    def apply_to[M: Metadata](self, document: ParsedDocument[M]) -> bool:
-        """Apply this update's shared fields to a loaded document; report whether it changed.
+    def apply_to[M: Metadata](self, document: ParsedDocument[M]) -> ParsedDocument[M] | None:
+        """Return a document with this update applied, or None when nothing changed.
 
-        Subclass-specific fields (such as a status) are the caller's responsibility.
+        Only fields explicitly set are considered; an update whose values already
+        match the document reports no change, so the file is not rewritten.
         """
-        if not self.model_fields_set:
-            return False
-        if "body" in self.model_fields_set:
-            document.body = self.body
+        updates = self._proposed_updates(document)
+        if not updates:
+            return None
+        metadata = document.metadata.model_copy(update=updates)
+        return document.model_copy(update={"metadata": metadata})
+
+    def _proposed_updates[M: Metadata](self, document: ParsedDocument[M]) -> dict[str, object]:
+        """Metadata fields this update would change, keyed by field name."""
+        updates: dict[str, object] = {}
         if "summary" in self.model_fields_set:
-            document.metadata.summary = self.summary or None
+            summary = self.summary or None
+            if summary != document.metadata.summary:
+                updates["summary"] = summary
         if "tags" in self.model_fields_set:
-            document.metadata.tags = self.tags if self.tags is not None else []
-        return True
+            proposed_tags = self.tags if self.tags is not None else []
+            if proposed_tags != document.metadata.tags:
+                updates["tags"] = proposed_tags
+        return updates
 
 
-class PlanUpdate(DocumentUpdate):
-    status: PlanStatus = "draft"
+class StatusUpdate[S: str](DocumentUpdate):
+    """An update that may change a status; an unset status leaves it unchanged."""
 
+    status: S | None = None
 
-class TaskUpdate(DocumentUpdate):
-    status: TaskStatus = "todo"
-
-
-class ContextUpdate(DocumentUpdate):
-    """A context update adds no fields beyond the shared ones."""
-
-
-class DocUpdate(DocumentUpdate):
-    """A doc update adds no fields beyond the shared ones."""
+    @override
+    def _proposed_updates[M: Metadata](self, document: ParsedDocument[M]) -> dict[str, object]:
+        updates = super()._proposed_updates(document)
+        metadata = document.metadata
+        if (
+            "status" in self.model_fields_set
+            and isinstance(metadata, StatusMetadata)
+            and not metadata.status_matches(self.status)
+        ):
+            updates["status"] = self.status
+        return updates
 
 
 # --- Queries ---------------------------------------------------------------
@@ -189,10 +201,11 @@ class BatchCreateError(BaseModel):
     error: str
 
 
-def first_validation_message(exc: ValidationError) -> str:
-    """The single most relevant message from a pydantic validation failure."""
-    msg = str(exc.errors()[0]["msg"])
-    return msg.removeprefix("Value error, ")
+class BatchCreated[T](BaseModel):
+    """The outcome of a batch creation: created documents and per-name failures."""
+
+    created: list[T]
+    errors: list[BatchCreateError]
 
 
 # --- Overviews -------------------------------------------------------------

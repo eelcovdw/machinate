@@ -12,7 +12,7 @@ from machinate.models.documents import (
     PlanStatus,
     TaskMetadata,
 )
-from machinate.models.operations import PlanUpdate, StatusCreateInput
+from machinate.models.operations import StatusCreateInput, StatusUpdate
 from machinate.services.plan import PlanService
 from machinate.storage import (
     DocumentExistsError,
@@ -40,7 +40,12 @@ def metadata() -> PlanMetadata:
 
 
 def test_create_get_and_duplicate(service: PlanService) -> None:
-    plan = service.create("alpha", StatusCreateInput[PlanStatus](summary="Alpha"), "Body\n")
+    plan = service.create("alpha", StatusCreateInput[PlanStatus](summary="Alpha"))
+    body = "Body\n"
+    service.document_store.write(
+        service.path("alpha"), ParsedDocument(metadata=plan.record.metadata, body=body)
+    )
+    plan = service.get("alpha")
     assert plan == service.get("alpha")
     assert plan.record.name == "alpha"
     assert plan.record.path == PurePosixPath("plans/alpha/plan.md")
@@ -55,7 +60,7 @@ def test_create_get_and_duplicate(service: PlanService) -> None:
 
 
 def test_plan_activity_matches_across_show_list_and_info(service: PlanService) -> None:
-    service.create("alpha", StatusCreateInput[PlanStatus](), "Body")
+    service.create("alpha", StatusCreateInput[PlanStatus]())
     service.document_store.create(
         PurePosixPath("plans/alpha/tasks/01-work.md"),
         ParsedDocument(
@@ -81,12 +86,15 @@ def test_patch_preserves_omitted_fields_and_extra_metadata(
     service.document_store.create(
         service.layout.plan("alpha"), ParsedDocument(metadata=metadata, body="Body")
     )
-    result = service.update("alpha", PlanUpdate(status="active"))
+    result = service.update("alpha", StatusUpdate[PlanStatus](status="active"))
     assert result.body == "Body"
     assert result.record.metadata.status == "active"
     assert result.record.summary == "Body"
     assert result.record.metadata.created_at.tzinfo is not None
-    result = service.update("alpha", PlanUpdate(body=""))
+    service.document_store.write(
+        service.path("alpha"), ParsedDocument(metadata=result.record.metadata, body="")
+    )
+    result = service.get("alpha")
     assert result.body == ""
     assert result.record.metadata.status == "active"
     assert result.record.summary is None
@@ -94,13 +102,13 @@ def test_patch_preserves_omitted_fields_and_extra_metadata(
 
 
 def test_empty_patch_never_writes(service: PlanService, monkeypatch: pytest.MonkeyPatch) -> None:
-    service.create("alpha", StatusCreateInput[PlanStatus](), "Body")
+    service.create("alpha", StatusCreateInput[PlanStatus]())
     target = service.document_store.root / "plans/alpha/plan.md"
     os.utime(target, ns=(1234567890123456789, 1234567890123456789))
     before = target.read_bytes(), target.stat().st_mtime_ns
     write = Mock(side_effect=AssertionError("empty patch must not write"))
     monkeypatch.setattr(service.document_store, "write", write)
-    result = service.update("alpha", PlanUpdate())
+    result = service.update("alpha", StatusUpdate[PlanStatus]())
     assert (target.read_bytes(), target.stat().st_mtime_ns) == before
     assert result.record.modified_at == datetime.fromtimestamp(target.stat().st_mtime, UTC)
     write.assert_not_called()
@@ -111,9 +119,9 @@ def test_missing_operations_and_dangling_selection(service: PlanService) -> None
         with pytest.raises(MissingDocumentError):
             operation("missing")
     with pytest.raises(MissingDocumentError):
-        service.update("missing", PlanUpdate())
+        service.update("missing", StatusUpdate[PlanStatus]())
     with pytest.raises(MissingDocumentError):
-        service.update("missing", PlanUpdate(status="done"))
+        service.update("missing", StatusUpdate[PlanStatus](status="done"))
     assert service.current_name() is None
     service.project_state_store.write(ProjectState(project_name="demo", current_plan="missing"))
     assert service.current_name() == "missing"
@@ -127,8 +135,11 @@ def test_selection_does_not_retarget_explicit_operations(service: PlanService) -
     service.create("beta", StatusCreateInput[PlanStatus]())
     assert service.current_name() == "alpha"
     service.set_current("beta")
-    service.update("alpha", PlanUpdate(body="only alpha"))
-    service.update("alpha", PlanUpdate(status="done"))
+    service.document_store.write(
+        service.path("alpha"),
+        ParsedDocument(metadata=service.get("alpha").record.metadata, body="only alpha"),
+    )
+    service.update("alpha", StatusUpdate[PlanStatus](status="done"))
     assert service.get("alpha").body == "only alpha"
     assert service.get("beta").body == ""
     assert service.current_name() == "beta"

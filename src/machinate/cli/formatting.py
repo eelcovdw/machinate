@@ -14,7 +14,6 @@ from machinate.models.documents import PlanStatus, TaskStatus
 from machinate.models.operations import BatchCreateError, FindEntry
 
 from .models import (
-    AddResult,
     CommandResult,
     ContextAddResult,
     ContextInfoResult,
@@ -31,18 +30,19 @@ from .models import (
     InfoResult,
     InitResult,
     InstructionsResult,
-    ListResult,
     PathResult,
+    PlanAddResult,
     PlanInfoResult,
-    SelectResult,
-    ShowResult,
+    PlanListResult,
+    PlanSelectResult,
+    PlanShowResult,
+    PlanUnselectResult,
+    PlanUpdateResult,
     TaskAddResult,
     TaskInfoResult,
     TaskListResult,
     TaskShowResult,
     TaskUpdateResult,
-    UnselectResult,
-    UpdateResult,
 )
 from .styles import (
     ERROR,
@@ -268,7 +268,7 @@ def render_info(result: InfoResult) -> str:
 
 
 @render_text.register
-def render_add(result: AddResult) -> str:
+def render_add(result: PlanAddResult) -> str:
     lines = [
         Text(f"Created plan {result.plan.name} in {result.project.name}", style=HEADING),
         _field("Path", str(result.project.storage / result.plan.path), style=PATH),
@@ -280,13 +280,16 @@ def render_add(result: AddResult) -> str:
 def render_context_add(result: ContextAddResult) -> str:
     location = f"{result.project.name}/{result.plan}"
     lines = [
-        Text(f"Created {len(result.contexts)} context document(s) in {location}", style=HEADING)
+        Text(
+            f"Created {len(result.batch.created)} context document(s) in {location}",
+            style=HEADING,
+        )
     ]
     lines.extend(
         _bullet(context.name, str(result.project.storage / context.path))
-        for context in result.contexts
+        for context in result.batch.created
     )
-    lines.extend(_not_created(result.errors))
+    lines.extend(_not_created(result.batch.errors))
     return _render(lines)
 
 
@@ -370,14 +373,14 @@ def render_task_info(result: TaskInfoResult) -> str:
 def render_task_add(result: TaskAddResult) -> str:
     lines = [
         Text(
-            f"Created {len(result.tasks)} task(s) in {result.project.name}/{result.plan}",
+            f"Created {len(result.batch.created)} task(s) in {result.project.name}/{result.plan}",
             style=HEADING,
         )
     ]
     lines.extend(
-        _bullet(task.name, str(result.project.storage / task.path)) for task in result.tasks
+        _bullet(task.name, str(result.project.storage / task.path)) for task in result.batch.created
     )
-    lines.extend(_not_created(result.errors))
+    lines.extend(_not_created(result.batch.errors))
     return _render(lines)
 
 
@@ -437,10 +440,15 @@ def render_context_update(result: ContextUpdateResult) -> str:
 @render_text.register
 def render_doc_add(result: DocAddResult) -> str:
     lines = [
-        Text(f"Created {len(result.docs)} document(s) in {result.project.name}", style=HEADING)
+        Text(
+            f"Created {len(result.batch.created)} document(s) in {result.project.name}",
+            style=HEADING,
+        )
     ]
-    lines.extend(_bullet(doc.name, str(result.project.storage / doc.path)) for doc in result.docs)
-    lines.extend(_not_created(result.errors))
+    lines.extend(
+        _bullet(doc.name, str(result.project.storage / doc.path)) for doc in result.batch.created
+    )
+    lines.extend(_not_created(result.batch.errors))
     return _render(lines)
 
 
@@ -527,7 +535,7 @@ def render_task_show(result: TaskShowResult) -> str:
 
 
 @render_text.register
-def render_show(result: ShowResult) -> str:
+def render_show(result: PlanShowResult) -> str:
     metadata = result.plan.metadata
     lines = [
         _title("Plan", result.plan.name, metadata.status),
@@ -547,7 +555,7 @@ def render_show(result: ShowResult) -> str:
 
 
 @render_text.register
-def render_update(result: UpdateResult) -> str:
+def render_update(result: PlanUpdateResult) -> str:
     status = result.plan.metadata.status
     line = Text("Updated plan ")
     line.append(result.plan.name, style=HEADING)
@@ -558,7 +566,7 @@ def render_update(result: UpdateResult) -> str:
 
 
 @render_text.register
-def render_select(result: SelectResult) -> str:
+def render_select(result: PlanSelectResult) -> str:
     line = Text("Selected plan ")
     line.append(str(result.current_plan), style=HEADING)
     line.append(f" in {result.project.name}")
@@ -566,7 +574,7 @@ def render_select(result: SelectResult) -> str:
 
 
 @render_text.register
-def render_unselect(result: UnselectResult) -> str:
+def render_unselect(result: PlanUnselectResult) -> str:
     line = Text("Cleared the current plan in ")
     line.append(result.project.name, style=HEADING)
     return _render([line])
@@ -622,7 +630,7 @@ def render_init(result: InitResult) -> str:
 
 
 @render_text.register
-def render_list(result: ListResult) -> str:
+def render_list(result: PlanListResult) -> str:
     lines = [
         Text(f"{result.project.name} — {result.project.directory}", style=PROJECT),
         _field("Storage", str(result.project.storage), style=PATH),

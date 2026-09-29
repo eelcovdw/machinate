@@ -95,8 +95,8 @@ def test_schema_for_command() -> None:
     )
     assert schema.type == "object"
     assert {"command", "project", "plan"} <= set(schema.properties)
-    assert {"project", "plan"} <= set(schema.required)
-    assert "ShowResult" not in schema.defs
+    assert {"command", "project", "plan"} <= set(schema.required)
+    assert "PlanShowResult" not in schema.defs
 
 
 def test_schema_unknown_nested_command() -> None:

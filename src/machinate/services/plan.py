@@ -17,9 +17,9 @@ from machinate.models.documents import (
 from machinate.models.operations import (
     PlanOverview,
     PlanQuery,
-    PlanUpdate,
     ProjectOverview,
     StatusCreateInput,
+    StatusUpdate,
 )
 from machinate.storage import DocumentStore, Layout, ProjectState, ProjectStateStore
 
@@ -56,9 +56,7 @@ class PlanService:
         return LoadedPlan(record=self._record(path, name, document), body=document.body)
 
     @validate_call
-    def create(
-        self, name: Name, create: StatusCreateInput[PlanStatus], body: str = ""
-    ) -> LoadedPlan:
+    def create(self, name: Name, create: StatusCreateInput[PlanStatus]) -> LoadedPlan:
         metadata = PlanMetadata(
             created_at=datetime.now(UTC),
             summary=create.summary,
@@ -66,7 +64,7 @@ class PlanService:
             status=create.status if create.status is not None else "draft",
         )
         self.document_store.create(
-            self.layout.plan(name), ParsedDocument(metadata=metadata, body=body)
+            self.layout.plan(name), ParsedDocument(metadata=metadata, body="")
         )
         return self.get(name)
 
@@ -83,15 +81,13 @@ class PlanService:
         return self._loaded(path, name, self.document_store.read(path, PlanMetadata))
 
     @validate_call
-    def update(self, name: Name, changes: PlanUpdate) -> LoadedPlan:
+    def update(self, name: Name, changes: StatusUpdate[PlanStatus]) -> LoadedPlan:
         path = self.layout.plan(name)
         document = self.document_store.read(path, PlanMetadata)
-        changed = changes.apply_to(document)
-        if "status" in changes.model_fields_set:
-            document.metadata.status = changes.status
-            changed = True
-        if changed:
-            self.document_store.write(path, document)
+        updated = changes.apply_to(document)
+        if updated is not None:
+            self.document_store.write(path, updated)
+            document = updated
         return self._loaded(path, name, document)
 
     @validate_call

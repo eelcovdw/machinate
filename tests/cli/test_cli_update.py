@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from harness import cli, read_state, seed, snapshot
 
-from machinate.cli.models import UpdateResult
+from machinate.cli.models import PlanUpdateResult
 from machinate.cli.project_setup import prepare_project
 from machinate.models.documents import PlanMetadata
 
@@ -19,7 +19,7 @@ def set_current(project: Path, name: str) -> None:
 def test_update_sets_status_explicit(project: Path) -> None:
     seed.plan(project, "auth")
     parsed = cli.json(
-        UpdateResult,
+        PlanUpdateResult,
         [
             "plan",
             "update",

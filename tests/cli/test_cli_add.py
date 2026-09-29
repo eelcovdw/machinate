@@ -3,12 +3,14 @@ from pathlib import Path
 import pytest
 from harness import cli, read_state, seed
 
-from machinate.cli.models import AddResult
+from machinate.cli.models import PlanAddResult
 from machinate.cli.project_setup import prepare_project
 
 
 def test_add_explicit_project(project: Path) -> None:
-    parsed = cli.json(AddResult, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
+    parsed = cli.json(
+        PlanAddResult, ["plan", "add", "alpha", "-P", str(project), "--format", "json"]
+    )
     assert parsed.project.name == "example"
     assert parsed.project.directory == project
     assert parsed.project.storage == project / ".machi"
@@ -16,20 +18,19 @@ def test_add_explicit_project(project: Path) -> None:
     assert parsed.plan.path.as_posix() == "plans/alpha/plan.md"
     assert parsed.plan.metadata.status == "draft"
     assert parsed.plan.metadata.created_at.tzinfo is not None
-    assert parsed.body == ""
     assert (project / ".machi/plans/alpha/plan.md").is_file()
     assert read_state(project).current_plan is None
 
 
 def test_add_current_directory(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(project)
-    parsed = cli.json(AddResult, ["plan", "add", "alpha", "--format", "json"])
+    parsed = cli.json(PlanAddResult, ["plan", "add", "alpha", "--format", "json"])
     assert parsed.project.directory == project
 
 
 def test_add_sets_summary_and_status(project: Path) -> None:
     parsed = cli.json(
-        AddResult,
+        PlanAddResult,
         [
             "plan",
             "add",
@@ -52,7 +53,7 @@ def test_add_sets_summary_and_status(project: Path) -> None:
 def test_add_never_changes_selection(project: Path) -> None:
     seed.plan(project, "existing")
     prepare_project(project).plans.set_current("existing")
-    cli.json(AddResult, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
+    cli.json(PlanAddResult, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
     assert read_state(project).current_plan == "existing"
 
 

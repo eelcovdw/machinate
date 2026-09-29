@@ -116,8 +116,8 @@ class DocumentStore:
             output = StringIO()
             yaml = YAML(typ="safe")
             yaml.default_flow_style = False
-            # The authored summary is excluded from model_dump so that serialized
-            # records never repeat it; re-add it for the stored frontmatter.
+            # The authored summary is excluded from model_dump so serialized records
+            # never repeat it; re-add it for the stored frontmatter.
             data = document.metadata.model_dump()
             if document.metadata.summary is not None:
                 data["summary"] = document.metadata.summary

@@ -1,4 +1,3 @@
-import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,9 +11,9 @@ from typer.testing import CliRunner
 from machinate.cli.cli import create_cli
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.formatting import Formatter
-from machinate.cli.models import CommandResult, ErrorResult, ListResult
+from machinate.cli.models import CommandResult, ErrorResult, PlanListResult
 from machinate.cli.project_setup import prepare_project
-from machinate.models.documents import ParsedDocument, PlanMetadata, PlanRecord
+from machinate.models.documents import ParsedDocument, PlanMetadata
 from machinate.models.operations import PlanQuery
 from machinate.storage import (
     DocumentStore,
@@ -53,7 +52,7 @@ def test_explicit_and_upward(project: Path, monkeypatch: pytest.MonkeyPatch) -> 
     for args in (["-P", str(project)], []):
         result = runner.invoke(app, ["plan", "list", *args, "--format", "json"])
         assert result.exit_code == 0, result.output
-        parsed = ListResult.model_validate(json.loads(result.stdout))
+        parsed = PlanListResult.model_validate_json(result.stdout)
         assert parsed.project.directory == project
         assert parsed.project.storage == project / ".machi"
         assert parsed.project.name == "example"
@@ -65,10 +64,8 @@ def test_list_marks_current_plan(project: Path) -> None:
     ProjectStateStore(project / ".machi/machinate.toml").write(
         ProjectState(project_name="example", current_plan="alpha")
     )
-    parsed = ListResult.model_validate(
-        json.loads(
-            runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"]).stdout
-        )
+    parsed = PlanListResult.model_validate_json(
+        runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"]).stdout
     )
     assert parsed.current_plan == "alpha"
     text = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "text"]).stdout
@@ -81,7 +78,7 @@ def test_nearest_project(project: Path, monkeypatch: pytest.MonkeyPatch) -> None
     ProjectStateStore(nested / ".machi/machinate.toml").write(ProjectState(project_name="inner"))
     monkeypatch.chdir(nested)
     result = runner.invoke(app, ["plan", "list", "--format", "json"])
-    assert ListResult.model_validate(json.loads(result.stdout)).project.name == "inner"
+    assert PlanListResult.model_validate_json(result.stdout).project.name == "inner"
 
 
 def test_list_alias_matches_plan_list(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -153,7 +150,7 @@ def test_symlinked_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     for args in (["-P", str(linked)], []):
         result = runner.invoke(app, ["plan", "list", *args, "--format", "json"])
         assert result.exit_code == 0, result.output
-        parsed = ListResult.model_validate(json.loads(result.stdout))
+        parsed = PlanListResult.model_validate_json(result.stdout)
         assert parsed.project.name == "linked"
         assert parsed.project.storage == linked / ".machi"
 
@@ -195,8 +192,9 @@ def test_query_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> Non
             limit=1,
         )
     )
-    assert ListResult.model_validate(json.loads(result.stdout)).plans == [
-        PlanRecord.model_validate(summary.model_dump()) for summary in summaries
+    parsed = PlanListResult.model_validate_json(result.stdout)
+    assert [plan.model_dump(mode="json") for plan in parsed.plans] == [
+        plan.model_dump(mode="json") for plan in summaries
     ]
 
 
@@ -216,7 +214,7 @@ def test_query_integration(project: Path) -> None:
         ],
     )
     assert result.exit_code == 0, result.output
-    assert [p.name for p in ListResult.model_validate(json.loads(result.stdout)).plans] == ["beta"]
+    assert [p.name for p in PlanListResult.model_validate_json(result.stdout).plans] == ["beta"]
 
 
 @pytest.mark.parametrize("populated", [False, True])
@@ -227,7 +225,7 @@ def test_output(project: Path, populated: bool, format_name: str) -> None:
     result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", format_name])
     assert result.exit_code == 0, result.output
     if format_name == "json":
-        assert len(ListResult.model_validate(json.loads(result.stdout)).plans) == (
+        assert len(PlanListResult.model_validate_json(result.stdout).plans) == (
             2 if populated else 0
         )
     else:
@@ -300,7 +298,7 @@ def test_formatter_injection(project: Path) -> None:
     result = runner.invoke(custom, ["plan", "list", "-P", str(project), "--format", "custom"])
     assert result.exit_code == 0
     assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], ListResult)
+    assert isinstance(formatter.results[0], PlanListResult)
     result = runner.invoke(
         custom, ["plan", "list", "-P", str(project / "missing"), "--format", "custom"]
     )

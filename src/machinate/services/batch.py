@@ -5,9 +5,15 @@ from pathlib import PurePosixPath
 
 from pydantic import ValidationError
 
-from machinate.models.operations import BatchCreateError, first_validation_message
+from machinate.models.operations import BatchCreated, BatchCreateError
 from machinate.storage import DocumentStore
 from machinate.storage.errors import MissingDocumentError, StorageError
+
+
+def first_validation_message(exc: ValidationError) -> str:
+    """The single most relevant message from a pydantic validation failure."""
+    msg = str(exc.errors()[0]["msg"])
+    return msg.removeprefix("Value error, ")
 
 
 def create_documents[DocumentT](
@@ -17,7 +23,7 @@ def create_documents[DocumentT](
     validate_name: Callable[[str], str],
     path_for: Callable[[str], PurePosixPath],
     create: Callable[[str], DocumentT],
-) -> tuple[list[DocumentT], list[BatchCreateError]]:
+) -> BatchCreated[DocumentT]:
     """Create one document per name, preflighting conflicts and reporting per-name failures.
 
     Invalid and already-existing names become BatchCreateError entries; every remaining name is
@@ -45,4 +51,4 @@ def create_documents[DocumentT](
             created.append(create(name))
         except (StorageError, ValidationError) as exc:
             errors.append(BatchCreateError(name=name, error=str(exc)))
-    return created, errors
+    return BatchCreated(created=created, errors=errors)

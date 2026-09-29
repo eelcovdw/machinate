@@ -103,6 +103,7 @@ def find_command(  # noqa: PLR0913
         project_context = run.prepare(project)
         run.render(
             FindResult(
+                command="find",
                 project=project_context.project,
                 plan=find_query.plan,
                 query=find_query.query,

@@ -59,7 +59,7 @@ def _ref(result: type[BaseModel]) -> JsonSchemaValue:
 def _definitions(specs: tuple[CommandSpec, ...]) -> JsonSchemaValue:
     definitions: JsonSchemaValue = {}
     for model in [*_result_models(specs), ErrorResult]:
-        schema = model.model_json_schema()
+        schema = model.model_json_schema(mode="serialization")
         definitions.update(cast("JsonSchemaValue", schema.pop("$defs", {})))
         definitions[model.__name__] = schema
     return definitions
@@ -104,12 +104,12 @@ def _find(path: list[str]) -> CommandSpec:
 def schema_payload(path: list[str]) -> JsonSchemaValue:
     """Return the JSON Schema for a command path (or the error envelope)."""
     if path == ["error"]:
-        return ErrorResult.model_json_schema()
+        return ErrorResult.model_json_schema(mode="serialization")
     spec = _find(path)
     if spec.children:
         return {"commands": _command_tree(spec.children), "$defs": _definitions(spec.children)}
     if spec.result is not None:
-        return spec.result.model_json_schema()
+        return spec.result.model_json_schema(mode="serialization")
     msg = f"Command {spec.name!r} has no result schema."
     raise UnknownSchemaError(msg)
 

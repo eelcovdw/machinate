@@ -6,7 +6,7 @@ import pytest
 from harness import AGENT_DEPENDENCIES as AGENT
 from harness import cli, read_state, seed
 
-from machinate.cli.models import ShowResult
+from machinate.cli.models import PlanShowResult
 from machinate.cli.project_setup import prepare_project
 from machinate.cli.settings import Settings
 
@@ -73,7 +73,7 @@ def test_agent_mode_requires_explicit_plan(project: Path, arguments: list[str]) 
 def test_agent_mode_allows_explicit_plan(project: Path) -> None:
     seed.plan(project, "auth")
     parsed = cli.json(
-        ShowResult,
+        PlanShowResult,
         ["plan", "show", "-p", "auth", "-P", str(project)],
         dependencies=AGENT,
     )

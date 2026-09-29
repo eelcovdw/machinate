@@ -14,7 +14,7 @@ from machinate.cli.models import (
 )
 from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.documents import TaskStatus
-from machinate.models.operations import StatusCreateInput, TaskQuery, TaskUpdate
+from machinate.models.operations import BatchCreated, StatusCreateInput, StatusUpdate, TaskQuery
 
 
 def task_changes(
@@ -22,10 +22,10 @@ def task_changes(
     status: str | None,
     tags: list[str] | None,
     clear_tags: bool = False,
-) -> TaskUpdate:
+) -> StatusUpdate[TaskStatus]:
     """Validate provided options and build a task update with only the changed fields."""
     return build_update(
-        TaskUpdate,
+        StatusUpdate[TaskStatus],
         UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
         hint="--summary, --status, --tag, or --clear-tags",
     )
@@ -56,18 +56,19 @@ def task_add(  # noqa: PLR0913
     with execute(context, "task add", output_format, PlanSelectionError) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
-        created, errors = project_context.tasks.create_batch(
+        batch = project_context.tasks.create_batch(
             plan_name, names, StatusCreateInput[TaskStatus](tags=tags or [])
         )
         result = TaskAddResult(
+            command="task add",
             project=project_context.project,
             plan=plan_name,
-            tasks=[task.record for task in created],
-            body="",
-            errors=errors,
+            batch=BatchCreated(
+                created=[task.record for task in batch.created], errors=batch.errors
+            ),
         )
         run.render(result)
-    if result.errors:
+    if result.batch.errors:
         raise typer.Exit(1)  # Partial failure; the result still reports what was created.
 
 
@@ -122,6 +123,7 @@ def task_list(  # noqa: PLR0913
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         result = TaskListResult(
+            command="task list",
             project=project_context.project,
             plan=plan_name,
             tasks=project_context.tasks.list(plan_name, query),
@@ -153,7 +155,11 @@ def task_show(
         plan_name = run.determine_plan_name(project_context.plans, plan)
         task = project_context.tasks.get(plan_name, name)
         result = TaskShowResult(
-            project=project_context.project, plan=plan_name, task=task.record, body=task.body
+            command="task show",
+            project=project_context.project,
+            plan=plan_name,
+            task=task.record,
+            body=task.body,
         )
         run.render(result)
 
@@ -180,7 +186,9 @@ def task_info(
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         task = project_context.tasks.info(plan_name, name)
-        result = TaskInfoResult(project=project_context.project, plan=plan_name, task=task)
+        result = TaskInfoResult(
+            command="task info", project=project_context.project, plan=plan_name, task=task
+        )
         run.render(result)
 
 
@@ -228,6 +236,7 @@ def update_task(  # noqa: PLR0913
         plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.tasks.update(plan_name, name, changes)
         result = TaskUpdateResult(
+            command="task update",
             project=project_context.project,
             plan=plan_name,
             task=updated.record,

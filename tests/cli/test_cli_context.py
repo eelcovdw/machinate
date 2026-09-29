@@ -47,12 +47,11 @@ def test_context_add_explicit_plan(project: Path) -> None:
     assert parsed.project.directory == project
     assert parsed.project.storage == project / ".machi"
     assert parsed.plan == "auth"
-    context = parsed.contexts[0]
+    context = parsed.batch.created[0]
     assert context.name == "spec"
     assert context.path.as_posix() == "plans/auth/context/spec.md"
     assert context.metadata.created_at.tzinfo is not None
     assert context.metadata.summary is None
-    assert parsed.body == ""
     assert (project / ".machi/plans/auth/context/spec.md").is_file()
     assert read_state(project).current_plan is None
 
@@ -73,7 +72,7 @@ def test_context_add_multiple(project: Path) -> None:
         ["context", "add", "spec", "notes", "-p", "auth", "-P", str(project)],
         dependencies=JSON,
     )
-    assert [context.name for context in parsed.contexts] == ["spec", "notes"]
+    assert [context.name for context in parsed.batch.created] == ["spec", "notes"]
 
 
 def test_context_add_batch_partial_success(project: Path) -> None:
@@ -97,8 +96,8 @@ def test_context_add_batch_partial_success(project: Path) -> None:
         dependencies=JSON,
         expect=1,
     )
-    assert [context.name for context in parsed.contexts] == ["new", "later"]
-    assert [error.name for error in parsed.errors] == ["existing", "../bad"]
+    assert [context.name for context in parsed.batch.created] == ["new", "later"]
+    assert [error.name for error in parsed.batch.errors] == ["existing", "../bad"]
     assert (project / ".machi/plans/auth/context/new.md").exists()
     assert (project / ".machi/plans/auth/context/later.md").exists()
     assert (project / ".machi/plans/auth/context/existing.md").exists()  # Not overwritten.
@@ -110,7 +109,7 @@ def test_context_add_output(project: Path, format_name: str) -> None:
     args = ["context", "add", "spec", "-p", "auth", "-P", str(project)]
     if format_name == "json":
         parsed = cli.json(ContextAddResult, args, dependencies=JSON)
-        assert parsed.contexts[0].name == "spec"
+        assert parsed.batch.created[0].name == "spec"
     else:
         result = cli.run(args, dependencies=TEXT)
         assert result.exit_code == 0, result.output

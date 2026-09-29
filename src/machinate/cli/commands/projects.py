@@ -23,4 +23,4 @@ def init_project(
     """Initialize the target directory as a Machinate project."""
     with execute(context, "init", output_format) as run:
         scope = run.dependencies.initialize_project(project, project_name)
-        run.render(InitResult(project=scope))
+        run.render(InitResult(command="init", project=scope))

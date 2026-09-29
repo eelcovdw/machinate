@@ -11,7 +11,7 @@ from machinate.models.documents import (
     PlanRecord,
     TaskMetadata,
 )
-from machinate.models.operations import BatchCreateError, FindEntry, PlanOverview, ProjectOverview
+from machinate.models.operations import BatchCreated, FindEntry, PlanOverview, ProjectOverview
 
 
 class ProjectScope(BaseModel):
@@ -20,63 +20,66 @@ class ProjectScope(BaseModel):
     storage: Path
 
 
-class ListResult(BaseModel):
-    command: Literal["plan list"] = "plan list"
+class InitResult(BaseModel):
+    command: Literal["init"]
+    project: ProjectScope
+
+
+class PlanListResult(BaseModel):
+    command: Literal["plan list"]
     project: ProjectScope
     plans: list[PlanRecord]
     current_plan: Name | None = None
     group_by: Literal["status"] | None = None
 
 
-class InitResult(BaseModel):
-    command: Literal["init"] = "init"
+class PlanAddResult(BaseModel):
+    command: Literal["plan add"]
     project: ProjectScope
+    plan: PlanRecord
 
 
-class AddResult(BaseModel):
-    command: Literal["plan add"] = "plan add"
+class PlanShowResult(BaseModel):
+    command: Literal["plan show"]
     project: ProjectScope
     plan: PlanRecord
     body: str
 
 
-class ShowResult(BaseModel):
-    command: Literal["plan show"] = "plan show"
-    project: ProjectScope
-    plan: PlanRecord
-    body: str
-
-
-class SelectResult(BaseModel):
-    command: Literal["plan select"] = "plan select"
+class PlanSelectResult(BaseModel):
+    command: Literal["plan select"]
     project: ProjectScope
     current_plan: Name | None
 
 
-class UnselectResult(BaseModel):
-    command: Literal["plan unselect"] = "plan unselect"
+class PlanUnselectResult(BaseModel):
+    command: Literal["plan unselect"]
     project: ProjectScope
     current_plan: Name | None
 
 
-class UpdateResult(BaseModel):
-    command: Literal["plan update"] = "plan update"
+class PlanUpdateResult(BaseModel):
+    command: Literal["plan update"]
     project: ProjectScope
     plan: PlanRecord
     body: str
+
+
+class PlanInfoResult(BaseModel):
+    command: Literal["plan info"]
+    project: ProjectScope
+    overview: PlanOverview
 
 
 class TaskAddResult(BaseModel):
-    command: Literal["task add"] = "task add"
+    command: Literal["task add"]
     project: ProjectScope
     plan: str
-    tasks: list[DocumentRecord[TaskMetadata]]
-    body: str
-    errors: list[BatchCreateError] = []
+    batch: BatchCreated[DocumentRecord[TaskMetadata]]
 
 
 class TaskListResult(BaseModel):
-    command: Literal["task list"] = "task list"
+    command: Literal["task list"]
     project: ProjectScope
     plan: str
     tasks: list[DocumentRecord[TaskMetadata]]
@@ -84,7 +87,7 @@ class TaskListResult(BaseModel):
 
 
 class TaskShowResult(BaseModel):
-    command: Literal["task show"] = "task show"
+    command: Literal["task show"]
     project: ProjectScope
     plan: str
     task: DocumentRecord[TaskMetadata]
@@ -92,14 +95,14 @@ class TaskShowResult(BaseModel):
 
 
 class TaskInfoResult(BaseModel):
-    command: Literal["task info"] = "task info"
+    command: Literal["task info"]
     project: ProjectScope
     plan: str
     task: DocumentRecord[TaskMetadata]
 
 
 class TaskUpdateResult(BaseModel):
-    command: Literal["task update"] = "task update"
+    command: Literal["task update"]
     project: ProjectScope
     plan: str
     task: DocumentRecord[TaskMetadata]
@@ -107,23 +110,21 @@ class TaskUpdateResult(BaseModel):
 
 
 class ContextAddResult(BaseModel):
-    command: Literal["context add"] = "context add"
+    command: Literal["context add"]
     project: ProjectScope
     plan: str
-    contexts: list[DocumentRecord[ContextMetadata]]
-    body: str
-    errors: list[BatchCreateError] = []
+    batch: BatchCreated[DocumentRecord[ContextMetadata]]
 
 
 class ContextListResult(BaseModel):
-    command: Literal["context list"] = "context list"
+    command: Literal["context list"]
     project: ProjectScope
     plan: str
     contexts: list[DocumentRecord[ContextMetadata]]
 
 
 class ContextShowResult(BaseModel):
-    command: Literal["context show"] = "context show"
+    command: Literal["context show"]
     project: ProjectScope
     plan: str
     context: DocumentRecord[ContextMetadata]
@@ -131,14 +132,14 @@ class ContextShowResult(BaseModel):
 
 
 class ContextInfoResult(BaseModel):
-    command: Literal["context info"] = "context info"
+    command: Literal["context info"]
     project: ProjectScope
     plan: str
     context: DocumentRecord[ContextMetadata]
 
 
 class ContextUpdateResult(BaseModel):
-    command: Literal["context update"] = "context update"
+    command: Literal["context update"]
     project: ProjectScope
     plan: str
     context: DocumentRecord[ContextMetadata]
@@ -146,34 +147,32 @@ class ContextUpdateResult(BaseModel):
 
 
 class DocAddResult(BaseModel):
-    command: Literal["doc add"] = "doc add"
+    command: Literal["doc add"]
     project: ProjectScope
-    docs: list[DocumentRecord[DocMetadata]]
-    body: str
-    errors: list[BatchCreateError] = []
+    batch: BatchCreated[DocumentRecord[DocMetadata]]
 
 
 class DocListResult(BaseModel):
-    command: Literal["doc list"] = "doc list"
+    command: Literal["doc list"]
     project: ProjectScope
     docs: list[DocumentRecord[DocMetadata]]
 
 
 class DocShowResult(BaseModel):
-    command: Literal["doc show"] = "doc show"
+    command: Literal["doc show"]
     project: ProjectScope
     doc: DocumentRecord[DocMetadata]
     body: str
 
 
 class DocInfoResult(BaseModel):
-    command: Literal["doc info"] = "doc info"
+    command: Literal["doc info"]
     project: ProjectScope
     doc: DocumentRecord[DocMetadata]
 
 
 class DocUpdateResult(BaseModel):
-    command: Literal["doc update"] = "doc update"
+    command: Literal["doc update"]
     project: ProjectScope
     doc: DocumentRecord[DocMetadata]
     body: str
@@ -198,7 +197,7 @@ class PathResult(BaseModel):
 
 
 class FindResult(BaseModel):
-    command: Literal["find"] = "find"
+    command: Literal["find"]
     project: ProjectScope
     plan: str | None = None
     query: str | None = None
@@ -207,40 +206,35 @@ class FindResult(BaseModel):
 
 
 class InfoResult(BaseModel):
-    command: Literal["info"] = "info"
+    command: Literal["info"]
     project: ProjectScope
     overview: ProjectOverview
 
 
 class InstructionsResult(BaseModel):
-    command: Literal["instructions"] = "instructions"
+    command: Literal["instructions"]
     text: str
 
 
-class PlanInfoResult(BaseModel):
-    command: Literal["plan info"] = "plan info"
-    project: ProjectScope
-    overview: PlanOverview
-
-
 class ErrorResult(BaseModel):
-    command: str = "plan"
+    command: str
     error: str
     project: ProjectScope | None = None
 
 
 type CommandResult = (
-    AddResult
+    PlanAddResult
+    | PlanInfoResult
+    | PlanListResult
+    | PlanSelectResult
+    | PlanShowResult
+    | PlanUnselectResult
+    | PlanUpdateResult
     | FindResult
     | InfoResult
     | InitResult
-    | ListResult
-    | PlanInfoResult
+    | InstructionsResult
     | PathResult
-    | UpdateResult
-    | SelectResult
-    | UnselectResult
-    | ShowResult
     | TaskAddResult
     | TaskInfoResult
     | TaskListResult
@@ -256,6 +250,5 @@ type CommandResult = (
     | DocListResult
     | DocShowResult
     | DocUpdateResult
-    | InstructionsResult
     | ErrorResult
 )

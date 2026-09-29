@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from harness import cli, read_state, seed
 
-from machinate.cli.models import SelectResult, ShowResult
+from machinate.cli.models import PlanSelectResult, PlanShowResult
 from machinate.cli.project_setup import prepare_project
 
 
@@ -14,7 +14,7 @@ def set_current(project: Path, name: str) -> None:
 def test_select_explicit_plan(project: Path) -> None:
     seed.plan(project, "auth")
     parsed = cli.json(
-        SelectResult, ["plan", "select", "auth", "-P", str(project), "--format", "json"]
+        PlanSelectResult, ["plan", "select", "auth", "-P", str(project), "--format", "json"]
     )
     assert parsed.project.name == "example"
     assert parsed.project.directory == project
@@ -40,10 +40,10 @@ def test_select_text(project: Path) -> None:
 def test_select_then_show(project: Path) -> None:
     seed.plan(project, "auth")
     selected = cli.json(
-        SelectResult, ["plan", "select", "auth", "-P", str(project), "--format", "json"]
+        PlanSelectResult, ["plan", "select", "auth", "-P", str(project), "--format", "json"]
     )
     assert selected.current_plan == "auth"
-    shown = cli.json(ShowResult, ["plan", "show", "-P", str(project), "--format", "json"])
+    shown = cli.json(PlanShowResult, ["plan", "show", "-P", str(project), "--format", "json"])
     assert shown.plan.name == "auth"
 
 

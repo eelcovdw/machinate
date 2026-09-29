@@ -13,7 +13,7 @@ from machinate.cli.models import (
     PathResult,
 )
 from machinate.cli.update_changes import UpdateOptions, build_update
-from machinate.models.operations import CreateInput, DocumentQuery, DocUpdate
+from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 
 _PROJECT = Annotated[
     Path | None,
@@ -28,10 +28,10 @@ def doc_changes(
     summary: str | None,
     tags: list[str] | None,
     clear_tags: bool = False,
-) -> DocUpdate:
+) -> DocumentUpdate:
     """Validate provided options and build a doc update with only the changed fields."""
     return build_update(
-        DocUpdate,
+        DocumentUpdate,
         UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
         hint="--summary, --tag, or --clear-tags",
     )
@@ -52,15 +52,14 @@ def doc_add(
     """Create one or more project-level documents."""
     with execute(context, "doc add", output_format) as run:
         project_context = run.prepare(project)
-        created, errors = project_context.docs.create_batch(names, CreateInput(tags=tags or []))
+        batch = project_context.docs.create_batch(names, CreateInput(tags=tags or []))
         result = DocAddResult(
+            command="doc add",
             project=project_context.project,
-            docs=[doc.record for doc in created],
-            body="",
-            errors=errors,
+            batch=BatchCreated(created=[doc.record for doc in batch.created], errors=batch.errors),
         )
         run.render(result)
-    if result.errors:
+    if result.batch.errors:
         raise typer.Exit(1)  # Partial failure; the result still reports what was created.
 
 
@@ -88,6 +87,7 @@ def doc_list(  # noqa: PLR0913
         )
         project_context = run.prepare(project)
         result = DocListResult(
+            command="doc list",
             project=project_context.project,
             docs=project_context.docs.list(query),
         )
@@ -105,7 +105,10 @@ def doc_show(
         project_context = run.prepare(project)
         document = project_context.docs.get(name)
         result = DocShowResult(
-            project=project_context.project, doc=document.record, body=document.body
+            command="doc show",
+            project=project_context.project,
+            doc=document.record,
+            body=document.body,
         )
         run.render(result)
 
@@ -120,7 +123,7 @@ def doc_info(
     with execute(context, "doc info", output_format) as run:
         project_context = run.prepare(project)
         document = project_context.docs.info(name)
-        result = DocInfoResult(project=project_context.project, doc=document)
+        result = DocInfoResult(command="doc info", project=project_context.project, doc=document)
         run.render(result)
 
 
@@ -182,6 +185,9 @@ def doc_update(  # noqa: PLR0913
         project_context = run.prepare(project)
         updated = project_context.docs.update(name, changes)
         result = DocUpdateResult(
-            project=project_context.project, doc=updated.record, body=updated.body
+            command="doc update",
+            project=project_context.project,
+            doc=updated.record,
+            body=updated.body,
         )
         run.render(result)

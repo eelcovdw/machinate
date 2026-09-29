@@ -14,7 +14,7 @@ from machinate.models.documents import (
     TaskMetadata,
     TaskStatus,
 )
-from machinate.models.operations import StatusCreateInput, TaskQuery, TaskUpdate
+from machinate.models.operations import StatusCreateInput, StatusUpdate, TaskQuery
 from machinate.services.plan import PlanService
 from machinate.services.task import TaskService
 from machinate.storage import (
@@ -48,7 +48,12 @@ def metadata() -> TaskMetadata:
 
 def test_create_get_duplicates_and_exact_names(service: TaskService) -> None:
     create = StatusCreateInput[TaskStatus](summary="Login flow", tags=["auth"])
-    task = service.create("alpha", "login", create, "Body\n")
+    task = service.create("alpha", "login", create)
+    service.document_store.write(
+        service.path("alpha", "login"),
+        ParsedDocument(metadata=task.record.metadata, body="Body\n"),
+    )
+    task = service.get("alpha", "login")
     assert task == service.get("alpha", "login")
     assert task.record.path == PurePosixPath("plans/alpha/tasks/login.md")
     assert task.body == "Body\n"
@@ -65,27 +70,25 @@ def test_create_get_duplicates_and_exact_names(service: TaskService) -> None:
 def test_create_batch_reports_partial_results(service: TaskService) -> None:
     """C2: existing and invalid names become errors; later names still get created."""
     service.create("alpha", "existing", StatusCreateInput[TaskStatus]())
-    created, errors = service.create_batch(
+    batch = service.create_batch(
         "alpha", ["new", "existing", "../bad", "later"], StatusCreateInput[TaskStatus]()
     )
-    assert [task.record.name for task in created] == ["new", "later"]
-    assert [error.name for error in errors] == ["existing", "../bad"]
+    assert [task.record.name for task in batch.created] == ["new", "later"]
+    assert [error.name for error in batch.errors] == ["existing", "../bad"]
     assert service.get("alpha", "new")
     assert service.get("alpha", "later")
 
 
 def test_create_batch_rejects_case_only_duplicates(service: TaskService) -> None:
-    created, errors = service.create_batch(
-        "alpha", ["Login", "login"], StatusCreateInput[TaskStatus]()
-    )
-    assert [task.record.name for task in created] == ["Login"]
-    assert [error.name for error in errors] == ["login"]
+    batch = service.create_batch("alpha", ["Login", "login"], StatusCreateInput[TaskStatus]())
+    assert [task.record.name for task in batch.created] == ["Login"]
+    assert [error.name for error in batch.errors] == ["login"]
 
 
 def test_create_batch_empty(service: TaskService) -> None:
-    created, errors = service.create_batch("alpha", [], StatusCreateInput[TaskStatus]())
-    assert created == []
-    assert errors == []
+    batch = service.create_batch("alpha", [], StatusCreateInput[TaskStatus]())
+    assert batch.created == []
+    assert batch.errors == []
 
 
 def test_create_batch_unknown_plan(service: TaskService) -> None:
@@ -109,11 +112,15 @@ def test_patches(service: TaskService, metadata: TaskMetadata) -> None:
     service.document_store.create(
         service.layout.task("alpha", "login"), ParsedDocument(metadata=metadata, body="Body")
     )
-    task = service.update("alpha", "login", TaskUpdate(status="in-progress"))
+    task = service.update("alpha", "login", StatusUpdate[TaskStatus](status="in-progress"))
     assert task.body == "Body"
     assert task.record.metadata.status == "in-progress"
     assert task.record.summary == "Body"
-    task = service.update("alpha", "login", TaskUpdate(body=""))
+    service.document_store.write(
+        service.path("alpha", "login"),
+        ParsedDocument(metadata=task.record.metadata, body=""),
+    )
+    task = service.get("alpha", "login")
     assert task.body == ""
     assert task.record.metadata.status == "in-progress"
     assert task.record.summary is None
@@ -122,14 +129,14 @@ def test_patches(service: TaskService, metadata: TaskMetadata) -> None:
 
 
 def test_empty_patch(service: TaskService, monkeypatch: pytest.MonkeyPatch) -> None:
-    task = service.create("alpha", "login", StatusCreateInput[TaskStatus](), "Body")
+    task = service.create("alpha", "login", StatusCreateInput[TaskStatus]())
     target = service.document_store.root / task.record.path
     os.utime(target, ns=(1234567890123456789, 1234567890123456789))
     before = target.read_bytes(), target.stat().st_mtime_ns
     task = service.get("alpha", "login")
     write = Mock(side_effect=AssertionError("empty patch must not write"))
     monkeypatch.setattr(service.document_store, "write", write)
-    assert service.update("alpha", "login", TaskUpdate()) == task
+    assert service.update("alpha", "login", StatusUpdate[TaskStatus]()) == task
     assert (target.read_bytes(), target.stat().st_mtime_ns) == before
     write.assert_not_called()
 
@@ -138,8 +145,8 @@ def test_empty_patch(service: TaskService, monkeypatch: pytest.MonkeyPatch) -> N
 def test_missing_tasks_and_plans(service: TaskService, metadata: TaskMetadata, plan: str) -> None:
     for operation in (
         lambda: service.get(plan, "missing"),
-        lambda: service.update(plan, "missing", TaskUpdate()),
-        lambda: service.update(plan, "missing", TaskUpdate(status="done")),
+        lambda: service.update(plan, "missing", StatusUpdate[TaskStatus]()),
+        lambda: service.update(plan, "missing", StatusUpdate[TaskStatus](status="done")),
     ):
         with pytest.raises(MissingDocumentError):
             operation()
@@ -178,8 +185,11 @@ def test_nested_round_trip_and_query(service: TaskService) -> None:
         assert task.record.path == record.path
         assert task.record.modified_at == record.modified_at
         assert "body" not in record.model_dump()
-        service.update("alpha", record.name, TaskUpdate(status="done"))
-    service.update("alpha", "nested/login", TaskUpdate(body="OAuth"))
+        service.update("alpha", record.name, StatusUpdate[TaskStatus](status="done"))
+    service.document_store.write(
+        service.path("alpha", "nested/login"),
+        ParsedDocument(metadata=service.get("alpha", "nested/login").record.metadata, body="OAuth"),
+    )
     assert service.get("alpha", "nested/login").body == "OAuth"
     found = service.list("alpha", TaskQuery(statuses={"done"}))
     assert [task.name for task in found] == ["login.v2", "nested/login", "other/login"]
@@ -191,11 +201,18 @@ def test_explicit_plan_isolation(service: TaskService, tmp_path: Path) -> None:
     plans = PlanService(service.document_store, service.layout, state)
     plans.create("beta", StatusCreateInput[PlanStatus]())
     plans.set_current("alpha")
-    beta = service.create("beta", "login", StatusCreateInput[TaskStatus](), "Beta")
+    beta = service.create("beta", "login", StatusCreateInput[TaskStatus]())
+    service.document_store.write(
+        service.path("beta", "login"),
+        ParsedDocument(metadata=beta.record.metadata, body="Beta"),
+    )
     plans.set_current("beta")
-    service.create("alpha", "login", StatusCreateInput[TaskStatus](), "Alpha")
-    service.update("alpha", "login", TaskUpdate(body="Alpha only"))
-    service.update("alpha", "login", TaskUpdate(status="done"))
+    service.create("alpha", "login", StatusCreateInput[TaskStatus]())
+    service.document_store.write(
+        service.path("alpha", "login"),
+        ParsedDocument(metadata=service.get("alpha", "login").record.metadata, body="Alpha"),
+    )
+    service.update("alpha", "login", StatusUpdate[TaskStatus](status="done"))
     assert service.get("beta", "login").body == "Beta"
     assert service.list("beta")[0].metadata == beta.record.metadata
     assert service.list("alpha")[0].metadata.status == "done"

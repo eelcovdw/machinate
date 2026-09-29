@@ -40,7 +40,6 @@ from machinate.cli.commands.tasks import (
     update_task,
 )
 from machinate.cli.models import (
-    AddResult,
     ContextAddResult,
     ContextInfoResult,
     ContextListResult,
@@ -55,18 +54,19 @@ from machinate.cli.models import (
     InfoResult,
     InitResult,
     InstructionsResult,
-    ListResult,
     PathResult,
+    PlanAddResult,
     PlanInfoResult,
-    SelectResult,
-    ShowResult,
+    PlanListResult,
+    PlanSelectResult,
+    PlanShowResult,
+    PlanUnselectResult,
+    PlanUpdateResult,
     TaskAddResult,
     TaskInfoResult,
     TaskListResult,
     TaskShowResult,
     TaskUpdateResult,
-    UnselectResult,
-    UpdateResult,
 )
 
 
@@ -98,14 +98,14 @@ COMMANDS: tuple[CommandSpec, ...] = (
         "plan",
         help="Manage plans; plan select sets the current plan used when -p is omitted.",
         children=(
-            CommandSpec("add", add_plan, AddResult),
+            CommandSpec("add", add_plan, PlanAddResult),
             CommandSpec("info", plan_info_command, PlanInfoResult),
             CommandSpec("path", plan_path, PathResult),
-            CommandSpec("list", list_plans, ListResult),
-            CommandSpec("show", show_plan, ShowResult),
-            CommandSpec("select", select_current_plan, SelectResult),
-            CommandSpec("unselect", unselect_plan, UnselectResult),
-            CommandSpec("update", update_plan, UpdateResult),
+            CommandSpec("list", list_plans, PlanListResult),
+            CommandSpec("show", show_plan, PlanShowResult),
+            CommandSpec("select", select_current_plan, PlanSelectResult),
+            CommandSpec("unselect", unselect_plan, PlanUnselectResult),
+            CommandSpec("update", update_plan, PlanUpdateResult),
         ),
     ),
     CommandSpec(
@@ -148,4 +148,4 @@ COMMANDS: tuple[CommandSpec, ...] = (
 
 # Hidden top-level conveniences that reuse an existing handler. Kept out of COMMANDS
 # so they are neither listed in help nor emitted in the schema bundle.
-ALIASES: tuple[CommandSpec, ...] = (CommandSpec("list", list_plans, ListResult),)
+ALIASES: tuple[CommandSpec, ...] = (CommandSpec("list", list_plans, PlanListResult),)

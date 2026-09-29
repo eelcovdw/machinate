@@ -2,20 +2,21 @@ from pathlib import Path
 
 from harness import cli, seed
 
-from machinate.cli.models import PlanInfoResult, ShowResult
+from machinate.cli.models import PlanInfoResult, PlanShowResult
 from machinate.cli.project_setup import prepare_project
-from machinate.models.operations import PlanUpdate
+from machinate.models.documents import PlanStatus
+from machinate.models.operations import StatusUpdate
 
 
 def add_tags(project: Path, name: str, *tags: str) -> None:
-    prepare_project(project).plans.update(name, PlanUpdate(tags=list(tags)))
+    prepare_project(project).plans.update(name, StatusUpdate[PlanStatus](tags=list(tags)))
 
 
 def test_plan_show_includes_tags(project: Path) -> None:
     seed.plan(project, "alpha")
     add_tags(project, "alpha", "frontend", "v2")
     parsed = cli.json(
-        ShowResult, ["plan", "show", "-p", "alpha", "-P", str(project), "--format", "json"]
+        PlanShowResult, ["plan", "show", "-p", "alpha", "-P", str(project), "--format", "json"]
     )
     assert parsed.plan.metadata.tags == ["frontend", "v2"]
 

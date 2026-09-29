@@ -50,12 +50,11 @@ def test_task_add_explicit_plan(auth_project: Path) -> None:
     assert parsed.project.directory == auth_project
     assert parsed.project.storage == auth_project / ".machi"
     assert parsed.plan == "auth"
-    task = parsed.tasks[0]
+    task = parsed.batch.created[0]
     assert task.name == "login"
     assert task.path.as_posix() == "plans/auth/tasks/login.md"
     assert task.metadata.status == "todo"
     assert task.metadata.created_at.tzinfo is not None
-    assert parsed.body == ""
     assert (auth_project / ".machi/plans/auth/tasks/login.md").is_file()
     assert read_state(auth_project).current_plan is None
 
@@ -85,7 +84,7 @@ def test_task_add_multiple(auth_project: Path) -> None:
             "json",
         ],
     )
-    assert [task.name for task in parsed.tasks] == ["login", "logout"]
+    assert [task.name for task in parsed.batch.created] == ["login", "logout"]
 
 
 def test_task_add_batch_partial_success(auth_project: Path) -> None:
@@ -110,8 +109,8 @@ def test_task_add_batch_partial_success(auth_project: Path) -> None:
         expect=1,
     )
     assert parsed.command == "task add"
-    assert [task.name for task in parsed.tasks] == ["new", "later"]
-    assert [error.name for error in parsed.errors] == ["existing", "../bad"]
+    assert [task.name for task in parsed.batch.created] == ["new", "later"]
+    assert [error.name for error in parsed.batch.errors] == ["existing", "../bad"]
     assert (auth_project / ".machi/plans/auth/tasks/new.md").exists()
     assert (auth_project / ".machi/plans/auth/tasks/later.md").exists()
     assert (auth_project / ".machi/plans/auth/tasks/existing.md").exists()  # Not overwritten.
@@ -122,7 +121,7 @@ def test_task_add_batch_all_created_reports_no_errors(auth_project: Path) -> Non
         TaskAddResult,
         ["task", "add", "one", "two", "-p", "auth", "-P", str(auth_project), "--format", "json"],
     )
-    assert parsed.errors == []
+    assert parsed.batch.errors == []
 
 
 def test_task_add_output(auth_project: Path) -> None:

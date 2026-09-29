@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from harness import cli, seed
 
-from machinate.cli.models import ShowResult
+from machinate.cli.models import PlanShowResult
 from machinate.cli.project_setup import prepare_project
 
 
@@ -15,7 +15,7 @@ def set_current(project: Path, name: str) -> None:
 def test_show_explicit_plan(project: Path) -> None:
     seed.plan(project, "auth", body="# Auth\n\nDetails")
     parsed = cli.json(
-        ShowResult, ["plan", "show", "-p", "auth", "-P", str(project), "--format", "json"]
+        PlanShowResult, ["plan", "show", "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert parsed.project.name == "example"
     assert parsed.project.directory == project
@@ -30,14 +30,14 @@ def test_show_explicit_plan(project: Path) -> None:
 def test_show_current_plan(project: Path) -> None:
     seed.plan(project, "auth")
     set_current(project, "auth")
-    parsed = cli.json(ShowResult, ["plan", "show", "-P", str(project), "--format", "json"])
+    parsed = cli.json(PlanShowResult, ["plan", "show", "-P", str(project), "--format", "json"])
     assert parsed.plan.name == "auth"
 
 
 def test_show_current_directory(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seed.plan(project, "auth")
     monkeypatch.chdir(project)
-    parsed = cli.json(ShowResult, ["plan", "show", "-p", "auth", "--format", "json"])
+    parsed = cli.json(PlanShowResult, ["plan", "show", "-p", "auth", "--format", "json"])
     assert parsed.project.directory == project
 
 
@@ -46,7 +46,7 @@ def test_show_discovers_upward(project: Path, monkeypatch: pytest.MonkeyPatch) -
     child = project / "nested"
     child.mkdir()
     monkeypatch.chdir(child)
-    parsed = cli.json(ShowResult, ["plan", "show", "-p", "auth", "--format", "json"])
+    parsed = cli.json(PlanShowResult, ["plan", "show", "-p", "auth", "--format", "json"])
     assert parsed.project.directory == project
 
 

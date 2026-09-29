@@ -6,18 +6,18 @@ import typer
 from machinate.cli.errors import PlanSelectionError
 from machinate.cli.execution import execute
 from machinate.cli.models import (
-    AddResult,
     InfoResult,
-    ListResult,
+    PlanAddResult,
     PlanInfoResult,
-    SelectResult,
-    ShowResult,
-    UnselectResult,
-    UpdateResult,
+    PlanListResult,
+    PlanSelectResult,
+    PlanShowResult,
+    PlanUnselectResult,
+    PlanUpdateResult,
 )
 from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.documents import PlanStatus
-from machinate.models.operations import PlanQuery, PlanUpdate, StatusCreateInput
+from machinate.models.operations import PlanQuery, StatusCreateInput, StatusUpdate
 
 
 def plan_changes(
@@ -25,10 +25,10 @@ def plan_changes(
     status: str | None,
     tags: list[str] | None,
     clear_tags: bool = False,
-) -> PlanUpdate:
+) -> StatusUpdate[PlanStatus]:
     """Validate provided options and build a plan update with only the changed fields."""
     return build_update(
-        PlanUpdate,
+        StatusUpdate[PlanStatus],
         UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
         hint="--summary, --status, --tag, or --clear-tags",
     )
@@ -60,7 +60,13 @@ def add_plan(  # noqa: PLR0913
             {"summary": summary, "tags": tags or [], "status": status}
         )
         plan = project_context.plans.create(name, create)
-        run.render(AddResult(project=project_context.project, plan=plan.record, body=plan.body))
+        run.render(
+            PlanAddResult(
+                command="plan add",
+                project=project_context.project,
+                plan=plan.record,
+            )
+        )
 
 
 def list_plans(  # noqa: PLR0913
@@ -109,7 +115,8 @@ def list_plans(  # noqa: PLR0913
         )
         project_context = run.prepare(project)
         run.render(
-            ListResult(
+            PlanListResult(
+                command="plan list",
                 project=project_context.project,
                 plans=project_context.plans.list(query),
                 current_plan=project_context.plans.current_name(),
@@ -133,6 +140,7 @@ def info_command(
         project_context = run.prepare(project)
         run.render(
             InfoResult(
+                command="info",
                 project=project_context.project,
                 overview=project_context.plans.project_overview(),
             )
@@ -159,6 +167,7 @@ def plan_info_command(
         plan_name = run.determine_plan_name(project_context.plans, plan)
         run.render(
             PlanInfoResult(
+                command="plan info",
                 project=project_context.project,
                 overview=project_context.plans.plan_overview(plan_name),
             )
@@ -184,7 +193,13 @@ def select_current_plan(
         run.require_human_session()
         project_context = run.prepare(project)
         state = project_context.plans.set_current(name)
-        run.render(SelectResult(project=project_context.project, current_plan=state.current_plan))
+        run.render(
+            PlanSelectResult(
+                command="plan select",
+                project=project_context.project,
+                current_plan=state.current_plan,
+            )
+        )
 
 
 def unselect_plan(
@@ -202,7 +217,13 @@ def unselect_plan(
         run.require_human_session()
         project_context = run.prepare(project)
         state = project_context.plans.clear_current()
-        run.render(UnselectResult(project=project_context.project, current_plan=state.current_plan))
+        run.render(
+            PlanUnselectResult(
+                command="plan unselect",
+                project=project_context.project,
+                current_plan=state.current_plan,
+            )
+        )
 
 
 def update_plan(  # noqa: PLR0913
@@ -246,7 +267,12 @@ def update_plan(  # noqa: PLR0913
         plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.plans.update(plan_name, changes)
         run.render(
-            UpdateResult(project=project_context.project, plan=updated.record, body=updated.body)
+            PlanUpdateResult(
+                command="plan update",
+                project=project_context.project,
+                plan=updated.record,
+                body=updated.body,
+            )
         )
 
 
@@ -269,5 +295,10 @@ def show_plan(
         project_context = run.prepare(project)
         selected = run.get_target_plan(project_context.plans, plan)
         run.render(
-            ShowResult(project=project_context.project, plan=selected.record, body=selected.body)
+            PlanShowResult(
+                command="plan show",
+                project=project_context.project,
+                plan=selected.record,
+                body=selected.body,
+            )
         )
