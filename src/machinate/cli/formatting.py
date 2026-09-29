@@ -1,16 +1,23 @@
 import os
 import shutil
 import sys
+from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
-from functools import singledispatch
+from datetime import datetime
 from io import StringIO
-from typing import get_args, override
+from typing import assert_never, get_args, override
 
 from rich.console import Console, RenderableType
 from rich.table import Table
 from rich.text import Text
 
-from machinate.models.documents import PlanStatus, TaskStatus
+from machinate.models.documents import (
+    DocumentRecord,
+    Metadata,
+    PlanRecord,
+    PlanStatus,
+    TaskStatus,
+)
 from machinate.models.operations import BatchCreateError, FindEntry
 
 from .models import (
@@ -61,15 +68,28 @@ _CONSOLE_WIDTH = 120
 _MIN_SUMMARY_WIDTH = 20
 
 
-class Formatter:
+class Formatter(ABC):
+    """Interface for command result formatters."""
+
+    @abstractmethod
     def format(self, result: CommandResult) -> str:
-        return result.model_dump_json()
+        """Return the rendered form of a command result."""
 
 
-@singledispatch
-def render_text(result: CommandResult) -> str:
-    """Render a command result as text, falling back to JSON when unrecognized."""
-    return Formatter().format(result)
+class JsonFormatter(Formatter):
+    """Emit pretty-printed JSON for every result, including errors."""
+
+    @override
+    def format(self, result: CommandResult) -> str:
+        return result.model_dump_json(indent=2)
+
+
+class TextFormatter(Formatter):
+    """Emit human-readable text for every result."""
+
+    @override
+    def format(self, result: CommandResult) -> str:
+        return render_text(result)
 
 
 def _use_color() -> bool:
@@ -205,44 +225,207 @@ def _status_sections(entries: Sequence[tuple[str, Text]], statuses: Sequence[str
     return lines
 
 
-@render_text.register
+def _show[M: Metadata](  # noqa: PLR0913
+    *,
+    kind: str,
+    record: DocumentRecord[M] | PlanRecord,
+    location: str,
+    path: str,
+    status: str | None = None,
+    modified_label: str = "Modified",
+    modified: datetime | None = None,
+    body: str | None = None,
+) -> str:
+    """Render one entity's title, location, timestamps, summary, tags, and optional body."""
+    metadata = record.metadata
+    lines: list[RenderableType] = [
+        _title(kind, record.name, status),
+        _field("Project", location),
+        _field("Path", path, style=PATH),
+        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
+        _field(modified_label, (modified or record.modified_at).isoformat(), style=TIMESTAMP),
+    ]
+    if record.summary:
+        lines.append(_field("Summary", record.summary))
+    if metadata.tags:
+        lines.append(_field("Tags", ", ".join(metadata.tags)))
+    if body is not None and (stripped := body.rstrip("\n")):
+        lines.extend((Text(""), Text(stripped)))
+    return _render(lines)
+
+
+def _add[M: Metadata](
+    *,
+    heading: str,
+    records: Sequence[DocumentRecord[M] | PlanRecord],
+    storage: str,
+    errors: Sequence[BatchCreateError],
+) -> str:
+    """Render a batch creation heading, one bullet per record, and rejected names."""
+    lines: list[RenderableType] = [Text(heading, style=HEADING)]
+    lines.extend(_bullet(record.name, f"{storage}/{record.path}") for record in records)
+    lines.extend(_not_created(errors))
+    return _render(lines)
+
+
+def _update(*, kind: str, name: str, location: str, status: str | None = None) -> str:
+    line = Text(f"Updated {kind} ")
+    line.append(name, style=HEADING)
+    line.append(f" in {location}")
+    if status is not None:
+        line.append(" (")
+        line.append(status, style=status_style(status))
+        line.append(")")
+    return _render([line])
+
+
+def _list[M: Metadata](  # noqa: PLR0913
+    *,
+    header: Sequence[RenderableType],
+    records: Sequence[DocumentRecord[M] | PlanRecord],
+    empty_message: str,
+    statuses: Sequence[str] | None = None,
+    status_order: Sequence[str] = (),
+    grouped: bool = False,
+    current_plan: str | None = None,
+) -> str:
+    """Render a list header and its rows, optionally grouped under status headers."""
+    lines = list(header)
+    if not records:
+        lines.append(Text(empty_message, style=MUTED))
+        return _render(lines)
+    lines.append(Text())
+    labels = [
+        f"* {record.name}"
+        if current_plan is not None and record.name == current_plan
+        else record.name
+        for record in records
+    ]
+    name_width = max(len(label) for label in labels)
+    tags = [", ".join(record.metadata.tags) for record in records]
+    tags_width = max((len(value) for value in tags), default=0)
+    status_width = (
+        max((len(status) for status in statuses), default=0) if statuses is not None else 0
+    )
+    entries: list[tuple[str, Text]] = []
+    for index, record in enumerate(records):
+        status = statuses[index] if statuses is not None else None
+        entries.append(
+            (
+                status or "",
+                _entry(
+                    labels[index],
+                    name_width,
+                    tags[index],
+                    tags_width,
+                    record.summary,
+                    status=None if grouped else status,
+                    status_width=status_width,
+                ),
+            )
+        )
+    if grouped:
+        lines.extend(_status_sections(entries, status_order))
+    else:
+        lines.extend(row for _, row in entries)
+    return _render(lines)
+
+
+def render_text(result: CommandResult) -> str:  # noqa: C901, PLR0911, PLR0912
+    """Render a command result as text; every result must have a renderer."""
+    match result:
+        case PlanAddResult():
+            return render_plan_add(result)
+        case PlanInfoResult():
+            return render_plan_info(result)
+        case PlanListResult():
+            return render_plan_list(result)
+        case PlanSelectResult():
+            return render_plan_select(result)
+        case PlanShowResult():
+            return render_plan_show(result)
+        case PlanUnselectResult():
+            return render_plan_unselect(result)
+        case PlanUpdateResult():
+            return render_plan_update(result)
+        case TaskAddResult():
+            return render_task_add(result)
+        case TaskInfoResult():
+            return render_task_info(result)
+        case TaskListResult():
+            return render_task_list(result)
+        case TaskShowResult():
+            return render_task_show(result)
+        case TaskUpdateResult():
+            return render_task_update(result)
+        case ContextAddResult():
+            return render_context_add(result)
+        case ContextInfoResult():
+            return render_context_info(result)
+        case ContextListResult():
+            return render_context_list(result)
+        case ContextShowResult():
+            return render_context_show(result)
+        case ContextUpdateResult():
+            return render_context_update(result)
+        case DocAddResult():
+            return render_doc_add(result)
+        case DocInfoResult():
+            return render_doc_info(result)
+        case DocListResult():
+            return render_doc_list(result)
+        case DocShowResult():
+            return render_doc_show(result)
+        case DocUpdateResult():
+            return render_doc_update(result)
+        case PathResult():
+            return render_path(result)
+        case FindResult():
+            return render_find(result)
+        case InfoResult():
+            return render_info(result)
+        case InitResult():
+            return render_init(result)
+        case InstructionsResult():
+            return render_instructions(result)
+        case ErrorResult():
+            return render_error(result)
+        case _:
+            assert_never(result)
+
+
 def render_error(result: ErrorResult) -> str:
     return _render([Text(f"Error: {result.error}", style=ERROR)])
 
 
-@render_text.register
+def render_plan_add(result: PlanAddResult) -> str:
+    return _add(
+        heading=f"Created plan {result.plan.name} in {result.project.name}",
+        records=[result.plan],
+        storage=str(result.project.storage),
+        errors=[],
+    )
+
+
 def render_plan_info(result: PlanInfoResult) -> str:
-    info = result.overview
-    plan = info.plan
-    metadata = plan.metadata
-    lines = [
-        _title("Plan", plan.name, metadata.status),
-        _field("Project", f"{result.project.name} — {result.project.directory}"),
-        _field("Path", str(result.project.storage / plan.path), style=PATH),
-        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
-        _field(
-            "Last activity",
-            plan.last_activity_at.isoformat(),
-            style=TIMESTAMP,
-        ),
-    ]
-    if plan.summary:
-        lines.append(_field("Summary", plan.summary))
-    if metadata.tags:
-        lines.append(_field("Tags", ", ".join(metadata.tags)))
-    tasks = info.tasks_by_status
-    lines.append(_field("Tasks", f"{sum(tasks.values())} ({_counts(tasks)})"))
-    lines.append(_field("Contexts", str(info.context_count)))
-    return _render(lines)
+    overview = result.overview
+    return _show(
+        kind="Plan",
+        record=overview.plan,
+        location=f"{result.project.name} — {result.project.directory}",
+        path=str(result.project.storage / overview.plan.path),
+        status=overview.plan.metadata.status,
+        modified_label="Last activity",
+        modified=overview.plan.last_activity_at,
+    )
 
 
-@render_text.register
 def render_info(result: InfoResult) -> str:
     overview = result.overview
     current = overview.current_plan
     if current is not None and not overview.selection_valid:
         current = f"{current} (missing)"
-    lines = [
+    lines: list[RenderableType] = [
         Text(f"Project {result.project.name} — {result.project.directory}", style=PROJECT),
         _field("Storage", str(result.project.storage), style=PATH),
         _field("Current plan", current or "(none)", style="" if current else MUTED),
@@ -268,317 +451,194 @@ def render_info(result: InfoResult) -> str:
     return _render(lines)
 
 
-@render_text.register
-def render_add(result: PlanAddResult) -> str:
-    lines = [
-        Text(f"Created plan {result.plan.name} in {result.project.name}", style=HEADING),
-        _field("Path", str(result.project.storage / result.plan.path), style=PATH),
+def render_plan_list(result: PlanListResult) -> str:
+    header: list[RenderableType] = [
+        Text(f"{result.project.name} — {result.project.directory}", style=PROJECT),
+        _field("Storage", str(result.project.storage), style=PATH),
     ]
-    return _render(lines)
-
-
-@render_text.register
-def render_context_add(result: ContextAddResult) -> str:
-    location = f"{result.project.name}/{result.plan}"
-    lines = [
-        Text(
-            f"Created {len(result.batch.created)} context document(s) in {location}",
-            style=HEADING,
-        )
-    ]
-    lines.extend(
-        _bullet(context.name, str(result.project.storage / context.path))
-        for context in result.batch.created
+    return _list(
+        header=header,
+        records=result.plans,
+        empty_message="No plans found.",
+        statuses=[plan.metadata.status for plan in result.plans],
+        status_order=PLAN_STATUS_ORDER,
+        grouped=result.group_by is not None,
+        current_plan=result.current_plan,
     )
-    lines.extend(_not_created(result.batch.errors))
-    return _render(lines)
 
 
-@render_text.register
-def render_context_list(result: ContextListResult) -> str:
-    lines = [Text(f"{result.project.name} / {result.plan}", style=PROJECT)]
-    if not result.contexts:
-        lines.append(Text("No contexts found.", style=MUTED))
-        return _render(lines)
-    lines.append(Text())
-    name_width = max(len(entry.name) for entry in result.contexts)
-    tags = [", ".join(entry.metadata.tags) for entry in result.contexts]
-    tags_width = max((len(value) for value in tags), default=0)
-    lines.extend(
-        _entry(entry.name, name_width, tag, tags_width, entry.summary)
-        for entry, tag in zip(result.contexts, tags, strict=True)
+def render_plan_select(result: PlanSelectResult) -> str:
+    return _update(kind="plan", name=str(result.current_plan), location=result.project.name)
+
+
+def render_plan_show(result: PlanShowResult) -> str:
+    return _show(
+        kind="Plan",
+        record=result.plan,
+        location=f"{result.project.name} — {result.project.directory}",
+        path=str(result.project.storage / result.plan.path),
+        status=result.plan.metadata.status,
+        body=result.body,
     )
-    return _render(lines)
 
 
-@render_text.register
-def render_context_show(result: ContextShowResult) -> str:
-    metadata = result.context.metadata
-    lines = [
-        _title("Context", result.context.name),
-        _field("Project", f"{result.project.name} / {result.plan}"),
-        _field("Path", str(result.project.storage / result.context.path), style=PATH),
-        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
-        _field("Modified", result.context.modified_at.isoformat(), style=TIMESTAMP),
-    ]
-    if result.context.summary:
-        lines.append(_field("Summary", result.context.summary))
-    if metadata.tags:
-        lines.append(_field("Tags", ", ".join(metadata.tags)))
-    body = result.body.rstrip("\n")
-    if body:
-        lines.extend((Text(""), Text(body)))
-    return _render(lines)
-
-
-@render_text.register
-def render_path(result: PathResult) -> str:
-    return str(result.path)
-
-
-@render_text.register
-def render_context_info(result: ContextInfoResult) -> str:
-    metadata = result.context.metadata
-    lines = [
-        _title("Context", result.context.name),
-        _field("Project", f"{result.project.name} / {result.plan}"),
-        _field("Path", str(result.project.storage / result.context.path), style=PATH),
-        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
-        _field("Modified", result.context.modified_at.isoformat(), style=TIMESTAMP),
-    ]
-    if result.context.summary:
-        lines.append(_field("Summary", result.context.summary))
-    if metadata.tags:
-        lines.append(_field("Tags", ", ".join(metadata.tags)))
-    return _render(lines)
-
-
-@render_text.register
-def render_task_info(result: TaskInfoResult) -> str:
-    metadata = result.task.metadata
-    lines = [
-        _title("Task", result.task.name, metadata.status),
-        _field("Project", f"{result.project.name} / {result.plan}"),
-        _field("Path", str(result.project.storage / result.task.path), style=PATH),
-        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
-        _field("Modified", result.task.modified_at.isoformat(), style=TIMESTAMP),
-    ]
-    if result.task.summary:
-        lines.append(_field("Summary", result.task.summary))
-    if metadata.tags:
-        lines.append(_field("Tags", ", ".join(metadata.tags)))
-    return _render(lines)
-
-
-@render_text.register
-def render_task_add(result: TaskAddResult) -> str:
-    lines = [
-        Text(
-            f"Created {len(result.batch.created)} task(s) in {result.project.name}/{result.plan}",
-            style=HEADING,
-        )
-    ]
-    lines.extend(
-        _bullet(task.name, str(result.project.storage / task.path)) for task in result.batch.created
-    )
-    lines.extend(_not_created(result.batch.errors))
-    return _render(lines)
-
-
-@render_text.register
-def render_task_list(result: TaskListResult) -> str:
-    lines = [Text(f"{result.project.name} / {result.plan}", style=PROJECT)]
-    if not result.tasks:
-        lines.append(Text("No tasks found.", style=MUTED))
-        return _render(lines)
-    lines.append(Text())
-    name_width = max(len(task.name) for task in result.tasks)
-    tags = [", ".join(task.metadata.tags) for task in result.tasks]
-    tags_width = max((len(value) for value in tags), default=0)
-    grouped = result.group_by is not None
-    status_width = max((len(task.metadata.status) for task in result.tasks), default=0)
-    entries = [
-        (
-            task.metadata.status,
-            _entry(
-                task.name,
-                name_width,
-                tag,
-                tags_width,
-                task.summary,
-                status=None if grouped else task.metadata.status,
-                status_width=status_width,
-            ),
-        )
-        for task, tag in zip(result.tasks, tags, strict=True)
-    ]
-    if grouped:
-        lines.extend(_status_sections(entries, TASK_STATUS_ORDER))
-    else:
-        lines.extend(row for _, row in entries)
-    return _render(lines)
-
-
-@render_text.register
-def render_task_update(result: TaskUpdateResult) -> str:
-    status = result.task.metadata.status
-    line = Text("Updated task ")
-    line.append(result.task.name, style=HEADING)
-    line.append(f" in {result.project.name}/{result.plan} (")
-    line.append(status, style=status_style(status))
-    line.append(")")
-    return _render([line])
-
-
-@render_text.register
-def render_context_update(result: ContextUpdateResult) -> str:
-    line = Text("Updated context ")
-    line.append(result.context.name, style=HEADING)
-    line.append(f" in {result.project.name}/{result.plan}")
-    return _render([line])
-
-
-@render_text.register
-def render_doc_add(result: DocAddResult) -> str:
-    lines = [
-        Text(
-            f"Created {len(result.batch.created)} document(s) in {result.project.name}",
-            style=HEADING,
-        )
-    ]
-    lines.extend(
-        _bullet(doc.name, str(result.project.storage / doc.path)) for doc in result.batch.created
-    )
-    lines.extend(_not_created(result.batch.errors))
-    return _render(lines)
-
-
-@render_text.register
-def render_doc_list(result: DocListResult) -> str:
-    lines = [Text(result.project.name, style=PROJECT)]
-    if not result.docs:
-        lines.append(Text("No documents found.", style=MUTED))
-        return _render(lines)
-    lines.append(Text())
-    name_width = max(len(entry.name) for entry in result.docs)
-    tags = [", ".join(entry.metadata.tags) for entry in result.docs]
-    tags_width = max((len(value) for value in tags), default=0)
-    lines.extend(
-        _entry(entry.name, name_width, tag, tags_width, entry.summary)
-        for entry, tag in zip(result.docs, tags, strict=True)
-    )
-    return _render(lines)
-
-
-@render_text.register
-def render_doc_show(result: DocShowResult) -> str:
-    metadata = result.doc.metadata
-    lines = [
-        _title("Doc", result.doc.name),
-        _field("Project", result.project.name),
-        _field("Path", str(result.project.storage / result.doc.path), style=PATH),
-        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
-        _field("Modified", result.doc.modified_at.isoformat(), style=TIMESTAMP),
-    ]
-    if result.doc.summary:
-        lines.append(_field("Summary", result.doc.summary))
-    if metadata.tags:
-        lines.append(_field("Tags", ", ".join(metadata.tags)))
-    body = result.body.rstrip("\n")
-    if body:
-        lines.extend((Text(""), Text(body)))
-    return _render(lines)
-
-
-@render_text.register
-def render_doc_info(result: DocInfoResult) -> str:
-    metadata = result.doc.metadata
-    lines = [
-        _title("Doc", result.doc.name),
-        _field("Project", result.project.name),
-        _field("Path", str(result.project.storage / result.doc.path), style=PATH),
-        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
-        _field("Modified", result.doc.modified_at.isoformat(), style=TIMESTAMP),
-    ]
-    if result.doc.summary:
-        lines.append(_field("Summary", result.doc.summary))
-    if metadata.tags:
-        lines.append(_field("Tags", ", ".join(metadata.tags)))
-    return _render(lines)
-
-
-@render_text.register
-def render_doc_update(result: DocUpdateResult) -> str:
-    line = Text("Updated doc ")
-    line.append(result.doc.name, style=HEADING)
-    line.append(f" in {result.project.name}")
-    return _render([line])
-
-
-@render_text.register
-def render_task_show(result: TaskShowResult) -> str:
-    metadata = result.task.metadata
-    lines = [
-        _title("Task", result.task.name, metadata.status),
-        _field("Project", f"{result.project.name} / {result.plan}"),
-        _field("Path", str(result.project.storage / result.task.path), style=PATH),
-        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
-        _field("Modified", result.task.modified_at.isoformat(), style=TIMESTAMP),
-    ]
-    if result.task.summary:
-        lines.append(_field("Summary", result.task.summary))
-    if metadata.tags:
-        lines.append(_field("Tags", ", ".join(metadata.tags)))
-    body = result.body.rstrip("\n")
-    if body:
-        lines.extend((Text(""), Text(body)))
-    return _render(lines)
-
-
-@render_text.register
-def render_show(result: PlanShowResult) -> str:
-    metadata = result.plan.metadata
-    lines = [
-        _title("Plan", result.plan.name, metadata.status),
-        _field("Project", f"{result.project.name} — {result.project.directory}"),
-        _field("Path", str(result.project.storage / result.plan.path), style=PATH),
-        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
-        _field("Modified", result.plan.modified_at.isoformat(), style=TIMESTAMP),
-    ]
-    if result.plan.summary:
-        lines.append(_field("Summary", result.plan.summary))
-    if metadata.tags:
-        lines.append(_field("Tags", ", ".join(metadata.tags)))
-    body = result.body.rstrip("\n")
-    if body:
-        lines.extend((Text(""), Text(body)))
-    return _render(lines)
-
-
-@render_text.register
-def render_update(result: PlanUpdateResult) -> str:
-    status = result.plan.metadata.status
-    line = Text("Updated plan ")
-    line.append(result.plan.name, style=HEADING)
-    line.append(f" in {result.project.name} (")
-    line.append(status, style=status_style(status))
-    line.append(")")
-    return _render([line])
-
-
-@render_text.register
-def render_select(result: PlanSelectResult) -> str:
-    line = Text("Selected plan ")
-    line.append(str(result.current_plan), style=HEADING)
-    line.append(f" in {result.project.name}")
-    return _render([line])
-
-
-@render_text.register
-def render_unselect(result: PlanUnselectResult) -> str:
+def render_plan_unselect(result: PlanUnselectResult) -> str:
     line = Text("Cleared the current plan in ")
     line.append(result.project.name, style=HEADING)
     return _render([line])
+
+
+def render_plan_update(result: PlanUpdateResult) -> str:
+    return _update(
+        kind="plan",
+        name=result.plan.name,
+        location=result.project.name,
+        status=result.plan.metadata.status,
+    )
+
+
+def render_task_add(result: TaskAddResult) -> str:
+    location = f"{result.project.name}/{result.plan}"
+    return _add(
+        heading=f"Created {len(result.batch.created)} task(s) in {location}",
+        records=result.batch.created,
+        storage=str(result.project.storage),
+        errors=result.batch.errors,
+    )
+
+
+def render_task_info(result: TaskInfoResult) -> str:
+    return _show(
+        kind="Task",
+        record=result.task,
+        location=f"{result.project.name} / {result.plan}",
+        path=str(result.project.storage / result.task.path),
+        status=result.task.metadata.status,
+    )
+
+
+def render_task_list(result: TaskListResult) -> str:
+    header = [Text(f"{result.project.name} / {result.plan}", style=PROJECT)]
+    return _list(
+        header=header,
+        records=result.tasks,
+        empty_message="No tasks found.",
+        statuses=[task.metadata.status for task in result.tasks],
+        status_order=TASK_STATUS_ORDER,
+        grouped=result.group_by is not None,
+        current_plan=None,
+    )
+
+
+def render_task_show(result: TaskShowResult) -> str:
+    return _show(
+        kind="Task",
+        record=result.task,
+        location=f"{result.project.name} / {result.plan}",
+        path=str(result.project.storage / result.task.path),
+        status=result.task.metadata.status,
+        body=result.body,
+    )
+
+
+def render_task_update(result: TaskUpdateResult) -> str:
+    return _update(
+        kind="task",
+        name=result.task.name,
+        location=f"{result.project.name}/{result.plan}",
+        status=result.task.metadata.status,
+    )
+
+
+def render_context_add(result: ContextAddResult) -> str:
+    location = f"{result.project.name}/{result.plan}"
+    return _add(
+        heading=f"Created {len(result.batch.created)} context document(s) in {location}",
+        records=result.batch.created,
+        storage=str(result.project.storage),
+        errors=result.batch.errors,
+    )
+
+
+def render_context_info(result: ContextInfoResult) -> str:
+    return _show(
+        kind="Context",
+        record=result.context,
+        location=f"{result.project.name} / {result.plan}",
+        path=str(result.project.storage / result.context.path),
+    )
+
+
+def render_context_list(result: ContextListResult) -> str:
+    header = [Text(f"{result.project.name} / {result.plan}", style=PROJECT)]
+    return _list(
+        header=header,
+        records=result.contexts,
+        empty_message="No contexts found.",
+    )
+
+
+def render_context_show(result: ContextShowResult) -> str:
+    return _show(
+        kind="Context",
+        record=result.context,
+        location=f"{result.project.name} / {result.plan}",
+        path=str(result.project.storage / result.context.path),
+        body=result.body,
+    )
+
+
+def render_context_update(result: ContextUpdateResult) -> str:
+    return _update(
+        kind="context",
+        name=result.context.name,
+        location=f"{result.project.name}/{result.plan}",
+    )
+
+
+def render_doc_add(result: DocAddResult) -> str:
+    return _add(
+        heading=f"Created {len(result.batch.created)} document(s) in {result.project.name}",
+        records=result.batch.created,
+        storage=str(result.project.storage),
+        errors=result.batch.errors,
+    )
+
+
+def render_doc_info(result: DocInfoResult) -> str:
+    return _show(
+        kind="Doc",
+        record=result.doc,
+        location=result.project.name,
+        path=str(result.project.storage / result.doc.path),
+    )
+
+
+def render_doc_list(result: DocListResult) -> str:
+    header = [Text(result.project.name, style=PROJECT)]
+    return _list(
+        header=header,
+        records=result.docs,
+        empty_message="No documents found.",
+    )
+
+
+def render_doc_show(result: DocShowResult) -> str:
+    return _show(
+        kind="Doc",
+        record=result.doc,
+        location=result.project.name,
+        path=str(result.project.storage / result.doc.path),
+        body=result.body,
+    )
+
+
+def render_doc_update(result: DocUpdateResult) -> str:
+    return _update(kind="doc", name=result.doc.name, location=result.project.name)
+
+
+def render_path(result: PathResult) -> str:
+    return str(result.path)
 
 
 def _find_locator(entry: FindEntry) -> str:
@@ -589,7 +649,6 @@ def _find_owner(entry: FindEntry) -> str:
     return f"[{entry.kind}{f' {entry.plan}' if entry.plan is not None else ''}]"
 
 
-@render_text.register
 def render_find(result: FindResult) -> str:
     scope = result.plan if result.plan is not None else "all plans"
     lines: list[RenderableType] = [Text(f"{result.project.name} / {scope}", style=PROJECT)]
@@ -616,64 +675,16 @@ def render_find(result: FindResult) -> str:
     return _render(lines)
 
 
-@render_text.register
 def render_instructions(result: InstructionsResult) -> str:
     return result.text
 
 
-@render_text.register
 def render_init(result: InitResult) -> str:
-    lines = [
+    lines: list[RenderableType] = [
         Text(f"Initialized {result.project.name} at {result.project.directory}", style=HEADING),
         _field("Storage", str(result.project.storage), style=PATH),
     ]
     return _render(lines)
-
-
-@render_text.register
-def render_list(result: PlanListResult) -> str:
-    lines = [
-        Text(f"{result.project.name} — {result.project.directory}", style=PROJECT),
-        _field("Storage", str(result.project.storage), style=PATH),
-    ]
-    if not result.plans:
-        lines.append(Text("No plans found.", style=MUTED))
-        return _render(lines)
-    lines.append(Text())
-    labels = [
-        f"* {plan.name}" if plan.name == result.current_plan else plan.name for plan in result.plans
-    ]
-    name_width = max(len(label) for label in labels)
-    tags = [", ".join(plan.metadata.tags) for plan in result.plans]
-    tags_width = max((len(value) for value in tags), default=0)
-    grouped = result.group_by is not None
-    status_width = max((len(plan.metadata.status) for plan in result.plans), default=0)
-    entries = [
-        (
-            plan.metadata.status,
-            _entry(
-                label,
-                name_width,
-                tag,
-                tags_width,
-                plan.summary,
-                status=None if grouped else plan.metadata.status,
-                status_width=status_width,
-            ),
-        )
-        for plan, label, tag in zip(result.plans, labels, tags, strict=True)
-    ]
-    if grouped:
-        lines.extend(_status_sections(entries, PLAN_STATUS_ORDER))
-    else:
-        lines.extend(row for _, row in entries)
-    return _render(lines)
-
-
-class TextFormatter(Formatter):
-    @override
-    def format(self, result: CommandResult) -> str:
-        return render_text(result)
 
 
 class UnknownFormatError(Exception):

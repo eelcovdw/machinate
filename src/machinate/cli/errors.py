@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
-from machinate.models.errors import ErrorCode
+from machinate.models.operations import ErrorCode
 from machinate.services.errors import (
     InputError,
     PlanSelectionError,

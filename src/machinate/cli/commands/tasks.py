@@ -1,7 +1,5 @@
-from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated
 
-import click
 import typer
 
 from machinate.cli.execution import execute
@@ -12,7 +10,21 @@ from machinate.cli.models import (
     TaskShowResult,
     TaskUpdateResult,
 )
-from machinate.cli.options import OUTPUT_FORMAT
+from machinate.cli.options import (
+    CLEAR_TAGS,
+    DESCENDING,
+    GROUP,
+    LIMIT,
+    MATCH_TAGS,
+    OUTPUT_FORMAT,
+    PLAN,
+    PROJECT,
+    SORT,
+    SUMMARY,
+    TAGS,
+    TASK_STATUS,
+    TASK_STATUS_FILTER,
+)
 from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.documents import TaskStatus
 from machinate.models.operations import BatchCreated, StatusCreateInput, StatusUpdate, TaskQuery
@@ -35,20 +47,9 @@ def task_changes(
 def task_add(  # noqa: PLR0913
     context: typer.Context,
     names: Annotated[list[str], typer.Argument(help="Name(s) of the task(s) to create.")],
-    plan: Annotated[
-        str | None,
-        typer.Option("--plan", "-p", help="Plan to add tasks to; defaults to the current plan."),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option(
-            "--tag", help="Tag(s) to apply to every created task. Repeat for multiple tags."
-        ),
-    ] = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
+    tags: TAGS = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create one or more tasks in a plan."""
@@ -71,44 +72,15 @@ def task_add(  # noqa: PLR0913
 
 def task_list(  # noqa: PLR0913
     context: typer.Context,
-    plan: Annotated[
-        str | None,
-        typer.Option(
-            "--plan", "-p", help="Plan whose tasks to list; defaults to the current plan."
-        ),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
     output_format: OUTPUT_FORMAT = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
-    ] = None,
-    statuses: Annotated[
-        list[TaskStatus] | None,
-        typer.Option(
-            "--status",
-            help="Match any status: todo, in-progress, done. Repeat for multiple statuses.",
-            click_type=click.Choice(["todo", "in-progress", "done"]),
-        ),
-    ] = None,
-    sort: Annotated[
-        Literal["name", "created_at", "modified_at"],
-        typer.Option(help="Sort by name, created_at, or modified_at."),
-    ] = "name",
-    descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
-    group: Annotated[
-        bool,
-        typer.Option(
-            "--group/--no-group",
-            help="Group rows under status headers; use --no-group for a flat list.",
-        ),
-    ] = True,
-    limit: Annotated[
-        int | None, typer.Option(min=1, help="Maximum results (positive integer).")
-    ] = None,
+    tags: MATCH_TAGS = None,
+    statuses: TASK_STATUS_FILTER = None,
+    sort: SORT = "name",
+    descending: DESCENDING = False,
+    group: GROUP = True,
+    limit: LIMIT = None,
 ) -> None:
     """List tasks in a plan."""
     with execute(context, "task list", output_format) as run:
@@ -134,16 +106,8 @@ def task_list(  # noqa: PLR0913
 def task_show(
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the task to show.")],
-    plan: Annotated[
-        str | None,
-        typer.Option(
-            "--plan", "-p", help="Plan containing the task; defaults to the current plan."
-        ),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show task metadata and body."""
@@ -164,16 +128,8 @@ def task_show(
 def task_info(
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the task to inspect.")],
-    plan: Annotated[
-        str | None,
-        typer.Option(
-            "--plan", "-p", help="Plan containing the task; defaults to the current plan."
-        ),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show task metadata."""
@@ -190,32 +146,12 @@ def task_info(
 def update_task(  # noqa: PLR0913
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the task to update.")],
-    plan: Annotated[
-        str | None,
-        typer.Option(
-            "--plan", "-p", help="Plan containing the task; defaults to the current plan."
-        ),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    summary: Annotated[
-        str | None,
-        typer.Option("--summary", help="New summary; pass an empty string to clear it."),
-    ] = None,
-    status: Annotated[
-        Literal["todo", "in-progress", "done"] | None,
-        typer.Option("--status", help="New status: todo, in-progress, or done."),
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Replace the task's tags. Repeat for multiple tags."),
-    ] = None,
-    clear_tags: Annotated[
-        bool,
-        typer.Option("--clear-tags", help="Remove all tags; mutually exclusive with --tag."),
-    ] = False,
+    plan: PLAN = None,
+    project: PROJECT = None,
+    summary: SUMMARY = None,
+    status: TASK_STATUS = None,
+    tags: TAGS = None,
+    clear_tags: CLEAR_TAGS = False,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change task status, summary, or tags."""

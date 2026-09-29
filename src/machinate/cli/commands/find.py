@@ -1,11 +1,10 @@
-from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from machinate.cli.execution import execute
 from machinate.cli.models import FindResult
-from machinate.cli.options import OUTPUT_FORMAT
+from machinate.cli.options import LIMIT, OUTPUT_FORMAT, PLAN, PROJECT
 from machinate.models.operations import FindQuery
 
 
@@ -21,14 +20,8 @@ def find_command(  # noqa: PLR0913
             "--glob", help="Filesystem glob relative to the base (quote it); repeat for OR."
         ),
     ] = None,
-    plan: Annotated[
-        str | None,
-        typer.Option("--plan", "-p", help="Restrict the search to one plan; default all plans."),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
     regex: Annotated[
         bool,
         typer.Option("--regex", help="Allow field-scoped regexes, e.g. path:/conf.*/."),
@@ -39,9 +32,7 @@ def find_command(  # noqa: PLR0913
             "--exact", help="Disable fuzzy matching (one typo + prefix); exact terms only."
         ),
     ] = False,
-    limit: Annotated[
-        int | None, typer.Option("--limit", min=1, help="Maximum results (positive integer).")
-    ] = None,
+    limit: LIMIT = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     r"""Search files under the project's .machi store.

@@ -8,7 +8,7 @@ from typing import ClassVar
 
 from pydantic import ValidationError
 
-from machinate.models.errors import ErrorCode
+from machinate.models.operations import ErrorCode
 
 
 class ServiceError(Exception):

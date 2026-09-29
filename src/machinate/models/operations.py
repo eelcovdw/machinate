@@ -25,6 +25,19 @@ from .documents import (
     validate_relative_path,
 )
 
+# --- Error codes -----------------------------------------------------------
+
+type ErrorCode = Literal[
+    "input",
+    "not_found",
+    "exists",
+    "invalid_document",
+    "search_query",
+    "storage",
+    "project",
+    "internal",
+]
+
 
 class CreateInput(BaseModel):
     """The fields a caller may set at creation time; the service supplies the rest."""

@@ -1,5 +1,4 @@
-from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated
 
 import typer
 
@@ -11,7 +10,18 @@ from machinate.cli.models import (
     ContextShowResult,
     ContextUpdateResult,
 )
-from machinate.cli.options import OUTPUT_FORMAT
+from machinate.cli.options import (
+    CLEAR_TAGS,
+    DESCENDING,
+    LIMIT,
+    MATCH_TAGS,
+    OUTPUT_FORMAT,
+    PLAN,
+    PROJECT,
+    SORT,
+    SUMMARY,
+    TAGS,
+)
 from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 
@@ -34,20 +44,9 @@ def context_add(  # noqa: PLR0913
     names: Annotated[
         list[str], typer.Argument(help="Name(s) of the context document(s) to create.")
     ],
-    plan: Annotated[
-        str | None,
-        typer.Option("--plan", "-p", help="Plan to add contexts to; defaults to the current plan."),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option(
-            "--tag", help="Tag(s) to apply to every created context. Repeat for multiple tags."
-        ),
-    ] = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
+    tags: TAGS = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create one or more context documents in a plan."""
@@ -70,29 +69,13 @@ def context_add(  # noqa: PLR0913
 
 def context_list(  # noqa: PLR0913
     context: typer.Context,
-    plan: Annotated[
-        str | None,
-        typer.Option(
-            "--plan", "-p", help="Plan whose contexts to list; defaults to the current plan."
-        ),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
     output_format: OUTPUT_FORMAT = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
-    ] = None,
-    sort: Annotated[
-        Literal["name", "created_at", "modified_at"],
-        typer.Option(help="Sort by name, created_at, or modified_at."),
-    ] = "name",
-    descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
-    limit: Annotated[
-        int | None, typer.Option(min=1, help="Maximum results (positive integer).")
-    ] = None,
+    tags: MATCH_TAGS = None,
+    sort: SORT = "name",
+    descending: DESCENDING = False,
+    limit: LIMIT = None,
 ) -> None:
     """List context documents in a plan."""
     with execute(context, "context list", output_format) as run:
@@ -116,16 +99,8 @@ def context_list(  # noqa: PLR0913
 def context_show(
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the context document to show.")],
-    plan: Annotated[
-        str | None,
-        typer.Option(
-            "--plan", "-p", help="Plan containing the context; defaults to the current plan."
-        ),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show context metadata and body."""
@@ -146,16 +121,8 @@ def context_show(
 def context_info(
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the context document to inspect.")],
-    plan: Annotated[
-        str | None,
-        typer.Option(
-            "--plan", "-p", help="Plan containing the context; defaults to the current plan."
-        ),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show context metadata."""
@@ -175,28 +142,11 @@ def context_info(
 def context_update(  # noqa: PLR0913
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the context document to update.")],
-    plan: Annotated[
-        str | None,
-        typer.Option(
-            "--plan", "-p", help="Plan containing the context; defaults to the current plan."
-        ),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    summary: Annotated[
-        str | None,
-        typer.Option("--summary", help="New summary; pass an empty string to clear it."),
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Replace the context's tags. Repeat for multiple tags."),
-    ] = None,
-    clear_tags: Annotated[
-        bool,
-        typer.Option("--clear-tags", help="Remove all tags; mutually exclusive with --tag."),
-    ] = False,
+    plan: PLAN = None,
+    project: PROJECT = None,
+    summary: SUMMARY = None,
+    tags: TAGS = None,
+    clear_tags: CLEAR_TAGS = False,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change context summary or tags."""

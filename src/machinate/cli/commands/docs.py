@@ -1,5 +1,4 @@
-from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated
 
 import typer
 
@@ -12,14 +11,19 @@ from machinate.cli.models import (
     DocUpdateResult,
     PathResult,
 )
-from machinate.cli.options import OUTPUT_FORMAT as _OUTPUT_FORMAT
+from machinate.cli.options import (
+    CLEAR_TAGS,
+    DESCENDING,
+    LIMIT,
+    MATCH_TAGS,
+    OUTPUT_FORMAT,
+    PROJECT,
+    SORT,
+    SUMMARY,
+    TAGS,
+)
 from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
-
-_PROJECT = Annotated[
-    Path | None,
-    typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-]
 
 
 def doc_changes(
@@ -38,14 +42,9 @@ def doc_changes(
 def doc_add(
     context: typer.Context,
     names: Annotated[list[str], typer.Argument(help="Name(s) of the document(s) to create.")],
-    project: _PROJECT = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option(
-            "--tag", help="Tag(s) to apply to every created document. Repeat for multiple tags."
-        ),
-    ] = None,
-    output_format: _OUTPUT_FORMAT = None,
+    project: PROJECT = None,
+    tags: TAGS = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create one or more project-level documents."""
     with execute(context, "doc add", output_format) as run:
@@ -61,20 +60,12 @@ def doc_add(
 
 def doc_list(  # noqa: PLR0913
     context: typer.Context,
-    project: _PROJECT = None,
-    output_format: _OUTPUT_FORMAT = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
-    ] = None,
-    sort: Annotated[
-        Literal["name", "created_at", "modified_at"],
-        typer.Option(help="Sort by name, created_at, or modified_at."),
-    ] = "name",
-    descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
-    limit: Annotated[
-        int | None, typer.Option(min=1, help="Maximum results (positive integer).")
-    ] = None,
+    project: PROJECT = None,
+    output_format: OUTPUT_FORMAT = None,
+    tags: MATCH_TAGS = None,
+    sort: SORT = "name",
+    descending: DESCENDING = False,
+    limit: LIMIT = None,
 ) -> None:
     """List project-level documents."""
     with execute(context, "doc list", output_format) as run:
@@ -96,8 +87,8 @@ def doc_list(  # noqa: PLR0913
 def doc_show(
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the document to show.")],
-    project: _PROJECT = None,
-    output_format: _OUTPUT_FORMAT = None,
+    project: PROJECT = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show document metadata and body."""
     with execute(context, "doc show", output_format) as run:
@@ -115,8 +106,8 @@ def doc_show(
 def doc_info(
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the document to inspect.")],
-    project: _PROJECT = None,
-    output_format: _OUTPUT_FORMAT = None,
+    project: PROJECT = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show document metadata."""
     with execute(context, "doc info", output_format) as run:
@@ -132,8 +123,8 @@ def doc_path(
         str | None,
         typer.Argument(help="Document name; omit to print the docs directory."),
     ] = None,
-    project: _PROJECT = None,
-    output_format: _OUTPUT_FORMAT = None,
+    project: PROJECT = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute path of a document or the docs directory."""
     with execute(context, "doc path", output_format) as run:
@@ -163,20 +154,11 @@ def doc_path(
 def doc_update(  # noqa: PLR0913
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the document to update.")],
-    project: _PROJECT = None,
-    summary: Annotated[
-        str | None,
-        typer.Option("--summary", help="New summary; pass an empty string to clear it."),
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Replace the document's tags. Repeat for multiple tags."),
-    ] = None,
-    clear_tags: Annotated[
-        bool,
-        typer.Option("--clear-tags", help="Remove all tags; mutually exclusive with --tag."),
-    ] = False,
-    output_format: _OUTPUT_FORMAT = None,
+    project: PROJECT = None,
+    summary: SUMMARY = None,
+    tags: TAGS = None,
+    clear_tags: CLEAR_TAGS = False,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change document summary or tags."""
     with execute(context, "doc update", output_format) as run:

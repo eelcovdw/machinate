@@ -1,19 +1,15 @@
-from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from machinate.cli.execution import execute
 from machinate.cli.models import InitResult
-from machinate.cli.options import OUTPUT_FORMAT
+from machinate.cli.options import OUTPUT_FORMAT, PROJECT
 
 
 def init_project(
     context: typer.Context,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact directory to initialize; defaults to current."),
-    ] = None,
+    project: PROJECT = None,
     project_name: Annotated[
         str | None, typer.Option("--project-name", help="Project name; defaults to directory name.")
     ] = None,

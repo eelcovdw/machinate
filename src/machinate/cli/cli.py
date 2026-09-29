@@ -11,7 +11,7 @@ from .commands.schema import schema_command
 from .dependencies import Dependencies, get_dependencies, get_settings
 from .errors import EXIT_USAGE, describe_error
 from .execution import resolve_formatter
-from .formatting import Formatter, UnknownFormatError
+from .formatting import JsonFormatter, UnknownFormatError
 from .help import plain_help_sections
 from .models import ErrorResult
 from .settings import Settings
@@ -73,7 +73,7 @@ def _report_usage_error(
 ) -> None:
     """Format a usage failure using the flag, settings, or default formatter."""
     message = exc.format_message()
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
+    formatter = JsonFormatter()  # Structured fallback if settings/format selection fails.
     override_name: object = None
     if original_args is not None:
         # Recover parsed options without invoking callbacks or normal help.

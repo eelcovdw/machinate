@@ -7,14 +7,14 @@ from typing import cast
 import click
 from pydantic import ValidationError
 
-from .formatting import Formatter, TextFormatter
+from .formatting import Formatter, JsonFormatter, TextFormatter
 from .models import ProjectScope
 from .project_setup import ProjectContext, initialize_project, prepare_project
 from .settings import Settings
 
 
 def default_formatters() -> dict[str, Formatter]:
-    return {"json": Formatter(), "text": TextFormatter()}
+    return {"json": JsonFormatter(), "text": TextFormatter()}
 
 
 @dataclass(frozen=True)

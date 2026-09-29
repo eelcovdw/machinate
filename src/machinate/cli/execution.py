@@ -19,7 +19,7 @@ from machinate.storage.errors import StorageError
 
 from .dependencies import Dependencies, get_dependencies, get_settings
 from .errors import EXIT_ERROR, PlanSelectionError, describe_error
-from .formatting import Formatter, UnknownFormatError, select_formatter
+from .formatting import Formatter, JsonFormatter, UnknownFormatError, select_formatter
 from .models import (
     CommandResult,
     ContextAddResult,
@@ -128,7 +128,7 @@ def execute(
     execution = Execution(
         dependencies=dependencies,
         settings=Settings.model_construct(),  # Replaced below, once settings resolve.
-        formatter=Formatter(),  # Structured fallback if settings/format selection fails.
+        formatter=JsonFormatter(),  # Structured fallback if settings/format selection fails.
         command=command,
     )
     try:

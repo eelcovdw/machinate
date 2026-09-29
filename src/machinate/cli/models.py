@@ -11,9 +11,9 @@ from machinate.models.documents import (
     PlanRecord,
     TaskMetadata,
 )
-from machinate.models.errors import ErrorCode
 from machinate.models.operations import (
     BatchCreated,
+    ErrorCode,
     FindEntry,
     PlanOverview,
     ProjectOverview,

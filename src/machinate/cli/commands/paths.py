@@ -1,27 +1,17 @@
-from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from machinate.cli.execution import execute
 from machinate.cli.models import PathResult
-from machinate.cli.options import OUTPUT_FORMAT as _OUTPUT_FORMAT
-
-_PLAN = Annotated[
-    str | None,
-    typer.Option("--plan", "-p", help="Plan to target; defaults to the current plan."),
-]
-_PROJECT = Annotated[
-    Path | None,
-    typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-]
+from machinate.cli.options import OUTPUT_FORMAT, PLAN, PROJECT
 
 
 def plan_path(
     context: typer.Context,
-    plan: _PLAN = None,
-    project: _PROJECT = None,
-    output_format: _OUTPUT_FORMAT = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute editing path of a plan document."""
     with execute(context, "plan path", output_format) as run:
@@ -45,9 +35,9 @@ def task_path(
         str | None,
         typer.Argument(help="Task name; omit to print the plan's tasks directory."),
     ] = None,
-    plan: _PLAN = None,
-    project: _PROJECT = None,
-    output_format: _OUTPUT_FORMAT = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute path of a task document or the tasks directory."""
     with execute(context, "task path", output_format) as run:
@@ -83,9 +73,9 @@ def context_path(
         str | None,
         typer.Argument(help="Context name; omit to print the plan's context directory."),
     ] = None,
-    plan: _PLAN = None,
-    project: _PROJECT = None,
-    output_format: _OUTPUT_FORMAT = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute path of a context document or the context directory."""
     with execute(context, "context path", output_format) as run:
