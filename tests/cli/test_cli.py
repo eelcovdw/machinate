@@ -158,9 +158,9 @@ def test_symlinked_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
 def test_query_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     populate(project)
     application = prepare_project(project)
-    summaries = application.plans.list()[::-1]
+    summaries = application.plans.list_records()[::-1]
     listing = Mock(return_value=summaries)
-    monkeypatch.setattr(application.plans, "list", listing)
+    monkeypatch.setattr(application.plans, "list_records", listing)
     factory = Mock(return_value=application)
     result = runner.invoke(
         create_cli(Dependencies(settings=DEFAULT_SETTINGS, prepare_project=factory)),

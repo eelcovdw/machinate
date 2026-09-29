@@ -126,7 +126,7 @@ def task_list(  # noqa: PLR0913
             command="task list",
             project=project_context.project,
             plan=plan_name,
-            tasks=project_context.tasks.list(plan_name, query),
+            tasks=project_context.tasks.list_records(plan_name, query),
             group_by="status" if group else None,
         )
         run.render(result)

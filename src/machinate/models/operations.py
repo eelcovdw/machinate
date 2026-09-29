@@ -42,8 +42,38 @@ class StatusCreateInput[S: str](CreateInput):
 # --- Update models ---------------------------------------------------------
 
 
+def _apply_updates[M: Metadata](
+    updates: dict[str, object], document: ParsedDocument[M]
+) -> ParsedDocument[M] | None:
+    """Return a document with the proposed metadata updates, or None when unchanged."""
+    if not updates:
+        return None
+    metadata = document.metadata.model_copy(update=updates)
+    return document.model_copy(update={"metadata": metadata})
+
+
+def _summary_tag_updates[M: Metadata](
+    document: ParsedDocument[M],
+    *,
+    summary: str | None,
+    tags: list[Tag] | None,
+    fields_set: set[str],
+) -> dict[str, object]:
+    """The summary/tag fields an update would change, keyed by field name."""
+    updates: dict[str, object] = {}
+    if "summary" in fields_set:
+        proposed_summary = summary or None
+        if proposed_summary != document.metadata.summary:
+            updates["summary"] = proposed_summary
+    if "tags" in fields_set:
+        proposed_tags = tags if tags is not None else []
+        if proposed_tags != document.metadata.tags:
+            updates["tags"] = proposed_tags
+    return updates
+
+
 class DocumentUpdate(BaseModel):
-    """Fields a document update may change; subclasses add domain-specific ones."""
+    """Summary and tag changes for a document that has no status."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", validate_assignment=True)
 
@@ -51,39 +81,31 @@ class DocumentUpdate(BaseModel):
     tags: list[Tag] | None = None
 
     def apply_to[M: Metadata](self, document: ParsedDocument[M]) -> ParsedDocument[M] | None:
-        """Return a document with this update applied, or None when nothing changed.
-
-        Only fields explicitly set are considered; an update whose values already
-        match the document reports no change, so the file is not rewritten.
-        """
-        updates = self._proposed_updates(document)
-        if not updates:
-            return None
-        metadata = document.metadata.model_copy(update=updates)
-        return document.model_copy(update={"metadata": metadata})
-
-    def _proposed_updates[M: Metadata](self, document: ParsedDocument[M]) -> dict[str, object]:
-        """Metadata fields this update would change, keyed by field name."""
-        updates: dict[str, object] = {}
-        if "summary" in self.model_fields_set:
-            summary = self.summary or None
-            if summary != document.metadata.summary:
-                updates["summary"] = summary
-        if "tags" in self.model_fields_set:
-            proposed_tags = self.tags if self.tags is not None else []
-            if proposed_tags != document.metadata.tags:
-                updates["tags"] = proposed_tags
-        return updates
+        """Return a document with this update applied, or None when nothing changed."""
+        updates = _summary_tag_updates(
+            document, summary=self.summary, tags=self.tags, fields_set=self.model_fields_set
+        )
+        return _apply_updates(updates, document)
 
 
-class StatusUpdate[S: str](DocumentUpdate):
-    """An update that may change a status; an unset status leaves it unchanged."""
+class StatusUpdate[S: str](BaseModel):
+    """Summary, tag, and status changes for a document that has a status.
 
+    This is deliberately not a ``DocumentUpdate``: a status update can only reach a
+    service whose documents have a status. An unset status leaves it unchanged.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", validate_assignment=True)
+
+    summary: str | None = None
+    tags: list[Tag] | None = None
     status: S | None = None
 
-    @override
-    def _proposed_updates[M: Metadata](self, document: ParsedDocument[M]) -> dict[str, object]:
-        updates = super()._proposed_updates(document)
+    def apply_to[M: Metadata](self, document: ParsedDocument[M]) -> ParsedDocument[M] | None:
+        """Return a document with this update applied, or None when nothing changed."""
+        updates = _summary_tag_updates(
+            document, summary=self.summary, tags=self.tags, fields_set=self.model_fields_set
+        )
         metadata = document.metadata
         if (
             "status" in self.model_fields_set
@@ -91,7 +113,7 @@ class StatusUpdate[S: str](DocumentUpdate):
             and not metadata.status_matches(self.status)
         ):
             updates["status"] = self.status
-        return updates
+        return _apply_updates(updates, document)
 
 
 # --- Queries ---------------------------------------------------------------
@@ -229,4 +251,5 @@ class ProjectOverview(BaseModel):
     plans_by_status: dict[PlanStatus, int]
     tasks_by_status: dict[TaskStatus, int]
     context_count: int
+    doc_count: int
     recent_plans: list[PlanRecord]

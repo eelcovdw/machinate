@@ -118,7 +118,7 @@ def list_plans(  # noqa: PLR0913
             PlanListResult(
                 command="plan list",
                 project=project_context.project,
-                plans=project_context.plans.list(query),
+                plans=project_context.plans.list_records(query),
                 current_plan=project_context.plans.current_name(),
                 group_by="status" if group else None,
             )
@@ -142,7 +142,7 @@ def info_command(
             InfoResult(
                 command="info",
                 project=project_context.project,
-                overview=project_context.plans.project_overview(),
+                overview=project_context.overviews.project_overview(),
             )
         )
 
@@ -169,7 +169,7 @@ def plan_info_command(
             PlanInfoResult(
                 command="plan info",
                 project=project_context.project,
-                overview=project_context.plans.plan_overview(plan_name),
+                overview=project_context.overviews.plan_overview(plan_name),
             )
         )
 

@@ -5,7 +5,7 @@ import typer
 
 from machinate.cli.execution import execute
 from machinate.cli.models import FindResult
-from machinate.models.operations import DEFAULT_GLOB, FindQuery
+from machinate.models.operations import FindQuery
 
 
 def find_command(  # noqa: PLR0913
@@ -101,13 +101,14 @@ def find_command(  # noqa: PLR0913
             payload["limit"] = limit
         find_query = FindQuery.model_validate(payload)
         project_context = run.prepare(project)
+        matches = project_context.search.find(find_query)
         run.render(
             FindResult(
                 command="find",
                 project=project_context.project,
                 plan=find_query.plan,
                 query=find_query.query,
-                globs=find_query.globs or [DEFAULT_GLOB],
-                entries=project_context.search.find(find_query),
+                globs=matches.globs,
+                entries=matches.entries,
             )
         )

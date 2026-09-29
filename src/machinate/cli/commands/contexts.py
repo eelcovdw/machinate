@@ -111,7 +111,7 @@ def context_list(  # noqa: PLR0913
             command="context list",
             project=project_context.project,
             plan=plan_name,
-            contexts=project_context.contexts.list(plan_name, query),
+            contexts=project_context.contexts.list_records(plan_name, query),
         )
         run.render(result)
 

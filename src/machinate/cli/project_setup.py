@@ -4,6 +4,7 @@ from pathlib import Path
 from machinate.models.documents import NAME_ADAPTER
 from machinate.services.context import ContextService
 from machinate.services.doc import DocService
+from machinate.services.overview import OverviewService
 from machinate.services.plan import PlanService
 from machinate.services.search import SearchService
 from machinate.services.task import TaskService
@@ -23,6 +24,7 @@ class ProjectContext:
     tasks: TaskService
     contexts: ContextService
     docs: DocService
+    overviews: OverviewService
     search: SearchService
 
 
@@ -75,11 +77,16 @@ def prepare_project(explicit: Path | None = None) -> ProjectContext:
     state = state_store.read()
     layout = Layout()
     document_store = DocumentStore(storage)
+    plans = PlanService(document_store, layout, state_store)
+    tasks = TaskService(document_store, layout)
+    contexts = ContextService(document_store, layout)
+    docs = DocService(document_store, layout)
     return ProjectContext(
         project=ProjectScope(name=state.project_name, directory=directory, storage=storage),
-        plans=PlanService(document_store, layout, state_store),
-        tasks=TaskService(document_store, layout),
-        contexts=ContextService(document_store, layout),
-        docs=DocService(document_store, layout),
+        plans=plans,
+        tasks=tasks,
+        contexts=contexts,
+        docs=docs,
+        overviews=OverviewService(plans, tasks, contexts, docs),
         search=SearchService(document_store, layout),
     )

@@ -46,7 +46,7 @@ def search(tmp_path: Path) -> SearchService:
 
 
 def paths(search: SearchService, query: FindQuery | None = None) -> list[str]:
-    return [entry.path.as_posix() for entry in search.find(query)]
+    return [entry.path.as_posix() for entry in search.find(query).entries]
 
 
 def test_default_listing_is_sorted_and_excludes_non_markdown(search: SearchService) -> None:
@@ -61,7 +61,7 @@ def test_default_listing_is_sorted_and_excludes_non_markdown(search: SearchServi
 
 
 def test_listing_has_no_scores(search: SearchService) -> None:
-    entries = search.find(FindQuery())
+    entries = search.find(FindQuery()).entries
     assert all(entry.score is None for entry in entries)
 
 
@@ -84,7 +84,7 @@ def test_symlinked_file_is_indexed_and_dangling_symlink_is_skipped(search: Searc
 
 
 def test_membership_is_derived_from_path(search: SearchService) -> None:
-    by_path = {entry.path.as_posix(): entry for entry in search.find(FindQuery())}
+    by_path = {entry.path.as_posix(): entry for entry in search.find(FindQuery()).entries}
     assert (by_path["plans/auth/plan.md"].kind, by_path["plans/auth/plan.md"].name) == (
         "plan",
         "auth",
@@ -151,16 +151,16 @@ def test_regex_needs_opt_in_and_a_field(search: SearchService) -> None:
         "plans/auth/context/oauth.md"
     ]
     with pytest.raises(ValueError, match="Regex"):
-        search.find(FindQuery(query="path:/.*oauth.*/"))
+        _ = search.find(FindQuery(query="path:/.*oauth.*/")).entries
 
 
 def test_limit_applies_after_ranking(search: SearchService) -> None:
-    assert len(search.find(FindQuery(query="plan", limit=2))) == 2
+    assert len(search.find(FindQuery(query="plan", limit=2)).entries) == 2
     assert paths(search, FindQuery(limit=1)) == ["misc/random.md"]
 
 
 def test_plan_scope_narrows_results(search: SearchService) -> None:
-    entries = search.find(FindQuery(plan="auth"))
+    entries = search.find(FindQuery(plan="auth")).entries
     assert entries
     assert all(entry.plan == "auth" for entry in entries)
     assert all(entry.path.as_posix().startswith("plans/auth/") for entry in entries)

@@ -258,6 +258,10 @@ class DocumentStore:
             matching_documents.reverse()
         return matching_documents if query.limit is None else matching_documents[: query.limit]
 
+    def count_files(self, collection: DocumentCollection) -> int:
+        """Count a collection's files without parsing any of them."""
+        return len(self._find_matching_files(collection))
+
 
 def _glob_regular_files(
     directory: Path, patterns: list[str], *, include_dotfiles: bool

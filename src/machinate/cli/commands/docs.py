@@ -89,7 +89,7 @@ def doc_list(  # noqa: PLR0913
         result = DocListResult(
             command="doc list",
             project=project_context.project,
-            docs=project_context.docs.list(query),
+            docs=project_context.docs.list_records(query),
         )
         run.render(result)
 

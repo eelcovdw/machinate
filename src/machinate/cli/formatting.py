@@ -252,6 +252,7 @@ def render_info(result: InfoResult) -> str:
             f"{sum(overview.tasks_by_status.values())} ({_counts(overview.tasks_by_status)})",
         ),
         _field("Contexts", str(overview.context_count)),
+        _field("Docs", str(overview.doc_count)),
     ]
     if overview.recent_plans:
         lines.append(Text("Recent plans:", style=HEADING))
