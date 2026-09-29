@@ -57,15 +57,10 @@ status grouping. Plan statuses are `draft|active|done`; task statuses are
 """
 
 
-def build_instructions() -> str:
-    """Return the paste-ready description of the machinate CLI."""
-    return _INSTRUCTIONS
-
-
 def instructions_command(
     context: typer.Context,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print a paste-ready description of the machinate CLI for agent instruction files."""
-    with execute(context, "instructions", output_format) as run:
-        run.render(InstructionsResult(command="instructions", text=build_instructions()))
+    with execute(context, output_format) as run:
+        run.render(InstructionsResult(command="instructions", text=_INSTRUCTIONS))

@@ -9,7 +9,6 @@ from machinate.cli.models import (
     DocListResult,
     DocShowResult,
     DocUpdateResult,
-    PathResult,
 )
 from machinate.cli.options import (
     CLEAR_TAGS,
@@ -26,30 +25,20 @@ from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 
 
-def doc_changes(
-    summary: str | None,
-    tags: list[str] | None,
-    clear_tags: bool = False,
-) -> DocumentUpdate:
-    """Validate provided options and build a doc update with only the changed fields."""
-    return build_update(
-        DocumentUpdate,
-        UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
-        hint="--summary, --tag, or --clear-tags",
-    )
-
-
-def doc_add(
+def doc_add(  # noqa: PLR0913
     context: typer.Context,
     names: Annotated[list[str], typer.Argument(help="Name(s) of the document(s) to create.")],
     project: PROJECT = None,
     tags: TAGS = None,
+    summary: SUMMARY = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create one or more project-level documents."""
-    with execute(context, "doc add", output_format) as run:
+    with execute(context, output_format) as run:
         project_context = run.prepare(project)
-        batch = project_context.docs.create_batch(names, CreateInput(tags=tags or []))
+        batch = project_context.docs.create_batch(
+            names, CreateInput(tags=tags or [], summary=summary)
+        )
         result = DocAddResult(
             command="doc add",
             project=project_context.project,
@@ -68,7 +57,7 @@ def doc_list(  # noqa: PLR0913
     limit: LIMIT = None,
 ) -> None:
     """List project-level documents."""
-    with execute(context, "doc list", output_format) as run:
+    with execute(context, output_format) as run:
         query = DocumentQuery(
             tags=set(tags) if tags is not None else None,
             sort=sort,
@@ -91,7 +80,7 @@ def doc_show(
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show document metadata and body."""
-    with execute(context, "doc show", output_format) as run:
+    with execute(context, output_format) as run:
         project_context = run.prepare(project)
         document = project_context.docs.get(name)
         result = DocShowResult(
@@ -110,7 +99,7 @@ def doc_info(
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show document metadata."""
-    with execute(context, "doc info", output_format) as run:
+    with execute(context, output_format) as run:
         project_context = run.prepare(project)
         document = project_context.docs.info(name)
         result = DocInfoResult(command="doc info", project=project_context.project, doc=document)
@@ -127,28 +116,10 @@ def doc_path(
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute path of a document or the docs directory."""
-    with execute(context, "doc path", output_format) as run:
-        doc_name = name
+    with execute(context, output_format) as run:
         project_context = run.prepare(project)
-        scope = project_context.project
-        if doc_name is None:
-            target = scope.storage / project_context.docs.directory()
-            result = PathResult(
-                command="doc path",
-                project=scope,
-                path=target,
-                kind="docs_directory",
-                exists=target.is_dir(),
-            )
-        else:
-            target = scope.storage / project_context.docs.path(doc_name)
-            result = PathResult(
-                command="doc path",
-                project=scope,
-                path=target,
-                kind="doc",
-            )
-        run.render(result)
+        located = project_context.docs.locate(name)
+        run.render_path(command="doc path", plan=None, located=located)
 
 
 def doc_update(  # noqa: PLR0913
@@ -161,8 +132,12 @@ def doc_update(  # noqa: PLR0913
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change document summary or tags."""
-    with execute(context, "doc update", output_format) as run:
-        changes = doc_changes(summary, tags, clear_tags)
+    with execute(context, output_format) as run:
+        changes = build_update(
+            DocumentUpdate,
+            UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
+            hint="--summary, --tag, or --clear-tags",
+        )
         project_context = run.prepare(project)
         updated = project_context.docs.update(name, changes)
         result = DocUpdateResult(

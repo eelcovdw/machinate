@@ -35,26 +35,32 @@ def find_command(  # noqa: PLR0913
     limit: LIMIT = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    r"""Search files under the project's .machi store.
+    """Search files under the project's .machi store.
 
+    \b
     Scope
 
+    \b
       By default every plan in the project is searched. --plan narrows the
       search to one plan; --project targets an exact project directory
       instead of discovering one upward.
 
+    \b
     QUERY allows one typo and prefix matching by default: `authent`
     matches `authentication`. `--exact` disables both. Quote phrases: an
     unquoted multi-word query is rejected as extra arguments.
 
+    \b
     --glob filters by filesystem path and is ANDed with QUERY; repeats are
     ORed. Patterns are relative to the search scope -- the .machi store
     without --plan, the selected plan's directory with --plan -- so quote
     them and include the `plans/` prefix only at project scope. Regexes
     are field-scoped and need --regex.
 
+    \b
     Examples
 
+    \b
       machi find auth
       machi find '"auth token"'
       machi find body:config --plan v2
@@ -62,8 +68,10 @@ def find_command(  # noqa: PLR0913
       machi find --plan v2 --glob 'tasks/**/*.md'
       machi find 'path:/conf.*/' --regex
 
+    \b
     QUERY uses the tantivy query language:
 
+    \b
       term              token match; fuzzy (one typo) and prefix by default
       "two words"       phrase match
       "two words"~1     allowing one intervening word
@@ -72,13 +80,14 @@ def find_command(  # noqa: PLR0913
       +term / -term     required / excluded
       a AND b, a OR b   boolean, AND binds tighter
       term^2            boost a term
-      field:\[a TO c]    lexicographic range ({} for exclusive)
-      field: IN \[a b]   set membership
+      field:\\[a TO c]    lexicographic range ({} for exclusive)
+      field: IN \\[a b]   set membership
       *                 every document
 
+    \b
     Results list matching paths only.
     """
-    with execute(context, "find", output_format) as run:
+    with execute(context, output_format) as run:
         find_query = FindQuery(
             query=query,
             globs=glob or [],

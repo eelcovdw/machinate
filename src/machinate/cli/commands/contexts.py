@@ -26,19 +26,6 @@ from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 
 
-def context_changes(
-    summary: str | None,
-    tags: list[str] | None,
-    clear_tags: bool = False,
-) -> DocumentUpdate:
-    """Validate provided options and build a context update with only the changed fields."""
-    return build_update(
-        DocumentUpdate,
-        UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
-        hint="--summary, --tag, or --clear-tags",
-    )
-
-
 def context_add(  # noqa: PLR0913
     context: typer.Context,
     names: Annotated[
@@ -47,14 +34,15 @@ def context_add(  # noqa: PLR0913
     plan: PLAN = None,
     project: PROJECT = None,
     tags: TAGS = None,
+    summary: SUMMARY = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create one or more context documents in a plan."""
-    with execute(context, "context add", output_format) as run:
+    with execute(context, output_format) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         batch = project_context.contexts.create_batch(
-            plan_name, names, CreateInput(tags=tags or [])
+            plan_name, names, CreateInput(tags=tags or [], summary=summary)
         )
         result = ContextAddResult(
             command="context add",
@@ -78,7 +66,7 @@ def context_list(  # noqa: PLR0913
     limit: LIMIT = None,
 ) -> None:
     """List context documents in a plan."""
-    with execute(context, "context list", output_format) as run:
+    with execute(context, output_format) as run:
         query = DocumentQuery(
             tags=set(tags) if tags is not None else None,
             sort=sort,
@@ -104,7 +92,7 @@ def context_show(
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show context metadata and body."""
-    with execute(context, "context show", output_format) as run:
+    with execute(context, output_format) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         document = project_context.contexts.get(plan_name, name)
@@ -126,7 +114,7 @@ def context_info(
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show context metadata."""
-    with execute(context, "context info", output_format) as run:
+    with execute(context, output_format) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         document = project_context.contexts.info(plan_name, name)
@@ -150,8 +138,12 @@ def context_update(  # noqa: PLR0913
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change context summary or tags."""
-    with execute(context, "context update", output_format) as run:
-        changes = context_changes(summary, tags, clear_tags)
+    with execute(context, output_format) as run:
+        changes = build_update(
+            DocumentUpdate,
+            UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
+            hint="--summary, --tag, or --clear-tags",
+        )
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.contexts.update(plan_name, name, changes)
@@ -163,3 +155,21 @@ def context_update(  # noqa: PLR0913
             body=updated.body,
         )
         run.render(result)
+
+
+def context_path(
+    context: typer.Context,
+    name: Annotated[
+        str | None,
+        typer.Argument(help="Context name; omit to print the plan's context directory."),
+    ] = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
+    output_format: OUTPUT_FORMAT = None,
+) -> None:
+    """Print the absolute path of a context document or the context directory."""
+    with execute(context, output_format) as run:
+        project_context = run.prepare(project)
+        plan_name = run.determine_plan_name(project_context.plans, plan)
+        located = project_context.contexts.locate(plan_name, name)
+        run.render_path(command="context path", plan=plan_name, located=located)

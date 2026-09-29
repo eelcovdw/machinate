@@ -186,6 +186,14 @@ class DocumentStore:
         except (OSError, ValueError) as exc:
             raise StorageError(relative, exc) from exc
 
+    def absolute_path(self, path: str | PurePosixPath) -> Path:
+        """Resolve a store-relative path against the store root."""
+        return self.root / RELATIVE_PATH_ADAPTER.validate_python(path)
+
+    def is_directory(self, path: str | PurePosixPath) -> bool:
+        """Report whether a store-relative path is an existing directory."""
+        return (self.root / RELATIVE_PATH_ADAPTER.validate_python(path)).is_dir()
+
     def _find_matching_files(self, scope: DocumentScope) -> list[FileMetadata]:
         try:
             directory = self.root / scope.path

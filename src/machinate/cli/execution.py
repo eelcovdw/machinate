@@ -6,13 +6,14 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn
+from typing import Literal, NoReturn
 
 import click
 import typer
 from pydantic import ValidationError
 
 from machinate.models.documents import LoadedPlan
+from machinate.services.document import LocatedPath
 from machinate.services.errors import NotFoundError, ServiceError
 from machinate.services.plan import PlanService
 from machinate.storage.errors import StorageError
@@ -25,6 +26,7 @@ from .models import (
     ContextAddResult,
     DocAddResult,
     ErrorResult,
+    PathResult,
     ProjectScope,
     TaskAddResult,
 )
@@ -40,7 +42,20 @@ DEFAULT_ERRORS: tuple[type[Exception], ...] = (
     OSError,
 )
 
+type PathCommand = Literal["plan path", "task path", "context path", "doc path"]
+
 _ADD_RESULTS_WITH_BATCH = (TaskAddResult, ContextAddResult, DocAddResult)
+
+
+def command_label(ctx: click.Context) -> str:
+    """Build the space-separated command path from the click context."""
+    names: list[str] = []
+    current = ctx
+    while current.parent is not None:
+        if current.info_name:
+            names.append(current.info_name)
+        current = current.parent
+    return " ".join(reversed(names)) or "machi"
 
 
 def resolve_formatter(
@@ -88,6 +103,32 @@ class Execution:
         if isinstance(result, _ADD_RESULTS_WITH_BATCH) and result.batch.errors:
             raise typer.Exit(EXIT_ERROR)
 
+    def render_path(
+        self,
+        *,
+        command: PathCommand,
+        plan: str | None,
+        located: LocatedPath,
+    ) -> None:
+        """Render the absolute path, kind, and existence of a document or directory."""
+        self.render(
+            PathResult(
+                command=command,
+                project=self.require_project(),
+                plan=plan,
+                path=located.path,
+                kind=located.kind,
+                exists=located.exists,
+            )
+        )
+
+    def require_project(self) -> ProjectScope:
+        """Return the prepared project's scope, failing if the command did not prepare one."""
+        if self.project is None:
+            msg = "Project has not been prepared."
+            raise RuntimeError(msg)
+        return self.project
+
     def determine_plan_name(self, plans: PlanService, name: str | None) -> str:
         """Determine the explicit or current plan name, enforcing agent targeting."""
         if name is not None:
@@ -120,7 +161,6 @@ class Execution:
 @contextmanager
 def execute(
     context: click.Context,
-    command: str,
     output_format: str | None,
 ) -> Generator[Execution]:
     """Resolve settings and formatter, and route failures to structured error output."""
@@ -129,7 +169,7 @@ def execute(
         dependencies=dependencies,
         settings=Settings.model_construct(),  # Replaced below, once settings resolve.
         formatter=JsonFormatter(),  # Structured fallback if settings/format selection fails.
-        command=command,
+        command=command_label(context),
     )
     try:
         execution.settings = get_settings(context)

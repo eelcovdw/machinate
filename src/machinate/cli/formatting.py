@@ -331,6 +331,7 @@ def _list[M: Metadata](  # noqa: PLR0913
     return _render(lines)
 
 
+# One branch per result model; the explicit match is the point (see assert_never below).
 def render_text(result: CommandResult) -> str:  # noqa: C901, PLR0911, PLR0912
     """Render a command result as text; every result must have a renderer."""
     match result:

@@ -9,17 +9,19 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Protocol
 
 from machinate.models.documents import (
     NESTED_NAME_ADAPTER,
+    CollectionKind,
     DocumentRecord,
     LoadedDocument,
     Metadata,
     Name,
     NestedName,
     ParsedDocument,
+    PathKind,
 )
 from machinate.models.operations import (
     BatchCreated,
@@ -57,14 +59,26 @@ class Collection[M: Metadata]:
 
     ``storage`` and ``path`` take the owning plan name; plan and doc ignore it.
     ``requires_plan`` controls whether the owning plan must exist first. ``kind`` is
-    the singular noun used in domain errors (``not found``, ``already exists``).
+    the singular noun used in domain errors (``not found``, ``already exists``);
+    ``directory_kind`` names the collection directory, or is ``None`` when the kind has
+    no directory command (plans).
     """
 
-    kind: str
+    kind: CollectionKind
     metadata_type: type[M]
     storage: Callable[[Name | None], StorageCollection]
     path: Callable[[Name | None, NestedName], PurePosixPath]
     requires_plan: bool = True
+    directory_kind: PathKind | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LocatedPath:
+    """An absolute editing path, its kind, and whether it currently exists."""
+
+    path: Path
+    kind: PathKind
+    exists: bool
 
 
 def ensure_plan(plan: Name | None) -> Name:
@@ -113,6 +127,26 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
 
     def _directory(self, plan: Name | None) -> PurePosixPath:
         return self.collection.storage(plan).path
+
+    def _locate(self, plan: Name | None, name: NestedName | None) -> LocatedPath:
+        """Resolve a document or collection directory to an absolute path and its state."""
+        if name is None:
+            directory_kind = self.collection.directory_kind
+            if directory_kind is None:
+                msg = f"{self.collection.kind} has no collection directory"
+                raise InputError(msg)
+            relative = self._directory(plan)
+            return LocatedPath(
+                path=self.document_store.absolute_path(relative),
+                kind=directory_kind,
+                exists=self.document_store.is_directory(relative),
+            )
+        relative = self._path(plan, name)
+        return LocatedPath(
+            path=self.document_store.absolute_path(relative),
+            kind=self.collection.kind,
+            exists=True,
+        )
 
     def _path(self, plan: Name | None, name: NestedName) -> PurePosixPath:
         self._require_plan(plan)

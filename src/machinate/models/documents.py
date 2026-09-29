@@ -262,6 +262,16 @@ class ParsedDocument[M: Metadata](BaseModel):
 
 
 type DocumentKind = Literal["plan", "task", "context", "doc", "unknown"]
+type CollectionKind = Literal["plan", "task", "context", "doc"]
+type PathKind = Literal[
+    "plan",
+    "task",
+    "context",
+    "doc",
+    "tasks_directory",
+    "context_directory",
+    "docs_directory",
+]
 
 
 class DocumentMembership(BaseModel):

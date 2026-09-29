@@ -21,7 +21,7 @@ from machinate.models.operations import (
     StatusCreateInput,
     StatusUpdate,
 )
-from machinate.services.document import Collection, DocumentService
+from machinate.services.document import Collection, DocumentService, LocatedPath
 from machinate.storage import DocumentStore, Layout, ProjectState, ProjectStateStore
 
 
@@ -38,6 +38,7 @@ class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):
                 storage=lambda _plan: layout.plan_collection(),
                 path=lambda _plan, name: layout.plan(name),
                 requires_plan=False,
+                directory_kind=None,
             ),
         )
         self.project_state_store: ProjectStateStore = project_state_store
@@ -91,6 +92,10 @@ class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):
     @validate_call
     def directory(self) -> PurePosixPath:
         return self._directory(None)
+
+    @validate_call
+    def locate(self, name: Name) -> LocatedPath:
+        return self._locate(None, name)
 
     @validate_call
     def get(self, name: Name) -> LoadedPlan:

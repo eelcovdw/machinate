@@ -1,5 +1,4 @@
 import json
-from collections.abc import Iterator
 from importlib.metadata import PackageNotFoundError, version
 from typing import Annotated, cast
 
@@ -7,39 +6,18 @@ import typer
 from pydantic import BaseModel
 from pydantic.json_schema import JsonSchemaValue
 
-from machinate.cli.commands.catalog import COMMANDS, CommandSpec
+from machinate.cli.commands.catalog import COMMANDS, CommandSpec, leaves
 from machinate.cli.errors import EXIT_ERROR
 from machinate.cli.models import ErrorResult
 
 
-def _leaves(specs: tuple[CommandSpec, ...]) -> Iterator[CommandSpec]:
-    for spec in specs:
-        if spec.children:
-            yield from _leaves(spec.children)
-        else:
-            yield spec
-
-
 def _result_models(specs: tuple[CommandSpec, ...]) -> list[type[BaseModel]]:
-    return [spec.result for spec in _leaves(specs) if spec.result is not None]
+    return [spec.result for _path, spec in leaves(specs) if spec.result is not None]
 
 
-def _schema_results() -> dict[str, type[BaseModel]]:
-    results: dict[str, type[BaseModel]] = {}
-
-    def walk(specs: tuple[CommandSpec, ...], prefix: str = "") -> None:
-        for spec in specs:
-            path = prefix + spec.name
-            if spec.children:
-                walk(spec.children, prefix=f"{path} ")
-            elif spec.result is not None:
-                results[path] = spec.result
-
-    walk(COMMANDS)
-    return results
-
-
-SCHEMA_RESULTS: dict[str, type[BaseModel]] = _schema_results()
+def schema_results() -> dict[str, type[BaseModel]]:
+    """Map every leaf command path to its result model, computed on demand."""
+    return {path: spec.result for path, spec in leaves(COMMANDS) if spec.result is not None}
 
 
 class UnknownSchemaError(Exception):

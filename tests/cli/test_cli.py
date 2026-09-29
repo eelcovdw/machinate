@@ -445,5 +445,5 @@ def test_group_help_still_prints() -> None:
     dependencies = Dependencies(settings=make_settings(format_name="json"))
     result = runner.invoke(create_cli(dependencies), ["task"])
     assert result.exit_code == 2
-    assert result.stdout
-    assert result.stderr == ""
+    # Click prints the no-args help for a group to stderr; the point is it is not swallowed.
+    assert result.stderr

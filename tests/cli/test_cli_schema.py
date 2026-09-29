@@ -9,8 +9,8 @@ from pydantic.json_schema import JsonSchemaValue
 from typer.testing import CliRunner
 
 from machinate.cli.cli import create_cli
-from machinate.cli.commands.catalog import ALIASES, COMMANDS
-from machinate.cli.commands.schema import SCHEMA_RESULTS
+from machinate.cli.commands.catalog import ALIASES, COMMANDS, leaves
+from machinate.cli.commands.schema import schema_results
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import CommandResult, ErrorResult
 
@@ -58,11 +58,11 @@ def test_schema_lists_all_commands() -> None:
     bundle = _Bundle.model_validate_json(result.stdout)
     assert set(bundle.commands) == {spec.name for spec in COMMANDS}
     assert _flatten(bundle.commands) == {
-        path: f"#/$defs/{model.__name__}" for path, model in SCHEMA_RESULTS.items()
+        path: f"#/$defs/{model.__name__}" for path, model in schema_results().items()
     }
     assert bundle.error.ref == "#/$defs/ErrorResult"
     assert bundle.version
-    for model in [*SCHEMA_RESULTS.values(), ErrorResult]:
+    for model in [*schema_results().values(), ErrorResult]:
         assert model.__name__ in bundle.defs
 
 
@@ -78,7 +78,7 @@ def test_catalog_is_the_single_source_of_truth() -> None:
 
 def test_schema_map_covers_the_command_result_union() -> None:
     union = set(get_args(CommandResult.__value__))  # pyright: ignore[reportAny]
-    assert set(SCHEMA_RESULTS.values()) | {ErrorResult} == union
+    assert set(schema_results().values()) | {ErrorResult} == union
 
 
 def test_schema_refs_resolve() -> None:
@@ -121,6 +121,13 @@ def test_schema_needs_no_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     result = runner.invoke(app, ["schema"])
     assert result.exit_code == 0, result.output
     assert _Bundle.model_validate_json(result.stdout).version
+
+
+def test_every_leaf_result_command_matches_its_catalog_path() -> None:
+    for path, spec in leaves(COMMANDS):
+        assert spec.result is not None
+        command = get_args(spec.result.model_fields["command"].annotation)
+        assert path in command, f"{path} result declares {command!r}"
 
 
 def test_schema_parser_errors_follow_mode() -> None:

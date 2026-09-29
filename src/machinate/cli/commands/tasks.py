@@ -30,34 +30,24 @@ from machinate.models.documents import TaskStatus
 from machinate.models.operations import BatchCreated, StatusCreateInput, StatusUpdate, TaskQuery
 
 
-def task_changes(
-    summary: str | None,
-    status: str | None,
-    tags: list[str] | None,
-    clear_tags: bool = False,
-) -> StatusUpdate[TaskStatus]:
-    """Validate provided options and build a task update with only the changed fields."""
-    return build_update(
-        StatusUpdate[TaskStatus],
-        UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
-        hint="--summary, --status, --tag, or --clear-tags",
-    )
-
-
 def task_add(  # noqa: PLR0913
     context: typer.Context,
     names: Annotated[list[str], typer.Argument(help="Name(s) of the task(s) to create.")],
     plan: PLAN = None,
     project: PROJECT = None,
     tags: TAGS = None,
+    summary: SUMMARY = None,
+    status: TASK_STATUS = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create one or more tasks in a plan."""
-    with execute(context, "task add", output_format) as run:
+    with execute(context, output_format) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         batch = project_context.tasks.create_batch(
-            plan_name, names, StatusCreateInput[TaskStatus](tags=tags or [])
+            plan_name,
+            names,
+            StatusCreateInput[TaskStatus](tags=tags or [], summary=summary, status=status),
         )
         result = TaskAddResult(
             command="task add",
@@ -83,7 +73,7 @@ def task_list(  # noqa: PLR0913
     limit: LIMIT = None,
 ) -> None:
     """List tasks in a plan."""
-    with execute(context, "task list", output_format) as run:
+    with execute(context, output_format) as run:
         query = TaskQuery(
             tags=set(tags) if tags is not None else None,
             statuses=set(statuses) if statuses is not None else None,
@@ -111,7 +101,7 @@ def task_show(
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show task metadata and body."""
-    with execute(context, "task show", output_format) as run:
+    with execute(context, output_format) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         task = project_context.tasks.get(plan_name, name)
@@ -133,7 +123,7 @@ def task_info(
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show task metadata."""
-    with execute(context, "task info", output_format) as run:
+    with execute(context, output_format) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         task = project_context.tasks.info(plan_name, name)
@@ -155,12 +145,12 @@ def update_task(  # noqa: PLR0913
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change task status, summary, or tags."""
-    with execute(
-        context,
-        "task update",
-        output_format,
-    ) as run:
-        changes = task_changes(summary, status, tags, clear_tags)
+    with execute(context, output_format) as run:
+        changes = build_update(
+            StatusUpdate[TaskStatus],
+            UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
+            hint="--summary, --status, --tag, or --clear-tags",
+        )
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.tasks.update(plan_name, name, changes)
@@ -172,3 +162,21 @@ def update_task(  # noqa: PLR0913
             body=updated.body,
         )
         run.render(result)
+
+
+def task_path(
+    context: typer.Context,
+    name: Annotated[
+        str | None,
+        typer.Argument(help="Task name; omit to print the plan's tasks directory."),
+    ] = None,
+    plan: PLAN = None,
+    project: PROJECT = None,
+    output_format: OUTPUT_FORMAT = None,
+) -> None:
+    """Print the absolute path of a task document or the tasks directory."""
+    with execute(context, output_format) as run:
+        project_context = run.prepare(project)
+        plan_name = run.determine_plan_name(project_context.plans, plan)
+        located = project_context.tasks.locate(plan_name, name)
+        run.render_path(command="task path", plan=plan_name, located=located)

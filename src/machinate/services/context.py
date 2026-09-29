@@ -19,7 +19,7 @@ from machinate.models.operations import (
     DocumentQuery,
     DocumentUpdate,
 )
-from machinate.services.document import Collection, DocumentService, ensure_plan
+from machinate.services.document import Collection, DocumentService, LocatedPath, ensure_plan
 from machinate.storage import DocumentStore, Layout
 
 
@@ -34,6 +34,7 @@ class ContextService(DocumentService[ContextMetadata]):
                 storage=lambda plan: layout.context_collection(ensure_plan(plan)),
                 path=lambda plan, name: layout.context(ensure_plan(plan), name),
                 requires_plan=True,
+                directory_kind="context_directory",
             ),
         )
 
@@ -70,6 +71,10 @@ class ContextService(DocumentService[ContextMetadata]):
     @validate_call
     def path(self, plan: Name, name: NestedName) -> PurePosixPath:
         return self._path(plan, name)
+
+    @validate_call
+    def locate(self, plan: Name, name: NestedName | None = None) -> LocatedPath:
+        return self._locate(plan, name)
 
     @validate_call
     def update(

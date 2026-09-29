@@ -18,7 +18,7 @@ from machinate.models.operations import (
     DocumentQuery,
     DocumentUpdate,
 )
-from machinate.services.document import Collection, DocumentService
+from machinate.services.document import Collection, DocumentService, LocatedPath
 from machinate.storage import DocumentStore, Layout
 
 
@@ -33,6 +33,7 @@ class DocService(DocumentService[DocMetadata]):
                 storage=lambda _plan: layout.docs_collection(),
                 path=lambda _plan, name: layout.doc(name),
                 requires_plan=False,
+                directory_kind="docs_directory",
             ),
         )
 
@@ -67,6 +68,10 @@ class DocService(DocumentService[DocMetadata]):
     @validate_call
     def path(self, name: NestedName) -> PurePosixPath:
         return self._path(None, name)
+
+    @validate_call
+    def locate(self, name: NestedName | None = None) -> LocatedPath:
+        return self._locate(None, name)
 
     @validate_call
     def update(self, name: NestedName, changes: DocumentUpdate) -> LoadedDocument[DocMetadata]:

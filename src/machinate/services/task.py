@@ -20,7 +20,7 @@ from machinate.models.operations import (
     StatusUpdate,
     TaskQuery,
 )
-from machinate.services.document import Collection, DocumentService, ensure_plan
+from machinate.services.document import Collection, DocumentService, LocatedPath, ensure_plan
 from machinate.storage import DocumentStore, Layout
 
 
@@ -35,6 +35,7 @@ class TaskService(DocumentService[TaskMetadata, StatusCreateInput[TaskStatus]]):
                 storage=lambda plan: layout.task_collection(ensure_plan(plan)),
                 path=lambda plan, name: layout.task(ensure_plan(plan), name),
                 requires_plan=True,
+                directory_kind="tasks_directory",
             ),
         )
 
@@ -74,6 +75,10 @@ class TaskService(DocumentService[TaskMetadata, StatusCreateInput[TaskStatus]]):
     @validate_call
     def path(self, plan: Name, name: NestedName) -> PurePosixPath:
         return self._path(plan, name)
+
+    @validate_call
+    def locate(self, plan: Name, name: NestedName | None = None) -> LocatedPath:
+        return self._locate(plan, name)
 
     @validate_call
     def update(

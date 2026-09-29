@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 from pydantic import BaseModel
@@ -7,6 +7,7 @@ from machinate.cli.commands.contexts import (
     context_add,
     context_info,
     context_list,
+    context_path,
     context_show,
     context_update,
 )
@@ -20,22 +21,22 @@ from machinate.cli.commands.docs import (
 )
 from machinate.cli.commands.find import find_command
 from machinate.cli.commands.instructions import instructions_command
-from machinate.cli.commands.paths import context_path, plan_path, task_path
 from machinate.cli.commands.plans import (
     add_plan,
-    info_command,
     list_plans,
     plan_info_command,
+    plan_path,
     select_current_plan,
     show_plan,
     unselect_plan,
     update_plan,
 )
-from machinate.cli.commands.projects import init_project
+from machinate.cli.commands.projects import info_command, init_project
 from machinate.cli.commands.tasks import (
     task_add,
     task_info,
     task_list,
+    task_path,
     task_show,
     update_task,
 )
@@ -149,3 +150,15 @@ COMMANDS: tuple[CommandSpec, ...] = (
 # Hidden top-level conveniences that reuse an existing handler. Kept out of COMMANDS
 # so they are neither listed in help nor emitted in the schema bundle.
 ALIASES: tuple[CommandSpec, ...] = (CommandSpec("list", list_plans, PlanListResult),)
+
+
+def leaves(
+    specs: tuple[CommandSpec, ...] = COMMANDS, prefix: str = ""
+) -> Iterator[tuple[str, CommandSpec]]:
+    """Yield each leaf command with its space-separated command path, depth-first."""
+    for spec in specs:
+        path = f"{prefix} {spec.name}".strip()
+        if spec.children:
+            yield from leaves(spec.children, path)
+        else:
+            yield path, spec

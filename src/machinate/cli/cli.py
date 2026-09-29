@@ -10,20 +10,14 @@ from .commands.catalog import ALIASES, COMMANDS, CommandSpec
 from .commands.schema import schema_command
 from .dependencies import Dependencies, get_dependencies, get_settings
 from .errors import EXIT_USAGE, describe_error
-from .execution import resolve_formatter
+from .execution import command_label, resolve_formatter
 from .formatting import JsonFormatter, UnknownFormatError
-from .help import plain_help_sections
 from .models import ErrorResult
 from .settings import Settings
 
 
 class Command(TyperCommand):
     """Render leaf-command parsing failures through the configured formatter."""
-
-    @override
-    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
-        with plain_help_sections():
-            super().format_help(ctx, formatter)
 
     @override
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
@@ -37,11 +31,6 @@ class Command(TyperCommand):
 
 class Group(TyperGroup):
     """Render group parsing failures through the configured formatter."""
-
-    @override
-    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
-        with plain_help_sections():
-            super().format_help(ctx, formatter)
 
     @override
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
@@ -92,20 +81,9 @@ def _report_usage_error(
     except (ValidationError, UnknownFormatError) as formatting_error:
         message = describe_error(formatting_error).message
     typer.echo(
-        formatter.format(ErrorResult(command=_command_label(ctx), error=message, code="input")),
+        formatter.format(ErrorResult(command=command_label(ctx), error=message, code="input")),
         err=True,
     )
-
-
-def _command_label(ctx: click.Context) -> str:
-    """Build the space-separated command path for structured errors."""
-    names: list[str] = []
-    current = ctx
-    while current.parent is not None:
-        if current.info_name:
-            names.append(current.info_name)
-        current = current.parent
-    return " ".join(reversed(names)) or "machi"
 
 
 def configure_logging(settings: Settings) -> None:
@@ -138,7 +116,7 @@ def root(ctx: typer.Context) -> None:
 
 def _register(parent: typer.Typer, spec: CommandSpec) -> None:
     if spec.children:
-        group = typer.Typer(no_args_is_help=True, cls=Group)
+        group = typer.Typer(no_args_is_help=True, cls=Group, rich_markup_mode=None)
         for child in spec.children:
             _register(group, child)
         parent.add_typer(group, name=spec.name, help=spec.help)
@@ -150,6 +128,7 @@ def create_cli(dependencies: Dependencies | None = None) -> typer.Typer:
     cli = typer.Typer(
         no_args_is_help=True,
         cls=Group,
+        rich_markup_mode=None,
         context_settings={"obj": dependencies if dependencies is not None else Dependencies()},
     )
     cli.callback()(root)
