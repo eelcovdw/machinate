@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from machinate.storage.errors import StorageError
 
-from .dependencies import Dependencies, get_dependencies
+from .dependencies import Dependencies, get_dependencies, get_settings
 from .errors import InputError, describe_error
 from .formatting import Formatter, UnknownFormatError, select_formatter
 from .models import CommandResult, ErrorResult, ProjectScope
@@ -30,11 +30,10 @@ DEFAULT_ERRORS: tuple[type[Exception], ...] = (
 
 
 def resolve_formatter(
-    override: str | None, dependencies: Dependencies
-) -> tuple[Settings, Formatter]:
-    """Resolve settings and the effective formatter (--format, then settings, then default)."""
-    settings = Settings()
-    return settings, select_formatter(override or settings.format, dependencies.formatters)
+    override: str | None, settings: Settings, dependencies: Dependencies
+) -> Formatter:
+    """Resolve the effective formatter (--format, then settings, then default)."""
+    return select_formatter(override or settings.format, dependencies.formatters)
 
 
 @dataclass
@@ -83,12 +82,13 @@ def execute(
     dependencies = get_dependencies(context)
     execution = Execution(
         dependencies=dependencies,
-        settings=Settings.model_construct(),  # Safe fallback; resolve_formatter validates.
+        settings=Settings.model_construct(),  # Replaced below, once settings resolve.
         formatter=Formatter(),  # Structured fallback if settings/format selection fails.
         command=command,
     )
     try:
-        execution.settings, execution.formatter = resolve_formatter(output_format, dependencies)
+        execution.settings = get_settings(context)
+        execution.formatter = resolve_formatter(output_format, execution.settings, dependencies)
     except (ValidationError, UnknownFormatError) as exc:
         execution.report(exc)
     try:

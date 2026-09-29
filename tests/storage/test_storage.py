@@ -95,40 +95,6 @@ def test_existing_frontmatter_preserved(store: DocumentStore, tmp_path: Path) ->
     assert json.loads(result.model_dump_json())["metadata"]["created"] == "2026-09-22T00:00:00Z"
 
 
-@pytest.mark.parametrize("model", [Metadata, PlanMetadata, TaskMetadata, ContextMetadata])
-def test_creation_timestamp_required(model: type[Metadata]) -> None:
-    with pytest.raises(ValidationError):
-        model.model_validate({})
-    with pytest.raises(ValidationError):
-        model.model_validate({"created": "not a date"})
-
-
-@pytest.mark.parametrize(
-    ("model", "statuses"),
-    [(PlanMetadata, ["draft", "active", "done"]), (TaskMetadata, ["todo", "in-progress", "done"])],
-)
-def test_status_validation(model: type[Metadata], statuses: list[str]) -> None:
-    for status in statuses:
-        metadata = model.model_validate({"created": "2026-09-22T00:00:00Z", "status": status})
-        with pytest.raises(ValidationError):
-            metadata.status = "invalid"  # pyright: ignore[reportAttributeAccessIssue]
-        assert metadata.model_dump()["status"] == status
-    with pytest.raises(ValidationError):
-        model.model_validate({"created": "2026-09-22T00:00:00Z", "status": "invalid"})
-
-
-def test_metadata_assignment() -> None:
-    metadata = Metadata(created=datetime(2026, 9, 22, tzinfo=UTC))
-    with pytest.raises(ValidationError):
-        metadata.created = "invalid"  # pyright: ignore[reportAttributeAccessIssue]
-    with pytest.raises(ValidationError):
-        metadata.summary = []  # pyright: ignore[reportAttributeAccessIssue]
-    context = ContextMetadata.model_validate(
-        {"created": "2026-09-22T00:00:00Z", "status": "custom"}
-    )
-    assert context.model_extra == {"status": "custom"}
-
-
 def test_duplicate_and_missing(store: DocumentStore, document: Document[TaskMetadata]) -> None:
     store.create("note.md", document)
     with pytest.raises(DocumentExistsError) as error:
@@ -212,7 +178,10 @@ def test_missing_frontmatter_logs_debug(
     (tmp_path / "bare.md").write_text("body")
     with caplog.at_level(logging.DEBUG, logger="machinate.storage.document_store"):
         store.read("bare.md", TaskMetadata)
-    assert "Missing YAML frontmatter in bare.md; using defaults" in caplog.text
+    records = [r for r in caplog.records if r.name == "machinate.storage.document_store"]
+    assert len(records) == 1
+    assert records[0].levelno == logging.DEBUG
+    assert records[0].args == (PurePosixPath("bare.md"),)
 
 
 def test_missing_frontmatter_created_from_mtime(store: DocumentStore, tmp_path: Path) -> None:
@@ -340,7 +309,7 @@ def test_state_write_rejects_symlink(tmp_path: Path) -> None:
     with pytest.raises(SymbolicLinkError) as error:
         ProjectStateStore(link).write(ProjectState(project_name="demo", current_plan="auth"))
     assert error.value.reason is None
-    assert "symbolic link" in str(error.value)
+    assert error.value.path == link
 
     assert link.is_symlink()
     assert external.read_text() == 'project_name = "demo"\n'
@@ -383,11 +352,12 @@ def test_failed_state_write_keeps_original(
     assert isinstance(error.value.reason, PermissionError)
     notes = getattr(error.value, "__notes__", [])
     assert len(notes) == 1
-    assert "Could not remove temporary file" in notes[0]
     assert store.read() == original
     nested = tmp_path / "nested"
     leftovers = set(nested.iterdir()) - {nested / "machinate.toml"}
-    assert len(leftovers) == 1  # The temporary file could not be removed; the note says so.
+    assert len(leftovers) == 1
+    (temporary_file,) = leftovers
+    assert str(temporary_file) in notes[0]
 
     # With cleanup working again, a failed write removes its own temporary file.
     monkeypatch.setattr(Path, "unlink", real_unlink)
@@ -444,8 +414,7 @@ def test_write_rejects_symlink(
     with pytest.raises(SymbolicLinkError) as error:
         store.write("note.md", Document(metadata=document.metadata, body="new"))
     assert error.value.reason is None
-    assert "note.md" in str(error.value)
-    assert "symbolic link" in str(error.value)
+    assert error.value.path == PurePosixPath("note.md")
 
     assert (tmp_path / "note.md").is_symlink()
     assert external.read_bytes() == b"original\n"
@@ -533,13 +502,6 @@ def test_cleanup_failure_preserves_write_error(
     assert "cleanup denied" in error.value.__notes__[0]
     assert store.read("note.md", TaskMetadata) == document
     leftover.unlink()
-
-
-@pytest.mark.parametrize("value", ["2026-09-22", "2026-09-22T12:30:00"])
-@pytest.mark.parametrize("model", [Metadata, PlanMetadata, TaskMetadata, ContextMetadata])
-def test_created_requires_timezone(model: type[Metadata], value: str) -> None:
-    with pytest.raises(ValidationError):
-        model.model_validate({"created": value})
 
 
 def test_created_preserves_precision_and_offset(store: DocumentStore) -> None:

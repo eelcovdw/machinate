@@ -61,11 +61,129 @@ Verification for a change: targeted `pytest`, then the full suite, plus `ruff fo
 - Add a `Result` model for each command and a matching `render_text` in `formatting.py`.
 - Tests with `pytest`.
 
+## Python engineering
+
+### Layering
+
+- Dependencies point one way: `cli` → `services` → `storage`, with `models` shared. Storage
+  knows nothing about plans-as-workflow or output; services know nothing about typer, rich, or
+  formats. CLI code does not read or write store files directly; project discovery and
+  `init` (`cli/project_setup.py`) are the exception.
+- Put logic in the layer that owns it. If a command needs a new rule, it belongs in a service;
+  if a service needs a new path or file operation, it belongs in storage (`Layout`,
+  `DocumentStore`).
+- Layers are a navigation aid, not a doctrine. Don't split data models per layer unless the
+  code demands it: if storage, services, and CLI would each need a near-identical model, use one
+  shared model instead. It's a trade-off. Be consistent, not pedantic about separation of
+  concerns.
+- No rigid architecture patterns (DDD, hexagonal, ports-and-adapters, and so on). The
+  goals are readability, easy navigation, and easy future changes.
+- Pass dependencies in through constructors (`DocService(document_store, layout)`). No module
+  globals holding state, no singletons, no work at import time.
+- Before adding a helper, look for an existing one (`services/batch.py`, `storage/queries.py`,
+  `cli/formatting.py`). Extend it rather than writing a near-copy for one resource type.
+  Plan, task, context, and doc should behave the same unless there is a reason they differ.
+
+### Types and data
+
+- Code must pass `basedpyright` with no new suppressions. Fix the type rather than silencing it.
+  `cast` and `# pyright: ignore[rule]` are only for untyped third-party boundaries (ruamel,
+  `get_args`) and always name the specific rule.
+- No `Any`. Use `object` for truly unknown values and narrow with `isinstance`.
+- Modern syntax only: `list[str]`, `X | None`, `type` aliases, `Self`, `@override`. Never
+  `typing.List`, `Optional`, or `Union`.
+- Pydantic `BaseModel` for anything that crosses a boundary: files, CLI input, command results,
+  JSON output. Validate once at the edge (`@validate_call` on public service methods, constrained
+  `Annotated` types like `Name`); internal `_` methods trust their inputs.
+- Encode invariants in types, not in comments or runtime checks scattered around: `Literal`
+  status values, constrained names and paths, required fields without defaults.
+- Store the source of truth and derive the rest. Don't duplicate a value (counts, paths, flags)
+  when it can be computed from what is already stored.
+- Use `PurePosixPath` for store-relative paths and `Path` only where the real filesystem is
+  touched.
+
+### Functions and APIs
+
+- Small functions with one job. Early returns over nested conditionals.
+- Keyword-only parameters (`*,`) for anything optional or easy to mix up. Required parameters
+  come first. Prefer two clear functions over one function with a boolean mode flag (typer
+  command signatures excepted).
+- Return values, don't mutate arguments. No mutable default arguments.
+- Return a dataclass (or Pydantic model at a boundary) instead of a tuple when naming the
+  fields makes the call site clearer, e.g. several values of the same type or results that get
+  passed around. A tuple is fine for a local one-off whose meaning is obvious from the function
+  name.
+
+### Naming
+
+- Nouns for properties, verbs for methods. Nobody should have to guess whether a name needs
+  parentheses. `record.summary` as a property is right; `record.summary()` as a method or a
+  `get_summary` property is wrong. `calculate_summary()` is right.
+- Properties are cheap and side-effect free: no file I/O, no heavy computation, no mutation.
+  If it reads a file or does real work, it's a method (`read_summary()`).
+- Names say what the code does, up to a point. A function that returns the stored summary or
+  derives one from the body is `determine_summary()`, not `get_summary()` (hides the
+  fallback) and not `get_summary_or_derive_from_body()` (too much).
+- Full consistency: one word per concept and one verb per operation, across the whole codebase
+  and the public surface. `find` vs `search` vs `get_all` for the same thing is a bug. Verb
+  meanings:
+  - `get_x`: look up one; raises if missing.
+  - `find_x`: look up; may return `None`.
+  - `list_x`: return many.
+  - `read_x` / `write_x`: touch the filesystem.
+  - `create_x`: make a new one; fails if it exists.
+  - `build_x` / `to_x`: pure construction or conversion.
+- Booleans read as questions: `is_valid`, `has_tasks`, `exists`.
+- Qualify names when the kind is ambiguous: `relative_path` vs `absolute_path`, a raw input
+  name vs a validated one.
+- The same rules apply to the public surface: JSON field names, CLI flags, command names. Two
+  names for the same value (`modified_at` vs `last_activity_at`) is a naming bug.
+- Name things after the domain (`plan`, `task`, `context`, `doc`, `store`, `layout`). No type
+  suffixes (`name_str`, `plans_list`). No vague names outside local scope: `data`, `result`,
+  `handle`, `process`, `manager`, `utils.py`, `helpers.py`.
+- Short names are fine for locals and temporaries, and common abbreviations (`idx`, `ctx`,
+  `i`, `fn`) are fine anywhere they are idiomatic.
+
+### Explicit over magic
+
+- Keep Python magic to a minimum. Metaprogramming, custom decorators, dynamic code generation,
+  `getattr`/`setattr` by string, registries, and implicit conversion all have their place, but
+  use them only when they clearly pay for themselves. Default to plain, explicit code.
+- Slightly more verbose always beats a condensed shortcut that is hard to read or hides what
+  happens.
+- Example: converting generated Protobuf messages to Pydantic models. Wrong: dump the message to
+  a dict and feed it to `Model.model_validate`. Right: build the model with each field mapped
+  explicitly. The explicit version keeps full type checking, has no hidden behavior, and has no
+  spot where a renamed or mistyped field slips through silently. A new field then needs new
+  code, and that's the point: the change is visible and reviewed.
+
+### Errors
+
+- Raise specific exceptions from the owning layer's hierarchy (`StorageError` subclasses in
+  storage). Never raise or catch bare `Exception`; never swallow an error silently.
+- Wrap lower-level exceptions with context (`raise X(...) from err`) and keep the original as
+  the cause. Translate to user-facing messages and exit codes only in the CLI.
+- Fail loudly on invalid state instead of guessing a fallback. A missing or corrupt file is an
+  error, not an empty result.
+- File writes that replace existing content go through `storage/atomic.py`.
+
+### Style and hygiene
+
+- `ruff` runs with `select = ["ALL"]`. Satisfy the rule; add a `# noqa: RULE` only with a short
+  reason, and don't add per-file ignores without asking.
+- Imports at module top. Deferred imports are only allowed where startup time matters (CLI,
+  `document_store.py`) and are already sanctioned in `pyproject.toml`.
+- Comments explain *why*, not *what*. Docstrings are one line unless the contract is subtle;
+  don't restate the signature.
+- No dead code, commented-out code, speculative parameters, or abstractions with one
+  implementation "for later". Delete code that becomes unused as part of your change.
+- Standard library first. Don't add a dependency without asking.
+
 ## Tests
 
 Test Machinate, not its dependencies or its wording.
 
-- Do not test third-party behavior: typer, rich, click, tantivy, pydantic, upath internals are out
+- Do not test third-party behavior: typer, rich, click, tantivy, pydantic internals are out
   of scope. If a test can only pass or fail because of a library's implementation detail, delete it.
 - Do not assert on rendered prose: help text, docstrings, error wording, or CLI output strings are
   free to change. Assert the structured result (models, exit codes, file state), not the sentence.

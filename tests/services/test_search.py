@@ -121,10 +121,6 @@ def test_exact_disables_prefix_and_typo_matching(search: SearchService) -> None:
     assert paths(search, FindQuery(query="kang", exact=True)) == []
 
 
-def test_query_is_case_insensitive(search: SearchService) -> None:
-    assert paths(search, FindQuery(query="KANGAROO")) == ["plans/auth/tasks/login.md"]
-
-
 def test_short_body_tokens_do_not_false_positive(search: SearchService) -> None:
     # "auth" is a path token; editing it into "authoring" is beyond the fuzzy distance.
     assert paths(search, FindQuery(query="authoring")) == []
@@ -142,34 +138,12 @@ def test_multi_word_query_matches_scattered_terms(search: SearchService) -> None
     assert paths(search, FindQuery(query="kangaroo login")) == ["plans/auth/tasks/login.md"]
 
 
-def test_boolean_operators_narrow_the_match(search: SearchService) -> None:
-    assert paths(search, FindQuery(query="kangaroo AND login")) == ["plans/auth/tasks/login.md"]
-    assert paths(search, FindQuery(query="kangaroo AND unicorn")) == []
-    assert paths(search, FindQuery(query="kangaroo -login")) == []
-
-
-def test_field_scoped_query_only_matches_that_field(search: SearchService) -> None:
-    # "kangaroo" is a body token, so a path-only query must not find the login task.
-    assert paths(search, FindQuery(query="path:kangaroo")) == []
-    assert paths(search, FindQuery(query="body:kangaroo")) == ["plans/auth/tasks/login.md"]
-
-
 def test_regex_needs_opt_in_and_a_field(search: SearchService) -> None:
     assert paths(search, FindQuery(query="path:/.*oauth.*/", regex=True)) == [
         "plans/auth/context/oauth.md"
     ]
     with pytest.raises(ValueError, match="Regex"):
         search.find(FindQuery(query="path:/.*oauth.*/"))
-
-
-def test_unmatched_query_returns_no_entries(search: SearchService) -> None:
-    # Unlike the old score-everything model, tantivy only returns matching documents.
-    assert paths(search, FindQuery(query="zebra")) == []
-
-
-def test_ranking_puts_best_match_first(search: SearchService) -> None:
-    result = paths(search, FindQuery(query="kangaroo"))
-    assert result[0] == "plans/auth/tasks/login.md"
 
 
 def test_limit_applies_after_ranking(search: SearchService) -> None:

@@ -1,25 +1,43 @@
 [project]
 name = "machinate"
 version = "0.1.0"
-description = "Add your description here"
+description = "File-based project planning CLI for coding agents."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Eelco van der Wel", email = "eelcovdw@gmail.com" }
 ]
 requires-python = ">=3.14"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Documentation",
+]
 dependencies = [
+    # Direct click use: cli.py subclasses Group/Command and catches NoArgsIsHelpError.
     "click>=8.3.1,<9",
     "pydantic>=2.12.5",
+    # Reads the three MACHI_* settings.
     "pydantic-settings>=2.12.0",
     "rich>=14.3.2",
+    # Pinned because the round-trip/composer API moved across ruamel 0.18.x.
     "ruamel-yaml>=0.18.16,<0.19",
-    "tantivy>=0.26.2",
+    # Tantivy 0.x: parse_query keyword arguments changed in older minors; tested through 0.26.
+    "tantivy>=0.26.2,<0.27",
     "tomli-w>=1.2.0",
+    # Declared but currently unused.
     "tomlkit>=0.13.3,<0.15",
     # Typer 0.26+ vendors Click
     "typer>=0.23.1,<0.26",
+    # Used only by glob_files.
     "wcmatch>=11.0.1",
 ]
+
+[project.urls]
+Repository = "https://github.com/eelcovdw/machinate"
+Issues = "https://github.com/eelcovdw/machinate/issues"
 
 [project.scripts]
 machinate = "machinate.cli.cli:app"
@@ -89,3 +107,5 @@ root = "tests"
 reportPrivateUsage = false
 
 [tool.pytest.ini_options]
+filterwarnings = ["error"]
+pythonpath = ["tests"]

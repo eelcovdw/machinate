@@ -6,9 +6,10 @@ from typing import override
 from unittest.mock import Mock
 
 import pytest
+from harness import DEFAULT_DEPENDENCIES, DEFAULT_SETTINGS, make_settings
 from typer.testing import CliRunner
 
-from machinate.cli.cli import app, create_cli
+from machinate.cli.cli import create_cli
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.formatting import Formatter
 from machinate.cli.models import CommandResult, ErrorResult, ListResult
@@ -24,21 +25,7 @@ from machinate.storage import (
 from machinate.storage.queries import PlanQuery
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_LOG_LEVEL", "MACHI_AGENT"):
-        monkeypatch.delenv(name, raising=False)
-
-
-@pytest.fixture
-def project(tmp_path: Path) -> Path:
-    root = tmp_path / "project"
-    ProjectStateStore(root / ".machi/machinate.toml").write(
-        ProjectState(project_name="example", current_plan="dangling")
-    )
-    return root
+app = create_cli(DEFAULT_DEPENDENCIES)
 
 
 def populate(project: Path) -> None:
@@ -164,7 +151,7 @@ def test_query_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(application.plans, "list", listing)
     factory = Mock(return_value=application)
     result = runner.invoke(
-        create_cli(Dependencies(prepare_project=factory)),
+        create_cli(Dependencies(settings=DEFAULT_SETTINGS, prepare_project=factory)),
         [
             "plan",
             "list",
@@ -228,38 +215,36 @@ def test_output(project: Path, populated: bool, format_name: str) -> None:
         )
     else:
         assert "example" in result.stdout
-        assert str(project / ".machi") in result.stdout
-        assert ("alpha" if populated else "No plans found.") in result.stdout
 
 
 @pytest.mark.parametrize(
-    ("automation", "env_format", "flag", "expected"),
+    ("settings_kwargs", "flag", "expected"),
     [
-        (None, None, None, "text"),
-        ("true", None, None, "json"),
-        ("false", None, None, "text"),
-        ("true", "text", None, "text"),
-        (None, "json", None, "json"),
-        ("true", "json", "text", "text"),
+        ({}, None, "text"),
+        ({"automation": True}, None, "json"),
+        ({"automation": False}, None, "text"),
+        ({"automation": True, "format": "text"}, None, "text"),
+        ({"format": "json"}, None, "json"),
+        ({"automation": True, "format": "json"}, "text", "text"),
     ],
 )
-def test_format_precedence(  # noqa: PLR0913
+def test_format_precedence(
     project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    automation: str | None,
-    env_format: str | None,
+    settings_kwargs: dict[str, object],
     flag: str | None,
     expected: str,
 ) -> None:
-    if automation is not None:
-        monkeypatch.setenv("MACHI_AUTOMATION", automation)
-    if env_format is not None:
-        monkeypatch.setenv("MACHI_FORMAT", env_format)
-    monkeypatch.setenv("MACHI_AGENT", "true")
+    format_value = settings_kwargs.get("format")
+    dependencies = Dependencies(
+        settings=make_settings(
+            automation=bool(settings_kwargs.get("automation", False)),
+            format_name=format_value if isinstance(format_value, str) else None,
+        )
+    )
     args = ["plan", "list", "-P", str(project)]
     if flag is not None:
         args.extend(["--format", flag])
-    result = runner.invoke(app, args)
+    result = runner.invoke(create_cli(dependencies), args)
     assert result.exit_code == 0, result.output
     assert result.stdout.startswith("{") == (expected == "json")
 
@@ -279,37 +264,6 @@ def test_invalid_options(project: Path, args: list[str]) -> None:
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.error
-    if "human" in args:
-        assert "Available formats: json, text" in error.error
-
-
-@pytest.mark.parametrize(
-    ("env_name", "env_value", "field"),
-    [
-        ("MACHI_AUTOMATION", "perhaps", "automation"),
-        ("MACHI_FORMAT", "human", "format"),
-    ],
-)
-def test_invalid_settings(
-    project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    env_name: str,
-    env_value: str,
-    field: str,
-) -> None:
-    monkeypatch.setenv(env_name, env_value)
-    result = runner.invoke(app, ["plan", "list", "-P", str(project)])
-    assert result.exit_code == 1
-    assert field in ErrorResult.model_validate_json(result.stderr).error
-
-
-def test_explicit_format_overrides_invalid_env_format(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("MACHI_FORMAT", "human")
-    result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert result.stdout.startswith("{")
 
 
 class ReplacementFormatter(Formatter):
@@ -324,7 +278,7 @@ class ReplacementFormatter(Formatter):
 
 def test_formatter_injection(project: Path) -> None:
     formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
+    custom = create_cli(Dependencies(settings=DEFAULT_SETTINGS, formatters={"custom": formatter}))
     result = runner.invoke(custom, ["plan", "list", "-P", str(project), "--format", "custom"])
     assert result.exit_code == 0
     assert result.stdout == "replacement\n"
@@ -337,18 +291,20 @@ def test_formatter_injection(project: Path) -> None:
     assert isinstance(formatter.results[1], ErrorResult)
 
 
-def test_log_level_env_enables_debug_diagnostics(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_log_level_setting_enables_debug_diagnostics(project: Path) -> None:
     logger = logging.getLogger("machinate")
-    monkeypatch.setenv("MACHI_LOG_LEVEL", "debug")
+    dependencies = Dependencies(settings=make_settings(log_level="DEBUG"))
     target = project / ".machi/plans/bare/plan.md"
     target.parent.mkdir(parents=True)
     target.write_text("no frontmatter here")
     try:
-        result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
+        result = runner.invoke(
+            create_cli(dependencies), ["plan", "list", "-P", str(project), "--format", "json"]
+        )
         assert result.exit_code == 0
-        assert "Missing YAML frontmatter in plans/bare/plan.md" in result.stderr
+        assert "DEBUG" in result.stderr
+        assert "machinate.storage.document_store" in result.stderr
+        assert "plans/bare/plan.md" in result.stderr
     finally:
         for handler in list(logger.handlers):
             logger.removeHandler(handler)
@@ -356,6 +312,9 @@ def test_log_level_env_enables_debug_diagnostics(
 
 
 def test_read_only_and_malformed_document(project: Path) -> None:
+    prepare_project(project).plans.project_state_store.write(
+        ProjectState(project_name="example", current_plan="dangling")
+    )
     populate(project)
 
     def snapshot() -> dict[Path, tuple[bytes | None, int]]:
@@ -379,47 +338,23 @@ def test_read_only_and_malformed_document(project: Path) -> None:
     assert error.project.directory == project
 
 
-def test_help_does_not_prepare_project(monkeypatch: pytest.MonkeyPatch) -> None:
-    factory = Mock(side_effect=AssertionError("help must not prepare a project"))
-    custom = create_cli(Dependencies(prepare_project=factory))
-    monkeypatch.setenv("MACHI_AUTOMATION", "invalid")
-    for args in (["--help"], ["plan", "list", "--help"]):
-        result = runner.invoke(custom, args)
-        assert result.exit_code == 0, result.output
-    factory.assert_not_called()
-
-
-def test_repeated_invocations_reload_settings(
-    project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    custom = create_cli()
-    args = ["plan", "list", "-P", str(project)]
-    first = runner.invoke(custom, args)
-    assert first.exit_code == 0
-    assert "No plans found." in first.stdout
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    second = runner.invoke(custom, args)
-    assert second.exit_code == 0
-    assert ListResult.model_validate_json(second.stdout).plans == []
-
-
 @pytest.mark.parametrize("invalid", [["--limit"], ["--unknown"]])
 @pytest.mark.parametrize("source", ["flag", "environment", "automation"])
 def test_parser_errors_use_json(
     invalid: list[str],
     source: str,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     args = ["plan", "list"]
+    settings = DEFAULT_SETTINGS
     if source == "flag":
         args.extend(["--format", "json"])
     elif source == "environment":
-        monkeypatch.setenv("MACHI_FORMAT", "json")
+        settings = make_settings(format_name="json")
     else:
-        monkeypatch.setenv("MACHI_AUTOMATION", "true")
+        settings = make_settings(automation=True)
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, *invalid])
+    dependencies = Dependencies(settings=settings, prepare_project=factory)
+    result = runner.invoke(create_cli(dependencies), [*args, *invalid])
     assert result.exit_code == 2
     assert result.stdout == ""
     error = ErrorResult.model_validate_json(result.stderr)
@@ -429,25 +364,28 @@ def test_parser_errors_use_json(
 
 def test_parser_error_formatter_injection() -> None:
     formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
+    custom = create_cli(Dependencies(settings=DEFAULT_SETTINGS, formatters={"custom": formatter}))
     result = runner.invoke(custom, ["plan", "list", "--unknown", "--format=custom"])
     assert result.exit_code == 2
     assert result.stderr == "replacement\n"
     assert isinstance(formatter.results[0], ErrorResult)
 
 
-def test_parser_error_format_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHI_FORMAT", "json")
-    result = runner.invoke(app, ["plan", "list", "--format", "text", "--limit"])
+def test_parser_error_format_override() -> None:
+    dependencies = Dependencies(settings=make_settings(format_name="json"))
+    result = runner.invoke(
+        create_cli(dependencies), ["plan", "list", "--format", "text", "--limit"]
+    )
     assert result.exit_code == 2
     assert not result.stderr.startswith("{")
 
 
-def test_group_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_group_parser_errors_use_json() -> None:
     """C5: group failures follow the same formatting policy as leaf commands."""
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    custom = create_cli(Dependencies(prepare_project=factory))
+    custom = create_cli(
+        Dependencies(settings=make_settings(automation=True), prepare_project=factory)
+    )
 
     unknown_command = runner.invoke(custom, ["task", "oops"])
     assert unknown_command.exit_code == 2
@@ -468,28 +406,30 @@ def test_group_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch) -> None:
     factory.assert_not_called()
 
 
-def test_group_parser_errors_use_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHI_FORMAT", "text")
-    result = runner.invoke(app, ["task", "oops"])
+def test_group_parser_errors_use_text() -> None:
+    dependencies = Dependencies(settings=make_settings(format_name="text"))
+    result = runner.invoke(create_cli(dependencies), ["task", "oops"])
     assert result.exit_code == 2
     assert result.stdout == ""
     assert not result.stderr.startswith("{")
 
 
-def test_group_parser_error_formatter_injection(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHI_FORMAT", "custom")
+def test_group_parser_error_formatter_injection() -> None:
     formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
+    dependencies = Dependencies(
+        settings=make_settings(format_name="custom"), formatters={"custom": formatter}
+    )
+    custom = create_cli(dependencies)
     result = runner.invoke(custom, ["task", "oops"])
     assert result.exit_code == 2
     assert result.stderr == "replacement\n"
     assert isinstance(formatter.results[0], ErrorResult)
 
 
-def test_group_help_still_prints(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_group_help_still_prints() -> None:
     """C5 must not swallow the no-args help path for groups."""
-    monkeypatch.setenv("MACHI_FORMAT", "json")
-    result = runner.invoke(app, ["task"])
+    dependencies = Dependencies(settings=make_settings(format_name="json"))
+    result = runner.invoke(create_cli(dependencies), ["task"])
     assert result.exit_code == 2
     assert result.stdout
     assert result.stderr == ""

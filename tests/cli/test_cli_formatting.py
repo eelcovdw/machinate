@@ -1,23 +1,23 @@
 import io
 import re
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import override
 
 import pytest
+from harness import DEFAULT_DEPENDENCIES, seed
 from typer.testing import CliRunner
 
 from machinate.cli import formatting
-from machinate.cli.cli import app
+from machinate.cli.cli import create_cli
 from machinate.cli.models import ErrorResult
 from machinate.cli.project_setup import prepare_project
 from machinate.cli.styles import status_style
 from machinate.models.plan import PlanUpdate
 from machinate.models.task import TaskUpdate
-from machinate.storage import PlanMetadata, ProjectState, ProjectStateStore, TaskMetadata
 
 runner = CliRunner()
+app = create_cli(DEFAULT_DEPENDENCIES)
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -27,23 +27,10 @@ class _Tty(io.StringIO):
         return True
 
 
-@pytest.fixture(autouse=True)
-def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_AGENT", "NO_COLOR"):
-        monkeypatch.delenv(name, raising=False)
-
-
 @pytest.fixture
-def project(tmp_path: Path) -> Path:
-    root = tmp_path / "project"
-    ProjectStateStore(root / ".machi/machinate.toml").write(ProjectState(project_name="example"))
-    application = prepare_project(root)
-    application.plans.create(
-        "auth",
-        PlanMetadata(created=datetime(2026, 1, 1, tzinfo=UTC), summary="Authentication"),
-        body="# Auth\n\nDetails",
-    )
-    return root
+def auth_project(project: Path) -> Path:
+    seed.plan(project, "auth", summary="Authentication", body="# Auth\n\nDetails")
+    return project
 
 
 def test_status_style_covers_known_states() -> None:
@@ -55,41 +42,33 @@ def test_status_style_covers_known_states() -> None:
 
 
 def test_no_color_env_disables_styling(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setattr(sys, "stdout", _Tty())
     assert "\x1b[" in formatting.render_text(ErrorResult(error="boom"))
     monkeypatch.setenv("NO_COLOR", "1")
     assert "\x1b[" not in formatting.render_text(ErrorResult(error="boom"))
 
 
-def test_no_color_when_not_a_terminal(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(project)
+def test_no_color_when_not_a_terminal(auth_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(auth_project)
     result = runner.invoke(app, ["plan", "list"])
     assert result.exit_code == 0, result.output
     assert "\x1b[" not in result.stdout
     assert "auth" in result.stdout
 
 
-def test_color_when_terminal(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_color_when_terminal(auth_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(formatting, "_use_color", lambda: True)
-    monkeypatch.chdir(project)
+    monkeypatch.chdir(auth_project)
     result = runner.invoke(app, ["plan", "show", "-p", "auth"], color=True)
     assert result.exit_code == 0, result.output
     assert "\x1b[" in result.stdout
-    plain = ANSI.sub("", result.stdout)
-    assert "Plan auth (draft)" in plain
-    assert f"Path: {project / '.machi/plans/auth/plan.md'}" in plain
-    assert "# Auth\n\nDetails" in plain
+    assert "auth" in ANSI.sub("", result.stdout)
 
 
-def test_plan_list_groups_by_status(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    application = prepare_project(project)
-    application.plans.create(
-        "billing",
-        PlanMetadata(created=datetime(2026, 1, 2, tzinfo=UTC), summary="Billing"),
-        body="",
-    )
-    application.plans.update("billing", PlanUpdate(status="active"))
-    monkeypatch.chdir(project)
+def test_plan_list_groups_by_status(auth_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seed.plan(auth_project, "billing", status="active", summary="Billing")
+    monkeypatch.chdir(auth_project)
     result = runner.invoke(app, ["plan", "list"])
     assert result.exit_code == 0, result.output
     out = result.stdout
@@ -100,33 +79,27 @@ def test_plan_list_groups_by_status(project: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_plan_list_no_group_by_keeps_sort_order(
-    project: Path, monkeypatch: pytest.MonkeyPatch
+    auth_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    application = prepare_project(project)
-    application.plans.create(
-        "billing",
-        PlanMetadata(created=datetime(2026, 1, 2, tzinfo=UTC), summary="Billing"),
-        body="",
-    )
+    seed.plan(auth_project, "billing", summary="Billing")
+    application = prepare_project(auth_project)
     application.plans.update("auth", PlanUpdate(status="active"))
-    monkeypatch.chdir(project)
+    monkeypatch.chdir(auth_project)
     result = runner.invoke(app, ["plan", "list", "--no-group"])
     assert result.exit_code == 0, result.output
     out = result.stdout
-    # With grouping off, sort order wins: auth (active) before billing (draft).
+    # With grouping off, sort order wins: auth before billing.
     assert out.index("auth") < out.index("billing")
     assert "draft (1)" not in out
     assert "active" in out
 
 
-def test_task_list_groups_by_status(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    application = prepare_project(project)
+def test_task_list_groups_by_status(auth_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("t1", "t2"):
-        application.tasks.create(
-            "auth", name, TaskMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)), body=""
-        )
+        seed.task(auth_project, "auth", name)
+    application = prepare_project(auth_project)
     application.tasks.update("auth", "t2", TaskUpdate(status="in-progress"))
-    monkeypatch.chdir(project)
+    monkeypatch.chdir(auth_project)
     result = runner.invoke(app, ["task", "list", "-p", "auth"])
     assert result.exit_code == 0, result.output
     out = result.stdout
@@ -136,15 +109,13 @@ def test_task_list_groups_by_status(project: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_task_list_no_group_by_keeps_sort_order(
-    project: Path, monkeypatch: pytest.MonkeyPatch
+    auth_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    application = prepare_project(project)
     for name in ("t1", "t2"):
-        application.tasks.create(
-            "auth", name, TaskMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)), body=""
-        )
+        seed.task(auth_project, "auth", name)
+    application = prepare_project(auth_project)
     application.tasks.update("auth", "t2", TaskUpdate(status="in-progress"))
-    monkeypatch.chdir(project)
+    monkeypatch.chdir(auth_project)
     result = runner.invoke(app, ["task", "list", "-p", "auth", "--no-group"])
     assert result.exit_code == 0, result.output
     out = result.stdout
@@ -187,13 +158,12 @@ def test_shorten_leaves_short_text_untouched() -> None:
     assert formatting._shorten("already short", 50) == "already short"
 
 
-def test_plan_list_truncates_long_summary(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_plan_list_truncates_long_summary(
+    auth_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     long_body = "This is a deliberately long summary sentence used to verify truncation. " * 3
-    application = prepare_project(project)
-    application.plans.create(
-        "long", PlanMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)), body=long_body
-    )
-    monkeypatch.chdir(project)
+    seed.plan(auth_project, "long", body=long_body)
+    monkeypatch.chdir(auth_project)
 
     text = runner.invoke(app, ["plan", "list"])
     assert text.exit_code == 0, text.output

@@ -36,6 +36,7 @@ documents the full grammar.
   mode default. `machi schema <command>` documents each result's JSON shape.
 - `machi plan|task|context path` prints absolute editing paths
   (`plans/<plan>/tasks/<task>.md`) — edit bodies with your own file tools.
+- Number tasks so they sort in the intended order: `machi task add 01-login 02-logout`.
 - `machi plan|task|context update` changes status, summary, or tags: `--tag`
   replaces the tag set, `--clear-tags` empties it.
 - `machi info` shows the project overview; `info` subcommands show metadata

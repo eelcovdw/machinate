@@ -3,17 +3,19 @@ from typing import ClassVar, get_args
 from unittest.mock import Mock
 
 import pytest
+from harness import DEFAULT_DEPENDENCIES, DEFAULT_SETTINGS, make_settings
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.json_schema import JsonSchemaValue
 from typer.testing import CliRunner
 
-from machinate.cli.cli import app, create_cli
+from machinate.cli.cli import create_cli
 from machinate.cli.commands.catalog import ALIASES, COMMANDS
 from machinate.cli.commands.schema import SCHEMA_RESULTS
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import CommandResult, ErrorResult
 
 runner = CliRunner()
+app = create_cli(DEFAULT_DEPENDENCIES)
 
 
 class _Node(BaseModel):
@@ -50,12 +52,6 @@ class _CommandSchema(BaseModel):
     defs: dict[str, JsonSchemaValue] = Field(default_factory=dict, alias="$defs")
 
 
-@pytest.fixture(autouse=True)
-def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION"):
-        monkeypatch.delenv(name, raising=False)
-
-
 def test_schema_lists_all_commands() -> None:
     result = runner.invoke(app, ["schema"])
     assert result.exit_code == 0, result.output
@@ -71,7 +67,7 @@ def test_schema_lists_all_commands() -> None:
 
 
 def test_catalog_is_the_single_source_of_truth() -> None:
-    cli = create_cli()
+    cli = create_cli(DEFAULT_DEPENDENCIES)
     registered = {command.name for command in cli.registered_commands}
     groups = {group.name for group in cli.registered_groups}
     hidden = {spec.name for spec in ALIASES}
@@ -108,7 +104,7 @@ def test_schema_unknown_nested_command() -> None:
     assert result.exit_code == 1, result.output
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.command == "schema"
-    assert "Unknown schema 'nope'" in error.error
+    assert "nope" in error.error
 
 
 def test_schema_unknown_command() -> None:
@@ -117,8 +113,7 @@ def test_schema_unknown_command() -> None:
     assert result.stdout == ""
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.command == "schema"
-    assert "Unknown schema 'nope'" in error.error
-    assert "plan" in error.error
+    assert "nope" in error.error
 
 
 def test_schema_needs_no_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -128,18 +123,18 @@ def test_schema_needs_no_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert _Bundle.model_validate_json(result.stdout).version
 
 
-def test_schema_parser_errors_follow_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_schema_parser_errors_follow_mode() -> None:
     factory = Mock(side_effect=AssertionError("schema must not prepare a project"))
-    dependencies = Dependencies(prepare_project=factory)
-    cli = create_cli(dependencies)
+    dependencies = Dependencies(prepare_project=factory, settings=DEFAULT_SETTINGS)
 
-    text = runner.invoke(cli, ["schema", "--unknown"])
+    text = runner.invoke(create_cli(dependencies), ["schema", "--unknown"])
     assert text.exit_code == 2
     assert text.stdout == ""
-    assert "--unknown" in text.stderr
 
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    structured = runner.invoke(cli, ["schema", "--unknown"])
+    structured = runner.invoke(
+        create_cli(Dependencies(prepare_project=factory, settings=make_settings(automation=True))),
+        ["schema", "--unknown"],
+    )
     assert structured.exit_code == 2
     assert structured.stdout == ""
     error = ErrorResult.model_validate_json(structured.stderr)

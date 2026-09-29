@@ -8,7 +8,7 @@ from typer.core import TyperCommand, TyperGroup
 
 from .commands.catalog import ALIASES, COMMANDS, CommandSpec
 from .commands.schema import schema_command
-from .dependencies import Dependencies, get_dependencies
+from .dependencies import Dependencies, get_dependencies, get_settings
 from .errors import describe_error
 from .execution import resolve_formatter
 from .formatting import Formatter, UnknownFormatError
@@ -88,7 +88,7 @@ def _report_usage_error(
             override_name = recovered.params.get("output_format")
     try:
         override = override_name if isinstance(override_name, str) else None
-        _, formatter = resolve_formatter(override, get_dependencies(ctx))
+        formatter = resolve_formatter(override, get_settings(ctx), get_dependencies(ctx))
     except (ValidationError, UnknownFormatError) as formatting_error:
         message = describe_error(formatting_error)
     typer.echo(
@@ -129,11 +129,11 @@ def configure_logging(settings: Settings) -> None:
     logger.setLevel(settings.log_level)
 
 
-def root() -> None:
+def root(ctx: typer.Context) -> None:
     """Work with Machinate projects."""
     # Invalid settings are reported by the command handler through its formatter.
     with suppress(ValidationError):
-        configure_logging(Settings())
+        configure_logging(get_settings(ctx))
 
 
 _ROOT_EPILOG = """\

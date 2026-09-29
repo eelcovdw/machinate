@@ -14,13 +14,24 @@ repos:
         language_version: python3.14
       - id: detect-private-key
       - id: check-case-conflict
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.13
+  - repo: local
     hooks:
       - id: ruff-check
-        args: [--fix]
+        name: ruff check
+        entry: uv run ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
       - id: ruff-format
-  - repo: https://github.com/DetachHead/basedpyright-prek-mirror
-    rev: 1.40.1
-    hooks:
+        name: ruff format
+        entry: uv run ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
       - id: basedpyright
+        name: basedpyright
+        entry: uv run basedpyright
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
