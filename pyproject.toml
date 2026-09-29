@@ -27,8 +27,6 @@ dependencies = [
     "tomli-w>=1.2.0",
     # Typer 0.26+ vendors Click
     "typer>=0.23.1,<0.26",
-    # Used only by glob_files.
-    "wcmatch>=11.0.1",
 ]
 
 [project.urls]
@@ -80,7 +78,7 @@ ignore = [
     "PLC0415", # Imports are deferred inside functions to keep CLI startup fast
 ]
 "src/machinate/storage/document_store.py" = [
-    "PLC0415", # YAML/glob imports deferred so listing plans avoids ruamel/wcmatch
+    "PLC0415", # ruamel.yaml is imported lazily so listing plans avoids it
 ]
 "tests/*.py" = [
     "INP001",  # implicit namespace package

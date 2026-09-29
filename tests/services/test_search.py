@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from machinate.models.search import FindQuery
 from machinate.services.search import SearchService
@@ -73,6 +74,15 @@ def test_dot_prefixed_document_is_listed_and_searchable(search: SearchService) -
     )
     assert "plans/auth/tasks/.hidden.md" in paths(search, FindQuery())
     assert paths(search, FindQuery(query="quokka")) == ["plans/auth/tasks/.hidden.md"]
+
+
+def test_symlinked_file_is_indexed_and_dangling_symlink_is_skipped(search: SearchService) -> None:
+    root = search.document_store.root
+    (root / "link.md").symlink_to(root / "plans" / "auth" / "plan.md")
+    (root / ".#lock.md").symlink_to(root / "missing.md")
+    found = paths(search, FindQuery())
+    assert "link.md" in found
+    assert ".#lock.md" not in found
 
 
 def test_membership_is_derived_from_path(search: SearchService) -> None:
@@ -192,3 +202,9 @@ def test_frontmatter_is_indexed(search: SearchService) -> None:
     tagged.write_text("---\nsummary: aardvark\n---\nplain body\n")
     assert "tagged.md" in paths(search, FindQuery(query="aardvark"))
     assert "tagged.md" in paths(search, FindQuery(query="plain body"))
+
+
+@pytest.mark.parametrize("globs", [["../*.md"], ["/etc/*.md"], ["a\\b"], [""]])
+def test_find_query_rejects_escaping_globs(globs: list[str]) -> None:
+    with pytest.raises(ValidationError):
+        FindQuery(globs=globs)

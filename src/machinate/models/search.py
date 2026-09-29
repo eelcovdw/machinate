@@ -1,8 +1,8 @@
 from typing import ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator
 
-from machinate.storage.models import Name, RelativePath
+from machinate.storage.models import Name, RelativePath, validate_relative_path
 from machinate.storage.queries import DocumentKind
 
 DEFAULT_GLOB = "**/*.md"
@@ -28,6 +28,14 @@ class FindQuery(BaseModel):
     limit: PositiveInt | None = None
     regex: bool = False
     exact: bool = False
+
+    @field_validator("globs")
+    @classmethod
+    def _validate_globs(cls, globs: list[str]) -> list[str]:
+        """Reject absolute or parent-relative globs at the edge; keep the pattern text."""
+        for glob in globs:
+            validate_relative_path(glob)
+        return globs
 
 
 class FindEntry(BaseModel):

@@ -55,16 +55,6 @@ def test_create_get_duplicates_and_exact_names(
         service.get("alpha", "log")
 
 
-def test_lookup_is_case_sensitive(
-    service: TaskService, metadata: TaskMetadata, case_sensitive_filesystem: bool
-) -> None:
-    if not case_sensitive_filesystem:
-        pytest.skip("filesystem is case-insensitive")
-    service.create("alpha", "login", metadata)
-    with pytest.raises(MissingDocumentError):
-        service.get("alpha", "LOGIN")
-
-
 def test_create_batch_reports_partial_results(service: TaskService, metadata: TaskMetadata) -> None:
     """C2: existing and invalid names become errors; later names still get created."""
     service.create("alpha", "existing", metadata)
@@ -75,6 +65,14 @@ def test_create_batch_reports_partial_results(service: TaskService, metadata: Ta
     assert [error.name for error in errors] == ["existing", "../bad"]
     assert service.get("alpha", "new")
     assert service.get("alpha", "later")
+
+
+def test_create_batch_rejects_case_only_duplicates(
+    service: TaskService, metadata: TaskMetadata
+) -> None:
+    created, errors = service.create_batch("alpha", ["Login", "login"], metadata)
+    assert [task.name for task in created] == ["Login"]
+    assert [error.name for error in errors] == ["login"]
 
 
 def test_create_batch_empty(service: TaskService, metadata: TaskMetadata) -> None:

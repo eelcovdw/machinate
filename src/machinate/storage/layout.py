@@ -16,9 +16,6 @@ _COLLECTION_KINDS: dict[str, DocumentKind] = {
 
 
 class Layout:
-    def project(self) -> PurePosixPath:
-        return PurePosixPath("project.md")
-
     def plan(self, name: str) -> PurePosixPath:
         name = NameInput(name=name).name
         return _PLANS_DIRECTORY / name / _PLAN_DOCUMENT
@@ -67,19 +64,16 @@ class Layout:
 
         return DocumentMembership(kind="unknown")
 
-    def plan_activity_scopes(self) -> tuple[DocumentScope, ...]:
-        """Return scopes relative to the plan document's directory."""
-        return (
-            DocumentScope(path=_TASKS_DIRECTORY, pattern=PurePosixPath("**/*.md")),
-            DocumentScope(path=_CONTEXT_DIRECTORY, pattern=PurePosixPath("**/*.md")),
-        )
-
     def plan_collection(self) -> DocumentCollection:
+        # Activity scopes are relative to each plan document's directory.
         return DocumentCollection(
             path=_PLANS_DIRECTORY,
             pattern=PurePosixPath("*/plan.md"),
             name_source="parent",
-            activity_scopes=self.plan_activity_scopes(),
+            activity_scopes=(
+                DocumentScope(path=_TASKS_DIRECTORY, pattern=PurePosixPath("**/*.md")),
+                DocumentScope(path=_CONTEXT_DIRECTORY, pattern=PurePosixPath("**/*.md")),
+            ),
         )
 
     def task_collection(self, plan: str) -> DocumentCollection:

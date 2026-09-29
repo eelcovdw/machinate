@@ -1,5 +1,4 @@
 from pathlib import Path, PurePosixPath
-from typing import cast
 
 
 class StorageError(Exception):
@@ -21,7 +20,7 @@ class StorageError(Exception):
         super().__init__(detail)
         if reason is not None:
             # Notes on the reason (e.g. leftover temporary files) stay visible on the wrapper.
-            notes = cast("list[object] | tuple[object, ...]", getattr(reason, "__notes__", ()))
+            notes: list[str] | tuple[str, ...] = getattr(reason, "__notes__", ())
             for note in notes:
                 self.add_note(str(note))
 

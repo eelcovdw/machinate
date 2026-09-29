@@ -111,7 +111,7 @@ class PlanService:
                 name=plan.name,
                 path=plan.path,
                 last_activity_at=self.document_store.get_last_activity_at(
-                    plan.path, self.layout.plan_activity_scopes()
+                    plan.path, self.layout.plan_collection().activity_scopes
                 ),
             ),
             task_counts=self._task_counts(name),

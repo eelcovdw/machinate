@@ -33,6 +33,17 @@ def test_multiline_paragraph_is_joined() -> None:
     assert derive_summary("First line\nsecond line\n\nNext.") == "First line second line"
 
 
+def test_fenced_code_is_skipped() -> None:
+    assert derive_summary("```python\nx = 1\n```\n\nReal prose.") == "Real prose."
+    assert derive_summary("```\ncode\n```") is None
+
+
+def test_lone_label_line_is_kept() -> None:
+    # A body that is only a label has no prose to fall back to, so keep the label.
+    assert derive_summary("TODO: fix the race in write.") == "TODO: fix the race in write."
+    assert derive_summary("Intro.\n\nTODO: fix the race in write.") == "Intro."
+
+
 def test_summary_is_not_persisted(tmp_path: Path) -> None:
     store = DocumentStore(tmp_path)
     store.create(

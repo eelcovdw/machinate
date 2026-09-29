@@ -1,6 +1,7 @@
+import unicodedata
 from datetime import datetime
 from pathlib import PurePosixPath, PureWindowsPath
-from typing import Annotated, ClassVar, Literal
+from typing import Annotated, ClassVar, Literal, cast
 
 from pydantic import (
     AfterValidator,
@@ -28,8 +29,9 @@ def validate_name(value: str) -> str:
 
 
 def normalize_name(value: str) -> str:
-    """Drop a trailing ``.md``; names map to ``{name}.md`` files."""
-    return value[: -len(".md")] if value.lower().endswith(".md") else value
+    """Unicode-normalize to NFC and drop a trailing ``.md``; names map to ``{name}.md`` files."""
+    name = unicodedata.normalize("NFC", value)
+    return name[: -len(".md")] if name.lower().endswith(".md") else name
 
 
 Name = Annotated[str, BeforeValidator(normalize_name), AfterValidator(validate_name)]
@@ -107,6 +109,24 @@ class Metadata(BaseModel):
     summary: str | None = None
     tags: list[Tag] = Field(default_factory=list)
 
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _coerce_tags(cls, value: object) -> object:
+        """Accept a scalar tags value or non-string items, as hand-edited YAML produces."""
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, (list, tuple)):
+            return [
+                item if isinstance(item, str) else str(item) for item in cast("list[object]", value)
+            ]
+        return value
+
+    @field_validator("summary", mode="before")
+    @classmethod
+    def _coerce_summary(cls, value: object) -> object:
+        """Accept a non-string summary scalar (e.g. a YAML number) as text."""
+        return value if value is None or isinstance(value, str) else str(value)
+
     @field_validator("tags", mode="after")
     @classmethod
     def _dedupe_tags(cls, tags: list[str]) -> list[str]:
@@ -164,7 +184,7 @@ class FileMetadata(BaseModel):
 
 
 class ProjectState(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(validate_assignment=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(validate_assignment=True, extra="forbid")
 
     project_name: Name
     current_plan: Name | None = None

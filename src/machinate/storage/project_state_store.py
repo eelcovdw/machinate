@@ -16,7 +16,7 @@ class ProjectStateStore:
     def read(self) -> ProjectState:
         try:
             return ProjectState.model_validate(
-                tomllib.loads(self.path.read_bytes().decode("utf-8"))
+                tomllib.loads(self.path.read_bytes().decode("utf-8-sig"))
             )
         except FileNotFoundError as exc:
             raise MissingDocumentError(self.path, exc) from exc
@@ -29,8 +29,8 @@ class ProjectStateStore:
         try:
             content = tomli_w.dumps(state.model_dump(exclude_none=True)).encode("utf-8")
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            # Preserve permissions on update; fresh files are 0600 (NamedTemporaryFile
-            # is always owner-only), not the umask default.
+            # Preserve permissions on update; fresh files use the umask default like
+            # documents, so the state file is not a special owner-only case.
             try:
                 info = self.path.lstat()
             except FileNotFoundError:

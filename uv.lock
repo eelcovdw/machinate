@@ -33,15 +33,6 @@ wheels = [
 ]
 
 [[package]]
-name = "bracex"
-version = "3.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ac/01/5f394b8bcd6e5b92f73130990960423bbb19711f906bd9fe9ea5557c667c/bracex-3.0.1.tar.gz", hash = "sha256:4e38e32392e4a4780fe15d644bfc7c8514057cfc3861e060b11814ce829c25e4", size = 44019, upload-time = "2026-07-20T13:43:00.335Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/8f/6f7273a7adb8d73fc8d21ede4376a3e475e52f98435c6007f69100dec8ca/bracex-3.0.1-py3-none-any.whl", hash = "sha256:6523ad83aeb5098a4ee597cff0f964442ff74e460bd3fafaffab6a013ff2288c", size = 11940, upload-time = "2026-07-20T13:42:59.268Z" },
-]
-
-[[package]]
 name = "click"
 version = "8.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -83,7 +74,6 @@ dependencies = [
     { name = "tantivy" },
     { name = "tomli-w" },
     { name = "typer" },
-    { name = "wcmatch" },
 ]
 
 [package.dev-dependencies]
@@ -103,7 +93,6 @@ requires-dist = [
     { name = "tantivy", specifier = ">=0.26.2,<0.27" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "typer", specifier = ">=0.23.1,<0.26" },
-    { name = "wcmatch", specifier = ">=11.0.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -405,16 +394,4 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/55/e3/70399cb7dd41c10ac53367ae42139cf4b1ca5f36bb3dc6c9d33acdb43655/typing_inspection-0.4.2.tar.gz", hash = "sha256:ba561c48a67c5958007083d386c3295464928b01faa735ab8547c5692e87f464", size = 75949, upload-time = "2025-10-01T02:14:41.687Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl", hash = "sha256:4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7", size = 14611, upload-time = "2025-10-01T02:14:40.154Z" },
-]
-
-[[package]]
-name = "wcmatch"
-version = "11.0.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "bracex" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/57/43/30e407989e313677dbb9d5f045f966549a7254834571e342eaa4b55cc67b/wcmatch-11.0.1.tar.gz", hash = "sha256:1ea2b4fa678b8ca268253798d5963935df39132d47c3e241c0a0732224005e7d", size = 144662, upload-time = "2026-08-14T15:20:40.477Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ce/77/7a02b0f05b3ffcdbef9719ce3ee0b508d6a29b58e95299f1580055671db3/wcmatch-11.0.1-py3-none-any.whl", hash = "sha256:fd149ecddb9f0a88ea780017d6dde17c994e494e7f7303d4e3c9d6251f978f4b", size = 43449, upload-time = "2026-08-14T15:20:39.379Z" },
 ]

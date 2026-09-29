@@ -28,11 +28,3 @@ def project(tmp_path: Path) -> Path:
     root = tmp_path / "project"
     ProjectStateStore(root / ".machi/machinate.toml").write(ProjectState(project_name="example"))
     return root
-
-
-@pytest.fixture
-def case_sensitive_filesystem(tmp_path: Path) -> bool:
-    """Whether the test filesystem distinguishes names by case."""
-    probe = tmp_path / "case-probe"
-    probe.write_text("")
-    return not (tmp_path / "CASE-PROBE").exists()

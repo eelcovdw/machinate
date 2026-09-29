@@ -141,6 +141,36 @@ def test_discovery_empty_scopes_and_malformed_documents(
         store.list(Layout().plan_collection(), PlanMetadata)
 
 
+def test_list_skips_dotfiles_and_dangling_symlinks(store: DocumentStore, tmp_path: Path) -> None:
+    tasks = tmp_path / "plans" / "alpha" / "tasks"
+    tasks.mkdir(parents=True)
+    (tasks / "visible.md").write_text("---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n")
+    (tasks / ".hidden.md").write_text("---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n")
+    (tasks / ".#lock.md").symlink_to(tasks / "missing.md")
+    records = store.list(Layout().task_collection("alpha"), TaskMetadata)
+    assert [record.name for record in records] == ["visible"]
+
+
+def test_list_includes_symlinked_file(store: DocumentStore, tmp_path: Path) -> None:
+    tasks = tmp_path / "plans" / "alpha" / "tasks"
+    tasks.mkdir(parents=True)
+    frontmatter = "---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n"
+    (tasks / "real.md").write_text(frontmatter)
+    (tasks / "link.md").symlink_to(tasks / "real.md")
+    records = store.list(Layout().task_collection("alpha"), TaskMetadata)
+    assert {record.name for record in records} == {"real", "link"}
+
+
+def test_list_does_not_follow_symlinked_directory(store: DocumentStore, tmp_path: Path) -> None:
+    tasks = tmp_path / "plans" / "alpha" / "tasks"
+    tasks.mkdir(parents=True)
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "nested.md").write_text("---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n")
+    (tasks / "linked").symlink_to(external, target_is_directory=True)
+    assert store.list(Layout().task_collection("alpha"), TaskMetadata) == []
+
+
 def test_non_directory_collection_is_error(store: DocumentStore) -> None:
     with pytest.raises(StorageError):
         store.list(
