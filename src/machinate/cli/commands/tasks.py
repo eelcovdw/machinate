@@ -4,7 +4,7 @@ from typing import Annotated
 
 import typer
 
-from machinate.cli.commands.selection import PlanSelectionError, resolve_plan_name
+from machinate.cli.errors import PlanSelectionError
 from machinate.cli.execution import execute
 from machinate.cli.models import (
     TaskAddResult,
@@ -57,9 +57,7 @@ def task_add(  # noqa: PLR0913
     """Create one or more tasks in a plan."""
     with execute(context, "task add", output_format, PlanSelectionError) as run:
         project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         created, errors = project_context.tasks.create_batch(
             plan_name, names, TaskMetadata(created=datetime.now(UTC), tags=tags or [])
         )
@@ -120,9 +118,7 @@ def task_list(  # noqa: PLR0913
             }
         )
         project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         result = TaskListResult(
             project=project_context.project,
             plan=plan_name,
@@ -152,9 +148,7 @@ def task_show(
     """Show task metadata and body."""
     with execute(context, "task show", output_format, PlanSelectionError) as run:
         project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         task = project_context.tasks.get(plan_name, name)
         result = TaskShowResult(project=project_context.project, plan=plan_name, task=task)
         run.render(result)
@@ -180,9 +174,7 @@ def task_info(
     """Show task metadata."""
     with execute(context, "task info", output_format, PlanSelectionError) as run:
         project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         task = project_context.tasks.info(plan_name, name)
         result = TaskInfoResult(project=project_context.project, plan=plan_name, task=task)
         run.render(result)
@@ -229,9 +221,7 @@ def update_task(  # noqa: PLR0913
     ) as run:
         changes = task_changes(summary, status, tags, clear_tags)
         project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.tasks.update(plan_name, name, changes)
         result = TaskUpdateResult(project=project_context.project, plan=plan_name, task=updated)
         run.render(result)

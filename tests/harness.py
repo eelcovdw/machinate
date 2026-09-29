@@ -55,14 +55,14 @@ process_environment = filtered_environment
 
 def make_settings(
     *,
-    automation: bool = False,
+    ai_agent: str | None = None,
     format_name: str | None = None,
     log_level: LogLevel | None = None,
 ) -> Settings:
     """Build settings with every field explicit, so the environment cannot leak in."""
     return Settings(
-        automation=automation,
-        format=format_name if format_name is not None else ("json" if automation else "text"),
+        ai_agent=ai_agent,
+        format=format_name if format_name is not None else ("json" if ai_agent else "text"),
         log_level=log_level,
     )
 
@@ -70,7 +70,7 @@ def make_settings(
 DEFAULT_SETTINGS = make_settings()
 DEFAULT_DEPENDENCIES = Dependencies(settings=DEFAULT_SETTINGS)
 JSON_DEPENDENCIES = Dependencies(settings=make_settings(format_name="json"))
-AUTOMATION_DEPENDENCIES = Dependencies(settings=make_settings(automation=True))
+AGENT_DEPENDENCIES = Dependencies(settings=make_settings(ai_agent="test-agent"))
 
 
 def read_state(project: Path) -> ProjectState:

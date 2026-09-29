@@ -1,9 +1,8 @@
 from pathlib import Path
 
 import pytest
-from harness import cli, make_settings, read_state, seed, snapshot
+from harness import cli, read_state, seed, snapshot
 
-from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import UpdateResult
 from machinate.cli.project_setup import prepare_project
 from machinate.storage import PlanMetadata
@@ -71,16 +70,6 @@ def test_update_uses_current_plan(project: Path) -> None:
     result = cli.run(["plan", "update", "-P", str(project), "--status", "done", "--format", "json"])
     assert result.exit_code == 0, result.output
     assert read_metadata(project).status == "done"
-
-
-def test_update_automation_requires_plan(project: Path) -> None:
-    seed.plan(project, "auth")
-    set_current(project, "auth")
-    error = cli.error(
-        ["plan", "update", "-P", str(project), "--status", "active"],
-        dependencies=Dependencies(settings=make_settings(automation=True)),
-    )
-    assert error.command == "plan update"
 
 
 def test_update_missing_plan_preserves_state(

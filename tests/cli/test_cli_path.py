@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from harness import AUTOMATION_DEPENDENCIES as AUTOMATION
 from harness import cli, read_state, seed
 
 from machinate.cli.models import PathResult
@@ -43,15 +42,6 @@ def test_plan_path_does_not_change_selection(project: Path) -> None:
     prepare_project(project).plans.set_current("auth")
     cli.json(PathResult, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"])
     assert read_state(project).current_plan == "auth"
-
-
-def test_plan_path_automation_requires_plan(project: Path) -> None:
-    seed.plan(project, "auth")
-    error = cli.error(
-        ["plan", "path", "-P", str(project)],
-        dependencies=AUTOMATION,
-    )
-    assert error.command == "plan path"
 
 
 def test_plan_path_no_current_plan(project: Path) -> None:

@@ -1,3 +1,4 @@
+import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,7 +26,7 @@ class Dependencies:
 
     def resolve_settings(self) -> Settings:
         """Return the injected settings, or load them from the environment."""
-        return self.settings if self.settings is not None else Settings()
+        return self.settings if self.settings is not None else Settings.from_environ(os.environ)
 
 
 def get_dependencies(context: click.Context) -> Dependencies:

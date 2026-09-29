@@ -3,9 +3,8 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from harness import cli, make_settings, read_state, seed
+from harness import cli, read_state, seed
 
-from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import (
     TaskAddResult,
     TaskInfoResult,
@@ -40,13 +39,6 @@ def test_task_plan_resolution(auth_project: Path, command: str) -> None:
 
     unselected = cli.error([*args, "-P", str(auth_project), "--format", "json"])
     assert unselected.command == f"task {command}"
-
-    prepare_project(auth_project).plans.set_current("auth")
-    automated = cli.error(
-        [*args, "-P", str(auth_project)],
-        dependencies=Dependencies(settings=make_settings(automation=True)),
-    )
-    assert automated.command == f"task {command}"
 
 
 def test_task_add_explicit_plan(auth_project: Path) -> None:

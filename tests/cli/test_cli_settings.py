@@ -14,48 +14,16 @@ runner = CliRunner()
 
 def test_defaults_to_text() -> None:
     settings = Settings()
-    assert settings.automation is False
+    assert settings.ai_agent is None
+    assert settings.is_agent_mode is False
     assert settings.format == "text"
 
 
-def test_automation_defaults_to_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    settings = Settings()
-    assert settings.automation is True
-    assert settings.format == "json"
-
-
-def test_explicit_format_beats_automation(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    monkeypatch.setenv("MACHI_FORMAT", "text")
-    assert Settings().format == "text"
-
-
-def test_automation_false_stays_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHI_AUTOMATION", "false")
-    settings = Settings()
-    assert settings.automation is False
-    assert settings.format == "text"
-
-
-@pytest.mark.parametrize(
-    ("env_name", "env_value", "field"),
-    [
-        ("MACHI_AUTOMATION", "perhaps", "automation"),
-        ("MACHI_FORMAT", "human", "format"),
-    ],
-)
-def test_invalid_settings_reports_field(
-    project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    env_name: str,
-    env_value: str,
-    field: str,
-) -> None:
-    monkeypatch.setenv(env_name, env_value)
+def test_invalid_settings_reports_field(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MACHI_FORMAT", "human")
     result = runner.invoke(app, ["plan", "list", "-P", str(project)])
     assert result.exit_code == 1
-    assert field in ErrorResult.model_validate_json(result.stderr).error
+    assert "format" in ErrorResult.model_validate_json(result.stderr).error
 
 
 def test_explicit_format_overrides_invalid_env_format(
@@ -70,7 +38,7 @@ def test_explicit_format_overrides_invalid_env_format(
 def test_help_does_not_prepare_project(monkeypatch: pytest.MonkeyPatch) -> None:
     factory = Mock(side_effect=AssertionError("help must not prepare a project"))
     custom = create_cli(Dependencies(prepare_project=factory))
-    monkeypatch.setenv("MACHI_AUTOMATION", "invalid")
+    monkeypatch.setenv("MACHI_LOG_LEVEL", "invalid")
     for args in (["--help"], ["plan", "list", "--help"]):
         result = runner.invoke(custom, args)
         assert result.exit_code == 0, result.output
@@ -86,7 +54,7 @@ def test_repeated_invocations_reload_settings(
     first = runner.invoke(custom, args)
     assert first.exit_code == 0
     assert not first.stdout.startswith("{")
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
+    monkeypatch.setenv("MACHI_AI_AGENT", "claude-code")
     second = runner.invoke(custom, args)
     assert second.exit_code == 0
     assert ListResult.model_validate_json(second.stdout).plans == []

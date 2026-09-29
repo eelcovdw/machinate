@@ -1,9 +1,8 @@
 from pathlib import Path
 
 import pytest
-from harness import cli, make_settings, read_state, seed
+from harness import cli, read_state, seed
 
-from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import SelectResult, ShowResult
 from machinate.cli.project_setup import prepare_project
 
@@ -21,27 +20,6 @@ def test_select_explicit_plan(project: Path) -> None:
     assert parsed.project.directory == project
     assert parsed.state.current_plan == "auth"
     assert read_state(project).current_plan == "auth"
-
-
-def test_select_works_in_automation(project: Path) -> None:
-    seed.plan(project, "auth")
-    parsed = cli.json(
-        SelectResult,
-        ["plan", "select", "auth", "-P", str(project), "--format", "json"],
-        dependencies=Dependencies(settings=make_settings(automation=True)),
-    )
-    assert parsed.state.current_plan == "auth"
-    assert read_state(project).current_plan == "auth"
-
-
-def test_automation_mode_requires_explicit_plan(project: Path) -> None:
-    seed.plan(project, "auth")
-    set_current(project, "auth")
-    error = cli.error(
-        ["plan", "show", "-P", str(project)],
-        dependencies=Dependencies(settings=make_settings(automation=True)),
-    )
-    assert error.command == "plan show"
 
 
 def test_select_uninitialized_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

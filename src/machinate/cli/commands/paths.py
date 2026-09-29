@@ -3,7 +3,7 @@ from typing import Annotated
 
 import typer
 
-from machinate.cli.commands.selection import PlanSelectionError, resolve_plan_name
+from machinate.cli.errors import PlanSelectionError
 from machinate.cli.execution import execute
 from machinate.cli.models import PathResult
 
@@ -30,9 +30,7 @@ def plan_path(
     with execute(context, "plan path", output_format, PlanSelectionError) as run:
         project_context = run.prepare(project)
         scope = project_context.project
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         target = scope.storage / project_context.plans.path(plan_name)
         result = PathResult(
             command="plan path",
@@ -60,9 +58,7 @@ def task_path(
         task_name = name
         project_context = run.prepare(project)
         scope = project_context.project
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         if task_name is None:
             target = scope.storage / project_context.tasks.directory(plan_name)
             result = PathResult(
@@ -101,9 +97,7 @@ def context_path(
         context_name = name
         project_context = run.prepare(project)
         scope = project_context.project
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         if context_name is None:
             target = scope.storage / project_context.contexts.directory(plan_name)
             result = PathResult(

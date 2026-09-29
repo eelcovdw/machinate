@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from harness import AUTOMATION_DEPENDENCIES as AUTOMATION
 from harness import DEFAULT_DEPENDENCIES as TEXT
 from harness import JSON_DEPENDENCIES as JSON
 from harness import cli, read_state, seed
@@ -35,9 +34,6 @@ def test_context_plan_resolution(project: Path, command: str) -> None:
 
     unselected = cli.error([*args, "-P", str(project)], dependencies=JSON)
     assert unselected.command == f"context {command}"
-
-    automated = cli.error([*args, "-P", str(project)], dependencies=AUTOMATION)
-    assert automated.command == f"context {command}"
 
 
 def test_context_add_explicit_plan(project: Path) -> None:

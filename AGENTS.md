@@ -33,7 +33,9 @@ Design docs for the v2 rewrite live in `.dev-docs/` (`CLI.md` is the accepted CL
 ## Stack
 
 - Python 3.14, uv, src layout (`src/machinate/`)
-- CLI entry point: `machi` / `machinate` (installed editable); run via `uv run machi …`.
+- CLI entry point: `machi` / `machinate`. `uv run machi …` runs the working tree (the project
+  venv has an editable install). The global `machi` is a separate, non-editable tool install:
+  never use it to check code changes.
 - CLI framework: `typer`
 - Storage: a real `.machi/` directory per project, state in `.machi/machinate.toml`
 - Layout inside `.machi/`: `{plan}/plan.md`, `{plan}/tasks/*.md`, `{plan}/context/*.md`
@@ -41,7 +43,7 @@ Design docs for the v2 rewrite live in `.dev-docs/` (`CLI.md` is the accepted CL
 ## Commands
 
 ```bash
-machi <command>             # the installed CLI
+uv run machi <command>      # the working-tree CLI
 uv sync                     # install deps
 uv run basedpyright         # type check
 uv run ruff check           # lint
@@ -49,8 +51,8 @@ uv run ruff format          # format
 ```
 
 Verification for a change: targeted `pytest`, then the full suite, plus `ruff format`,
-`ruff check`, and `basedpyright`. Checkout executable integration tests run the installed
-`machi`/`machinate` scripts, so source changes are picked up through the editable install.
+`ruff check`, and `basedpyright`. The console-script tests run the venv's `machi` launcher,
+which picks up source changes through the editable install.
 
 ## Conventions
 

@@ -629,7 +629,10 @@ def render_list(result: ListResult) -> str:
         lines.append(Text("No plans found.", style=MUTED))
         return _render(lines)
     lines.append(Text())
-    name_width = max(len(plan.name) for plan in result.plans)
+    labels = [
+        f"* {plan.name}" if plan.name == result.current_plan else plan.name for plan in result.plans
+    ]
+    name_width = max(len(label) for label in labels)
     tags = [", ".join(plan.metadata.tags) for plan in result.plans]
     tags_width = max((len(value) for value in tags), default=0)
     grouped = result.group_by is not None
@@ -638,7 +641,7 @@ def render_list(result: ListResult) -> str:
         (
             plan.metadata.status,
             _entry(
-                plan.name,
+                label,
                 name_width,
                 tag,
                 tags_width,
@@ -647,7 +650,7 @@ def render_list(result: ListResult) -> str:
                 status_width=status_width,
             ),
         )
-        for plan, tag in zip(result.plans, tags, strict=True)
+        for plan, label, tag in zip(result.plans, labels, tags, strict=True)
     ]
     if grouped:
         lines.extend(_status_sections(entries, PLAN_STATUS_ORDER))

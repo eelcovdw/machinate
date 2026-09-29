@@ -4,7 +4,7 @@ from typing import Annotated
 
 import typer
 
-from machinate.cli.commands.selection import PlanSelectionError, resolve_plan_name
+from machinate.cli.errors import PlanSelectionError
 from machinate.cli.execution import execute
 from machinate.cli.models import (
     ContextAddResult,
@@ -58,9 +58,7 @@ def context_add(  # noqa: PLR0913
     """Create one or more context documents in a plan."""
     with execute(context, "context add", output_format, PlanSelectionError) as run:
         project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         created, errors = project_context.contexts.create_batch(
             plan_name, names, ContextMetadata(created=datetime.now(UTC), tags=tags or [])
         )
@@ -106,9 +104,7 @@ def context_list(  # noqa: PLR0913
             }
         )
         project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         result = ContextListResult(
             project=project_context.project,
             plan=plan_name,
@@ -137,9 +133,7 @@ def context_show(
     """Show context metadata and body."""
     with execute(context, "context show", output_format, PlanSelectionError) as run:
         project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         document = project_context.contexts.get(plan_name, name)
         result = ContextShowResult(
             project=project_context.project, plan=plan_name, context=document
@@ -167,9 +161,7 @@ def context_info(
     """Show context metadata."""
     with execute(context, "context info", output_format, PlanSelectionError) as run:
         project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         document = project_context.contexts.info(plan_name, name)
         result = ContextInfoResult(
             project=project_context.project, plan=plan_name, context=document
@@ -210,9 +202,7 @@ def context_update(  # noqa: PLR0913
     with execute(context, "context update", output_format, PlanSelectionError) as run:
         changes = context_changes(summary, tags, clear_tags)
         project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.contexts.update(plan_name, name, changes)
         result = ContextUpdateResult(
             project=project_context.project, plan=plan_name, context=updated

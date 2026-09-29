@@ -61,6 +61,22 @@ def test_explicit_and_upward(project: Path, monkeypatch: pytest.MonkeyPatch) -> 
         assert [plan.name for plan in parsed.plans] == ["alpha", "beta"]
 
 
+def test_list_marks_current_plan(project: Path) -> None:
+    populate(project)
+    ProjectStateStore(project / ".machi/machinate.toml").write(
+        ProjectState(project_name="example", current_plan="alpha")
+    )
+    parsed = ListResult.model_validate(
+        json.loads(
+            runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"]).stdout
+        )
+    )
+    assert parsed.current_plan == "alpha"
+    text = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "text"]).stdout
+    assert "* alpha" in text
+    assert "* beta" not in text
+
+
 def test_nearest_project(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     nested = project / "nested"
     ProjectStateStore(nested / ".machi/machinate.toml").write(ProjectState(project_name="inner"))
@@ -221,11 +237,11 @@ def test_output(project: Path, populated: bool, format_name: str) -> None:
     ("settings_kwargs", "flag", "expected"),
     [
         ({}, None, "text"),
-        ({"automation": True}, None, "json"),
-        ({"automation": False}, None, "text"),
-        ({"automation": True, "format": "text"}, None, "text"),
+        ({"ai_agent": "test-agent"}, None, "json"),
+        ({"ai_agent": None}, None, "text"),
+        ({"ai_agent": "test-agent", "format": "text"}, None, "text"),
         ({"format": "json"}, None, "json"),
-        ({"automation": True, "format": "json"}, "text", "text"),
+        ({"ai_agent": "test-agent", "format": "json"}, "text", "text"),
     ],
 )
 def test_format_precedence(
@@ -235,9 +251,10 @@ def test_format_precedence(
     expected: str,
 ) -> None:
     format_value = settings_kwargs.get("format")
+    ai_agent = settings_kwargs.get("ai_agent")
     dependencies = Dependencies(
         settings=make_settings(
-            automation=bool(settings_kwargs.get("automation", False)),
+            ai_agent=ai_agent if isinstance(ai_agent, str) else None,
             format_name=format_value if isinstance(format_value, str) else None,
         )
     )
@@ -339,7 +356,7 @@ def test_read_only_and_malformed_document(project: Path) -> None:
 
 
 @pytest.mark.parametrize("invalid", [["--limit"], ["--unknown"]])
-@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
+@pytest.mark.parametrize("source", ["flag", "environment", "agent"])
 def test_parser_errors_use_json(
     invalid: list[str],
     source: str,
@@ -351,7 +368,7 @@ def test_parser_errors_use_json(
     elif source == "environment":
         settings = make_settings(format_name="json")
     else:
-        settings = make_settings(automation=True)
+        settings = make_settings(ai_agent="test-agent")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     dependencies = Dependencies(settings=settings, prepare_project=factory)
     result = runner.invoke(create_cli(dependencies), [*args, *invalid])
@@ -384,7 +401,7 @@ def test_group_parser_errors_use_json() -> None:
     """C5: group failures follow the same formatting policy as leaf commands."""
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
     custom = create_cli(
-        Dependencies(settings=make_settings(automation=True), prepare_project=factory)
+        Dependencies(settings=make_settings(ai_agent="test-agent"), prepare_project=factory)
     )
 
     unknown_command = runner.invoke(custom, ["task", "oops"])

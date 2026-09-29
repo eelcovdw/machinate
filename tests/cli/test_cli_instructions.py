@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from harness import AUTOMATION_DEPENDENCIES as AUTOMATION
+from harness import AGENT_DEPENDENCIES as AGENT
 from harness import cli
 
 from machinate.cli.models import InstructionsResult
@@ -24,10 +24,10 @@ def test_instructions_invalid_format() -> None:
     assert error.command == "instructions"
 
 
-def test_instructions_json_default_in_automation() -> None:
+def test_instructions_json_default_in_agent_mode() -> None:
     payload = cli.json(
         InstructionsResult,
         ["instructions"],
-        dependencies=AUTOMATION,
+        dependencies=AGENT,
     )
     assert payload.command == "instructions"

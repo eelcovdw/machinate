@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from harness import AUTOMATION_DEPENDENCIES as AUTOMATION
 from harness import cli, seed
 
 from machinate.cli.models import InfoResult, PlanInfoResult
@@ -131,18 +130,6 @@ def test_plan_info_uses_current_plan_without_flag(project: Path) -> None:
 
 def test_plan_info_no_current_plan(project: Path) -> None:
     error = cli.error(["plan", "info", "-P", str(project), "--format", "json"])
-    assert error.command == "plan info"
-
-
-def test_plan_info_automation_requires_plan(project: Path) -> None:
-    seed.plan(project, "auth")
-    ProjectStateStore(project / ".machi/machinate.toml").write(
-        ProjectState(project_name="example", current_plan="auth")
-    )
-    error = cli.error(
-        ["plan", "info", "-P", str(project), "--format", "json"],
-        dependencies=AUTOMATION,
-    )
     assert error.command == "plan info"
 
 

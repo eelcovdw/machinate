@@ -1,9 +1,9 @@
+import shutil
 from pathlib import Path
 
 import pytest
-from harness import cli, make_settings, seed
+from harness import cli, seed
 
-from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import ShowResult
 from machinate.cli.project_setup import prepare_project
 
@@ -57,14 +57,13 @@ def test_show_no_current_plan(project: Path) -> None:
     assert error.project is not None
 
 
-def test_show_automation_requires_plan(project: Path) -> None:
+def test_show_deleted_current_plan(project: Path) -> None:
     seed.plan(project, "auth")
     set_current(project, "auth")
-    error = cli.error(
-        ["plan", "show", "-P", str(project)],
-        dependencies=Dependencies(settings=make_settings(automation=True)),
-    )
+    shutil.rmtree(project / ".machi/plans/auth")
+    error = cli.error(["plan", "show", "-P", str(project), "--format", "json"])
     assert error.command == "plan show"
+    assert "no longer exists" in error.error
 
 
 def test_show_uninitialized_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

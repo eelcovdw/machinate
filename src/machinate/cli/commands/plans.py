@@ -4,7 +4,7 @@ from typing import Annotated
 
 import typer
 
-from machinate.cli.commands.selection import PlanSelectionError, resolve_plan_name, select_plan
+from machinate.cli.errors import PlanSelectionError
 from machinate.cli.execution import execute
 from machinate.cli.models import (
     AddResult,
@@ -117,6 +117,7 @@ def list_plans(  # noqa: PLR0913
             ListResult(
                 project=project_context.project,
                 plans=project_context.plans.list(query),
+                current_plan=project_context.plans.current_name(),
                 group_by="status" if group else None,
             )
         )
@@ -160,9 +161,7 @@ def plan_info_command(
     """Show plan metadata and task progress."""
     with execute(context, "plan info", output_format, PlanSelectionError) as run:
         project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         run.render(
             PlanInfoResult(
                 project=project_context.project,
@@ -186,7 +185,8 @@ def select_current_plan(
     ] = None,
 ) -> None:
     """Set the project's current plan; commands use it when -p is omitted."""
-    with execute(context, "plan select", output_format) as run:
+    with execute(context, "plan select", output_format, PlanSelectionError) as run:
+        run.require_human_session()
         project_context = run.prepare(project)
         state = project_context.plans.set_current(name)
         run.render(SelectResult(project=project_context.project, state=state))
@@ -203,7 +203,8 @@ def unselect_plan(
     ] = None,
 ) -> None:
     """Clear the current plan; does not change any plan's status."""
-    with execute(context, "plan unselect", output_format) as run:
+    with execute(context, "plan unselect", output_format, PlanSelectionError) as run:
+        run.require_human_session()
         project_context = run.prepare(project)
         state = project_context.plans.clear_current()
         run.render(UnselectResult(project=project_context.project, state=state))
@@ -247,9 +248,7 @@ def update_plan(  # noqa: PLR0913
     ) as run:
         changes = plan_changes(summary, status, tags, clear_tags)
         project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.plans.update(plan_name, changes)
         run.render(UpdateResult(project=project_context.project, plan=updated))
 
@@ -271,5 +270,5 @@ def show_plan(
     """Show plan metadata and body."""
     with execute(context, "plan show", output_format, PlanSelectionError) as run:
         project_context = run.prepare(project)
-        selected = select_plan(project_context.plans, plan, automation=run.settings.automation)
+        selected = run.get_target_plan(project_context.plans, plan)
         run.render(ShowResult(project=project_context.project, plan=selected))

@@ -10,10 +10,12 @@ import click
 import typer
 from pydantic import ValidationError
 
-from machinate.storage.errors import StorageError
+from machinate.models.plan import Plan
+from machinate.services.plan import PlanService
+from machinate.storage.errors import MissingDocumentError, StorageError
 
 from .dependencies import Dependencies, get_dependencies, get_settings
-from .errors import InputError, describe_error
+from .errors import InputError, PlanSelectionError, describe_error
 from .formatting import Formatter, UnknownFormatError, select_formatter
 from .models import CommandResult, ErrorResult, ProjectScope
 from .project_setup import ProjectContext, ProjectError
@@ -65,6 +67,34 @@ class Execution:
     def render(self, result: CommandResult) -> None:
         """Render a command result through the resolved formatter."""
         typer.echo(self.formatter.format(result))
+
+    def determine_plan_name(self, plans: PlanService, name: str | None) -> str:
+        """Determine the explicit or current plan name, enforcing agent targeting."""
+        if name is not None:
+            return name
+        if self.settings.is_agent_mode:
+            msg = "Agent mode requires an explicit plan; use -p NAME."
+            raise PlanSelectionError(msg)
+        current = plans.current_name()
+        if current is None:
+            msg = "No current plan is selected; use -p NAME."
+            raise PlanSelectionError(msg)
+        try:
+            plans.path(current)
+        except MissingDocumentError as err:
+            msg = f"Current plan {current!r} no longer exists; use -p NAME or plan select."
+            raise PlanSelectionError(msg) from err
+        return current
+
+    def get_target_plan(self, plans: PlanService, name: str | None) -> Plan:
+        """Determine the target plan name and load its document."""
+        return plans.get(self.determine_plan_name(plans, name))
+
+    def require_human_session(self) -> None:
+        """Reject session-mutating plan selection commands in agent mode."""
+        if self.settings.is_agent_mode:
+            msg = "Plan selection is unavailable in agent mode."
+            raise PlanSelectionError(msg)
 
 
 @contextmanager

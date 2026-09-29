@@ -10,7 +10,13 @@ from machinate.models.plan import Plan, PlanOverview, ProjectOverview
 from machinate.models.search import FindEntry
 from machinate.models.task import Task
 from machinate.storage import DocumentRecord, ProjectState
-from machinate.storage.models import ContextMetadata, DocMetadata, PlanMetadata, TaskMetadata
+from machinate.storage.models import (
+    ContextMetadata,
+    DocMetadata,
+    Name,
+    PlanMetadata,
+    TaskMetadata,
+)
 
 
 class ProjectScope(BaseModel):
@@ -23,6 +29,7 @@ class ListResult(BaseModel):
     command: Literal["plan list"] = "plan list"
     project: ProjectScope
     plans: list[DocumentRecord[PlanMetadata]]
+    current_plan: Name | None = None
     group_by: Literal["status"] | None = None
 
 

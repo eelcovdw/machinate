@@ -132,7 +132,9 @@ def test_schema_parser_errors_follow_mode() -> None:
     assert text.stdout == ""
 
     structured = runner.invoke(
-        create_cli(Dependencies(prepare_project=factory, settings=make_settings(automation=True))),
+        create_cli(
+            Dependencies(prepare_project=factory, settings=make_settings(ai_agent="test-agent"))
+        ),
         ["schema", "--unknown"],
     )
     assert structured.exit_code == 2
