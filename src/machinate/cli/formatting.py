@@ -10,9 +10,8 @@ from rich.console import Console, RenderableType
 from rich.table import Table
 from rich.text import Text
 
-from machinate.models.batch import BatchCreateError
-from machinate.models.search import FindEntry
-from machinate.storage import PlanStatus, TaskStatus
+from machinate.models.documents import PlanStatus, TaskStatus
+from machinate.models.operations import BatchCreateError, FindEntry
 
 from .models import (
     AddResult,

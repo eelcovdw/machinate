@@ -2,7 +2,14 @@ import stat
 from datetime import UTC, datetime
 from io import StringIO
 from pathlib import Path, PurePosixPath
-from typing import cast
+
+from machinate.models.documents import (
+    RELATIVE_PATH_ADAPTER,
+    DocumentRecord,
+    Metadata,
+    ParsedDocument,
+)
+from machinate.models.operations import DocumentQuery
 
 from .atomic import atomic_create, atomic_write
 from .errors import (
@@ -12,19 +19,20 @@ from .errors import (
     StorageError,
     SymbolicLinkError,
 )
-from .models import Document, FileMetadata, Metadata, PathInput, StatusMetadata
-from .queries import DocumentCollection, DocumentQuery, DocumentRecord, DocumentScope, StatusQuery
+from .models import DocumentCollection, DocumentScope, FileMetadata
 
 
 class DocumentStore:
     def __init__(self, root: Path) -> None:
         self.root: Path = root
 
-    def read[M: Metadata](self, path: str | PurePosixPath, metadata_type: type[M]) -> Document[M]:
+    def read[M: Metadata](
+        self, path: str | PurePosixPath, metadata_type: type[M]
+    ) -> ParsedDocument[M]:
         from ruamel.yaml import YAML
         from ruamel.yaml.error import YAMLError
 
-        relative = PathInput.model_validate({"path": path}).path
+        relative = RELATIVE_PATH_ADAPTER.validate_python(path)
         try:
             # Decode bytes directly so universal-newline translation cannot alter the body.
             # utf-8-sig strips a BOM that editors commonly add on Windows.
@@ -56,16 +64,16 @@ class DocumentStore:
 
     def _document_from_data[M: Metadata](
         self, relative: PurePosixPath, data: object, metadata_type: type[M], *, body: str
-    ) -> Document[M]:
+    ) -> ParsedDocument[M]:
         """Validate frontmatter, defaulting created to the file mtime only when absent."""
         if data is None:
             modified = (self.root / relative).stat().st_mtime
             data = {"created": datetime.fromtimestamp(modified, UTC)}
-        return Document[metadata_type](metadata=metadata_type.model_validate(data), body=body)
+        return ParsedDocument[metadata_type](metadata=metadata_type.model_validate(data), body=body)
 
     def glob_files(self, path: str | PurePosixPath, patterns: list[str]) -> list[PurePosixPath]:
         """Return project-relative regular files under path matching any GLOBSTAR pattern."""
-        relative = PathInput.model_validate({"path": path}).path
+        relative = RELATIVE_PATH_ADAPTER.validate_python(path)
         directory = self.root / relative
         if not directory.is_dir():
             return []
@@ -79,7 +87,7 @@ class DocumentStore:
 
     def read_text(self, path: str | PurePosixPath) -> str:
         """Read a document's raw text, including any frontmatter, without parsing it."""
-        relative = PathInput.model_validate({"path": path}).path
+        relative = RELATIVE_PATH_ADAPTER.validate_python(path)
         try:
             return (self.root / relative).read_bytes().decode("utf-8-sig")
         except FileNotFoundError as exc:
@@ -91,7 +99,7 @@ class DocumentStore:
 
     def _without_frontmatter[M: Metadata](
         self, relative: PurePosixPath, text: str, metadata_type: type[M]
-    ) -> Document[M]:
+    ) -> ParsedDocument[M]:
         """Treat a file with no frontmatter block as a bare body with default metadata."""
         import logging
 
@@ -100,7 +108,7 @@ class DocumentStore:
         )
         return self._document_from_data(relative, None, metadata_type, body=text)
 
-    def _encode[M: Metadata](self, path: PurePosixPath, document: Document[M]) -> bytes:
+    def _encode[M: Metadata](self, path: PurePosixPath, document: ParsedDocument[M]) -> bytes:
         from ruamel.yaml import YAML
         from ruamel.yaml.error import YAMLError
 
@@ -118,8 +126,8 @@ class DocumentStore:
         except (ValueError, YAMLError) as exc:
             raise InvalidDocumentError(path, exc) from exc
 
-    def create[M: Metadata](self, path: str | PurePosixPath, document: Document[M]) -> None:
-        relative = PathInput.model_validate({"path": path}).path
+    def create[M: Metadata](self, path: str | PurePosixPath, document: ParsedDocument[M]) -> None:
+        relative = RELATIVE_PATH_ADAPTER.validate_python(path)
         content = self._encode(relative, document)
         target = self.root / relative
         try:
@@ -144,8 +152,8 @@ class DocumentStore:
             child.name != target.name and child.name.casefold() == folded for child in entries
         )
 
-    def write[M: Metadata](self, path: str | PurePosixPath, document: Document[M]) -> None:
-        relative = PathInput.model_validate({"path": path}).path
+    def write[M: Metadata](self, path: str | PurePosixPath, document: ParsedDocument[M]) -> None:
+        relative = RELATIVE_PATH_ADAPTER.validate_python(path)
         content = self._encode(relative, document)
         target = self.root / relative
         try:
@@ -163,7 +171,7 @@ class DocumentStore:
             raise StorageError(relative, exc) from exc
 
     def metadata(self, path: str | PurePosixPath) -> FileMetadata:
-        relative = PathInput.model_validate({"path": path}).path
+        relative = RELATIVE_PATH_ADAPTER.validate_python(path)
         try:
             info = (self.root / relative).stat()
             if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
@@ -225,14 +233,13 @@ class DocumentStore:
             last_activity_at = self.get_last_activity_at(
                 file_metadata.path, collection.activity_scopes
             )
-            if self._matches_query(document, last_activity_at, query):
+            if query.matches(document.metadata):
                 matching_documents.append(
-                    DocumentRecord(
+                    DocumentRecord[M].from_document(
+                        document,
                         name=name,
                         path=file_metadata.path,
-                        metadata=document.metadata,
                         last_activity_at=last_activity_at,
-                        summary=document.get_or_derive_summary(),
                     )
                 )
         matching_documents.sort(key=lambda record: record.name)
@@ -248,33 +255,6 @@ class DocumentStore:
         elif query.descending:
             matching_documents.reverse()
         return matching_documents if query.limit is None else matching_documents[: query.limit]
-
-    @staticmethod
-    def _matches_query[M: Metadata](
-        document: Document[M], last_activity_at: datetime, query: DocumentQuery
-    ) -> bool:
-        metadata = document.metadata
-        if query.tags is not None:
-            document_tags = {tag.casefold() for tag in metadata.tags}
-            if document_tags.isdisjoint(tag.casefold() for tag in query.tags):
-                return False
-        if isinstance(query, StatusQuery):
-            statuses = cast("StatusQuery[str]", query).statuses
-            if statuses is not None and (
-                not isinstance(metadata, StatusMetadata)
-                or cast("StatusMetadata[str]", metadata).status not in statuses
-            ):
-                return False
-        for value, bounds in (
-            (metadata.created, query.created_range),
-            (last_activity_at, query.updated_range),
-        ):
-            if bounds is not None and (
-                (bounds.gte is not None and value < bounds.gte)
-                or (bounds.lte is not None and value > bounds.lte)
-            ):
-                return False
-        return True
 
 
 def _glob_regular_files(

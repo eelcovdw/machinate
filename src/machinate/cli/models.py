@@ -3,20 +3,20 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from machinate.models.batch import BatchCreateError
-from machinate.models.context import Context
-from machinate.models.doc import Doc
-from machinate.models.plan import Plan, PlanOverview, ProjectOverview
-from machinate.models.search import FindEntry
-from machinate.models.task import Task
-from machinate.storage import DocumentRecord, ProjectState
-from machinate.storage.models import (
+from machinate.models.documents import (
+    Context,
     ContextMetadata,
+    Doc,
     DocMetadata,
+    DocumentRecord,
     Name,
+    Plan,
     PlanMetadata,
+    Task,
     TaskMetadata,
 )
+from machinate.models.operations import BatchCreateError, FindEntry, PlanOverview, ProjectOverview
+from machinate.storage import ProjectState
 
 
 class ProjectScope(BaseModel):

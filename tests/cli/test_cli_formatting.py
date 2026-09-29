@@ -13,8 +13,7 @@ from machinate.cli.cli import create_cli
 from machinate.cli.models import ErrorResult
 from machinate.cli.project_setup import prepare_project
 from machinate.cli.styles import status_style
-from machinate.models.plan import PlanUpdate
-from machinate.models.task import TaskUpdate
+from machinate.models.operations import PlanUpdate, TaskUpdate
 
 runner = CliRunner()
 app = create_cli(DEFAULT_DEPENDENCIES)

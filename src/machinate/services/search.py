@@ -5,8 +5,9 @@ from typing import cast
 import tantivy
 from pydantic import validate_call
 
-from machinate.models.search import DEFAULT_GLOB, FindEntry, FindQuery
-from machinate.storage import DocumentStore, Layout, PlanMetadata, StorageError
+from machinate.models.documents import PlanMetadata
+from machinate.models.operations import DEFAULT_GLOB, FindEntry, FindQuery
+from machinate.storage import DocumentStore, Layout, StorageError
 
 logger = logging.getLogger(__name__)
 

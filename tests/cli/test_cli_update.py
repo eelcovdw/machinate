@@ -5,7 +5,7 @@ from harness import cli, read_state, seed, snapshot
 
 from machinate.cli.models import UpdateResult
 from machinate.cli.project_setup import prepare_project
-from machinate.storage import PlanMetadata
+from machinate.models.documents import PlanMetadata
 
 
 def read_metadata(project: Path, name: str = "auth") -> PlanMetadata:

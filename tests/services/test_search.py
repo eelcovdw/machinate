@@ -5,24 +5,22 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from machinate.models.search import FindQuery
-from machinate.services.search import SearchService
-from machinate.storage import (
+from machinate.models.documents import (
     ContextMetadata,
-    Document,
-    DocumentStore,
-    Layout,
     Metadata,
-    MissingDocumentError,
+    ParsedDocument,
     PlanMetadata,
     TaskMetadata,
 )
+from machinate.models.operations import FindQuery
+from machinate.services.search import SearchService
+from machinate.storage import DocumentStore, Layout, MissingDocumentError
 
 _NOW = datetime(2026, 9, 22, tzinfo=UTC)
 
 
-def _doc(metadata: Metadata, body: str) -> Document[Metadata]:
-    return Document(metadata=metadata, body=body)
+def _doc(metadata: Metadata, body: str) -> ParsedDocument[Metadata]:
+    return ParsedDocument(metadata=metadata, body=body)
 
 
 @pytest.fixture

@@ -3,7 +3,7 @@ from pathlib import Path
 from harness import cli, seed
 
 from machinate.cli.models import InfoResult, PlanInfoResult
-from machinate.models.plan import PlanOverview, ProjectOverview
+from machinate.models.operations import PlanOverview, ProjectOverview
 from machinate.storage import ProjectState, ProjectStateStore
 
 

@@ -4,7 +4,7 @@ from harness import cli, seed
 
 from machinate.cli.models import PlanInfoResult, ShowResult
 from machinate.cli.project_setup import prepare_project
-from machinate.models.plan import PlanUpdate
+from machinate.models.operations import PlanUpdate
 
 
 def add_tags(project: Path, name: str, *tags: str) -> None:

@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -14,9 +13,7 @@ from machinate.cli.models import (
     ContextUpdateResult,
 )
 from machinate.cli.update_changes import UpdateOptions, build_update
-from machinate.models.context import ContextUpdate
-from machinate.storage import ContextMetadata
-from machinate.storage.queries import DocumentQuery
+from machinate.models.operations import ContextUpdate, CreateInput, DocumentQuery
 
 
 def context_changes(
@@ -60,7 +57,7 @@ def context_add(  # noqa: PLR0913
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         created, errors = project_context.contexts.create_batch(
-            plan_name, names, ContextMetadata(created=datetime.now(UTC), tags=tags or [])
+            plan_name, names, CreateInput(tags=tags or [])
         )
         result = ContextAddResult(
             project=project_context.project, plan=plan_name, contexts=created, errors=errors

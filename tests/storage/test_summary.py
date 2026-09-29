@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from machinate.storage import ContextMetadata, Document, DocumentStore
-from machinate.storage.summary import derive_summary
+from machinate.models.documents import ContextMetadata, ParsedDocument, derive_summary
+from machinate.storage import DocumentStore
 
 
 def test_no_prose_returns_none() -> None:
@@ -48,7 +48,9 @@ def test_summary_is_not_persisted(tmp_path: Path) -> None:
     store = DocumentStore(tmp_path)
     store.create(
         "note.md",
-        Document(metadata=ContextMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)), body="Hello"),
+        ParsedDocument(
+            metadata=ContextMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)), body="Hello"
+        ),
     )
     assert "summary" not in (tmp_path / "note.md").read_text()
     assert store.read("note.md", ContextMetadata).get_or_derive_summary() == "Hello"
@@ -66,7 +68,7 @@ def test_stored_summary_survives_rewrite(tmp_path: Path) -> None:
     store = DocumentStore(tmp_path)
     store.create(
         "note.md",
-        Document(
+        ParsedDocument(
             metadata=ContextMetadata(created=datetime(2026, 1, 1, tzinfo=UTC), summary="Curated"),
             body="Body paragraph.",
         ),

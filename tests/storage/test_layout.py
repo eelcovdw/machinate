@@ -2,7 +2,8 @@ from pathlib import PurePosixPath
 
 import pytest
 
-from machinate.storage import DocumentMembership, Layout
+from machinate.models.documents import DocumentMembership
+from machinate.storage import Layout
 
 
 @pytest.mark.parametrize(

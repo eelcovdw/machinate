@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from machinate.models.documents import NAME_ADAPTER
 from machinate.services.context import ContextService
 from machinate.services.doc import DocService
 from machinate.services.plan import PlanService
 from machinate.services.search import SearchService
 from machinate.services.task import TaskService
 from machinate.storage import DocumentStore, Layout, ProjectState, ProjectStateStore
-from machinate.storage.models import NameInput
 
 from .models import ProjectScope
 
@@ -54,7 +54,7 @@ def initialize_project(explicit: Path | None, project_name: str | None = None) -
     if not target.is_dir():
         msg = f"{target}: project directory does not exist"
         raise ProjectError(msg)
-    name = NameInput(name=project_name if project_name is not None else target.name).name
+    name = NAME_ADAPTER.validate_python(project_name if project_name is not None else target.name)
     storage = target / ".machi"
     if storage.exists() or storage.is_symlink():
         if not storage.is_dir():

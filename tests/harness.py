@@ -8,7 +8,6 @@ or per-test patching stay in ``tests/conftest.py``.
 import json
 import os
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeVar
 
@@ -21,24 +20,12 @@ from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import ErrorResult
 from machinate.cli.project_setup import prepare_project
 from machinate.cli.settings import LogLevel, Settings
-from machinate.models.context import Context
-from machinate.models.doc import Doc
-from machinate.models.plan import Plan
-from machinate.models.task import Task
-from machinate.storage import (
-    ContextMetadata,
-    DocMetadata,
-    PlanMetadata,
-    PlanStatus,
-    ProjectState,
-    TaskMetadata,
-    TaskStatus,
-)
+from machinate.models.documents import Context, Doc, Plan, PlanStatus, Task, TaskStatus
+from machinate.models.operations import CreateInput, StatusCreateInput
+from machinate.storage import ProjectState
 
 runner = CliRunner()
 ModelT = TypeVar("ModelT", bound=BaseModel)
-
-_DEFAULT_CREATED = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def filtered_environment() -> dict[str, str]:
@@ -97,7 +84,7 @@ class Seed:
         body: str = "",
     ) -> Plan:
         return prepare_project(project).plans.create(
-            name, PlanMetadata(created=_DEFAULT_CREATED, status=status, summary=summary), body
+            name, StatusCreateInput[PlanStatus](status=status, summary=summary), body
         )
 
     def task(  # noqa: PLR0913 -- helper mirrors the document options
@@ -111,7 +98,7 @@ class Seed:
         body: str = "",
     ) -> Task:
         return prepare_project(project).tasks.create(
-            plan, name, TaskMetadata(created=_DEFAULT_CREATED, status=status, summary=summary), body
+            plan, name, StatusCreateInput[TaskStatus](status=status, summary=summary), body
         )
 
     def context(
@@ -124,7 +111,7 @@ class Seed:
         body: str = "",
     ) -> Context:
         return prepare_project(project).contexts.create(
-            plan, name, ContextMetadata(created=_DEFAULT_CREATED, summary=summary), body
+            plan, name, CreateInput(summary=summary), body
         )
 
     def doc(
@@ -135,9 +122,7 @@ class Seed:
         summary: str | None = None,
         body: str = "",
     ) -> Doc:
-        return prepare_project(project).docs.create(
-            name, DocMetadata(created=_DEFAULT_CREATED, summary=summary), body
-        )
+        return prepare_project(project).docs.create(name, CreateInput(summary=summary), body)
 
 
 seed = Seed()

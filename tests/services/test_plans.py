@@ -5,20 +5,23 @@ from unittest.mock import Mock
 
 import pytest
 
-from machinate.models.plan import PlanUpdate
+from machinate.models.documents import (
+    ContextMetadata,
+    ParsedDocument,
+    PlanMetadata,
+    PlanStatus,
+    TaskMetadata,
+)
+from machinate.models.operations import PlanUpdate, StatusCreateInput
 from machinate.services.plan import PlanService
 from machinate.storage import (
-    ContextMetadata,
-    Document,
     DocumentExistsError,
     DocumentStore,
     InvalidDocumentError,
     Layout,
     MissingDocumentError,
-    PlanMetadata,
     ProjectState,
     ProjectStateStore,
-    TaskMetadata,
 )
 
 
@@ -36,39 +39,41 @@ def metadata() -> PlanMetadata:
     )
 
 
-def test_create_get_and_duplicate(service: PlanService, metadata: PlanMetadata) -> None:
-    plan = service.create("alpha", metadata, "Body\n")
+def test_create_get_and_duplicate(service: PlanService) -> None:
+    plan = service.create("alpha", StatusCreateInput[PlanStatus](summary="Alpha"), "Body\n")
     assert plan == service.get("alpha")
     assert plan.name == "alpha"
     assert plan.path == PurePosixPath("plans/alpha/plan.md")
-    assert plan.document == Document(metadata=metadata, body="Body\n")
+    assert plan.document.body == "Body\n"
+    assert plan.document.metadata.summary == "Alpha"
+    assert plan.document.metadata.status == "draft"
+    assert plan.document.metadata.created.tzinfo is not None
     assert service.current_name() is None
     assert service.project_state_store.read() == ProjectState(project_name="demo")
-    assert '"created":"2026-09-22T00:00:00Z"' in plan.model_dump_json()
     with pytest.raises(DocumentExistsError):
-        service.create("alpha", metadata)
+        service.create("alpha", StatusCreateInput[PlanStatus]())
 
 
 def test_patch_preserves_omitted_fields_and_extra_metadata(
     service: PlanService, metadata: PlanMetadata
 ) -> None:
-    service.create("alpha", metadata, "Body")
+    service.document_store.create(
+        service.layout.plan("alpha"), ParsedDocument(metadata=metadata, body="Body")
+    )
     result = service.update("alpha", PlanUpdate(status="active"))
     assert result.document.body == "Body"
     assert result.document.metadata.status == "active"
     assert result.document.get_or_derive_summary() == "Body"
+    assert result.document.metadata.created.tzinfo is not None
     result = service.update("alpha", PlanUpdate(body=""))
     assert result.document.body == ""
     assert result.document.metadata.status == "active"
     assert result.document.get_or_derive_summary() is None
-    assert result.document.metadata.created == metadata.created
     assert result.document.metadata.model_extra == metadata.model_extra
 
 
-def test_empty_patch_never_writes(
-    service: PlanService, metadata: PlanMetadata, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    service.create("alpha", metadata, "Body")
+def test_empty_patch_never_writes(service: PlanService, monkeypatch: pytest.MonkeyPatch) -> None:
+    service.create("alpha", StatusCreateInput[PlanStatus](), "Body")
     target = service.document_store.root / "plans/alpha/plan.md"
     os.utime(target, ns=(1234567890123456789, 1234567890123456789))
     before = target.read_bytes(), target.stat().st_mtime_ns
@@ -95,12 +100,10 @@ def test_missing_operations_and_dangling_selection(service: PlanService) -> None
         service.get(service.current_name() or "")
 
 
-def test_selection_does_not_retarget_explicit_operations(
-    service: PlanService, metadata: PlanMetadata
-) -> None:
-    service.create("alpha", metadata)
+def test_selection_does_not_retarget_explicit_operations(service: PlanService) -> None:
+    service.create("alpha", StatusCreateInput[PlanStatus]())
     assert service.set_current("alpha") == ProjectState(project_name="demo", current_plan="alpha")
-    service.create("beta", metadata)
+    service.create("beta", StatusCreateInput[PlanStatus]())
     assert service.current_name() == "alpha"
     service.set_current("beta")
     service.update("alpha", PlanUpdate(body="only alpha"))
@@ -112,10 +115,8 @@ def test_selection_does_not_retarget_explicit_operations(
     assert service.project_state_store.read().project_name == "demo"
 
 
-def test_info_counts_and_list_ignores_malformed_children(
-    service: PlanService, metadata: PlanMetadata
-) -> None:
-    service.create("alpha", metadata)
+def test_info_counts_and_list_ignores_malformed_children(service: PlanService) -> None:
+    service.create("alpha", StatusCreateInput[PlanStatus]())
     empty = service.info("alpha")
     assert empty.task_counts == {"todo": 0, "in-progress": 0, "done": 0}
     assert empty.context_count == 0
@@ -127,7 +128,7 @@ def test_info_counts_and_list_ignores_malformed_children(
     ]:
         service.document_store.create(
             PurePosixPath("plans/alpha/tasks", f"{name}.md"),
-            Document(
+            ParsedDocument(
                 metadata=TaskMetadata.model_validate(
                     {"created": datetime(2026, 9, 22, tzinfo=UTC), "status": status}
                 ),
@@ -136,7 +137,9 @@ def test_info_counts_and_list_ignores_malformed_children(
         )
     service.document_store.create(
         PurePosixPath("plans/alpha/context/nested/note.md"),
-        Document(metadata=ContextMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""),
+        ParsedDocument(
+            metadata=ContextMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""
+        ),
     )
     info = service.info("alpha")
     assert info.task_counts == {"todo": 2, "in-progress": 1, "done": 1}

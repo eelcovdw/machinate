@@ -14,15 +14,14 @@ from machinate.cli.dependencies import Dependencies
 from machinate.cli.formatting import Formatter
 from machinate.cli.models import CommandResult, ErrorResult, ListResult
 from machinate.cli.project_setup import prepare_project
+from machinate.models.documents import ParsedDocument, PlanMetadata
+from machinate.models.operations import PlanQuery
 from machinate.storage import (
-    Document,
     DocumentStore,
     Layout,
-    PlanMetadata,
     ProjectState,
     ProjectStateStore,
 )
-from machinate.storage.queries import PlanQuery
 
 runner = CliRunner()
 app = create_cli(DEFAULT_DEPENDENCIES)
@@ -33,7 +32,7 @@ def populate(project: Path) -> None:
     for name, status in (("beta", "done"), ("alpha", "active")):
         store.create(
             Layout().plan(name),
-            Document(
+            ParsedDocument(
                 metadata=PlanMetadata.model_validate(
                     {
                         "created": datetime(2026, 9, 22, tzinfo=UTC),

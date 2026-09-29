@@ -1,7 +1,8 @@
 from pathlib import PurePosixPath
 
-from .models import ContextNameInput, DocNameInput, NameInput, TaskNameInput
-from .queries import DocumentCollection, DocumentKind, DocumentMembership, DocumentScope
+from machinate.models.documents import DocumentKind, DocumentMembership, Name, NestedName
+
+from .models import DocumentCollection, DocumentScope
 
 _PLANS_DIRECTORY = PurePosixPath("plans")
 _TASKS_DIRECTORY = PurePosixPath("tasks")
@@ -16,20 +17,16 @@ _COLLECTION_KINDS: dict[str, DocumentKind] = {
 
 
 class Layout:
-    def plan(self, name: str) -> PurePosixPath:
-        name = NameInput(name=name).name
+    def plan(self, name: Name) -> PurePosixPath:
         return _PLANS_DIRECTORY / name / _PLAN_DOCUMENT
 
-    def task(self, plan: str, name: str) -> PurePosixPath:
-        name = TaskNameInput(name=name).name
+    def task(self, plan: Name, name: NestedName) -> PurePosixPath:
         return self.plan(plan).parent / _TASKS_DIRECTORY / f"{name}.md"
 
-    def context(self, plan: str, name: str) -> PurePosixPath:
-        name = ContextNameInput(name=name).name
+    def context(self, plan: Name, name: NestedName) -> PurePosixPath:
         return self.plan(plan).parent / _CONTEXT_DIRECTORY / f"{name}.md"
 
-    def doc(self, name: str) -> PurePosixPath:
-        name = DocNameInput(name=name).name
+    def doc(self, name: NestedName) -> PurePosixPath:
         return _DOCS_DIRECTORY / f"{name}.md"
 
     def resolve(self, path: PurePosixPath) -> DocumentMembership:
@@ -76,12 +73,12 @@ class Layout:
             ),
         )
 
-    def task_collection(self, plan: str) -> DocumentCollection:
+    def task_collection(self, plan: Name) -> DocumentCollection:
         return DocumentCollection(
             path=self.plan(plan).parent / _TASKS_DIRECTORY, pattern=PurePosixPath("**/*.md")
         )
 
-    def context_collection(self, plan: str) -> DocumentCollection:
+    def context_collection(self, plan: Name) -> DocumentCollection:
         return DocumentCollection(
             path=self.plan(plan).parent / _CONTEXT_DIRECTORY, pattern=PurePosixPath("**/*.md")
         )

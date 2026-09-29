@@ -5,7 +5,7 @@ import typer
 
 from machinate.cli.execution import execute
 from machinate.cli.models import FindResult
-from machinate.models.search import DEFAULT_GLOB, FindQuery
+from machinate.models.operations import DEFAULT_GLOB, FindQuery
 
 
 def find_command(  # noqa: PLR0913

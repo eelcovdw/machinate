@@ -1,4 +1,4 @@
-"""Agent-mode targeting: environment detection and plan policy (D1)."""
+"""Agent-mode targeting: environment detection and plan policy."""
 
 from pathlib import Path
 

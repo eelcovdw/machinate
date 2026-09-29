@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -14,9 +13,8 @@ from machinate.cli.models import (
     TaskUpdateResult,
 )
 from machinate.cli.update_changes import UpdateOptions, build_update
-from machinate.models.task import TaskUpdate
-from machinate.storage import TaskMetadata
-from machinate.storage.queries import TaskQuery
+from machinate.models.documents import TaskStatus
+from machinate.models.operations import StatusCreateInput, TaskQuery, TaskUpdate
 
 
 def task_changes(
@@ -59,7 +57,7 @@ def task_add(  # noqa: PLR0913
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         created, errors = project_context.tasks.create_batch(
-            plan_name, names, TaskMetadata(created=datetime.now(UTC), tags=tags or [])
+            plan_name, names, StatusCreateInput[TaskStatus](tags=tags or [])
         )
         result = TaskAddResult(
             project=project_context.project, plan=plan_name, tasks=created, errors=errors

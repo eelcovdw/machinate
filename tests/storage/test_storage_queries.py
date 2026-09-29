@@ -5,18 +5,14 @@ from pathlib import Path, PurePosixPath
 import pytest
 from pydantic import ValidationError
 
+from machinate.models.documents import ParsedDocument, PlanMetadata, TaskMetadata
+from machinate.models.operations import DocumentQuery, PlanQuery, TaskQuery
 from machinate.storage import (
-    Document,
     DocumentCollection,
-    DocumentQuery,
     DocumentStore,
     InvalidDocumentError,
     Layout,
-    PlanMetadata,
-    PlanQuery,
     StorageError,
-    TaskMetadata,
-    TaskQuery,
 )
 
 
@@ -31,7 +27,7 @@ def store(tmp_path: Path) -> DocumentStore:
         path = Layout().plan(name)
         store.create(
             path,
-            Document(
+            ParsedDocument(
                 metadata=PlanMetadata.model_validate(
                     {
                         "created": datetime(2026, 9, day, tzinfo=UTC),
@@ -78,7 +74,7 @@ def test_created_sort_uses_time_of_day(store: DocumentStore) -> None:
     ]:
         store.write(
             Layout().plan(name),
-            Document(metadata=PlanMetadata.model_validate({"created": stamp}), body=""),
+            ParsedDocument(metadata=PlanMetadata.model_validate({"created": stamp}), body=""),
         )
     assert names(store, PlanQuery(sort="created")) == ["beta", "alpha", "gamma"]
 
@@ -210,7 +206,9 @@ def test_nested_document_names_support_ordering(
         path = collection.path / f"{name}.md"
         store.create(
             path,
-            Document(metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""),
+            ParsedDocument(
+                metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""
+            ),
         )
         os.utime(tmp_path / path, (100, 100))
 
@@ -246,7 +244,7 @@ def test_task_status_queries(store: DocumentStore, query: TaskQuery, expected: l
         path = Layout().task("alpha", name)
         store.create(
             path,
-            Document(
+            ParsedDocument(
                 metadata=TaskMetadata.model_validate(
                     {
                         "created": datetime(2026, 9, day, tzinfo=UTC),

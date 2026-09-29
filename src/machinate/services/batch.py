@@ -5,7 +5,7 @@ from pathlib import PurePosixPath
 
 from pydantic import ValidationError
 
-from machinate.models.batch import BatchCreateError, first_validation_message
+from machinate.models.operations import BatchCreateError, first_validation_message
 from machinate.storage import DocumentStore
 from machinate.storage.errors import MissingDocumentError, StorageError
 

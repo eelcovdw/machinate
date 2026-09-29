@@ -1,27 +1,28 @@
+from datetime import UTC, datetime
 from pathlib import PurePosixPath
 
 from pydantic import validate_call
 
-from machinate.models.plan import (
+from machinate.models.documents import (
+    ContextMetadata,
+    DocumentRecord,
+    Name,
+    ParsedDocument,
     Plan,
+    PlanMetadata,
+    PlanStatus,
+    TaskMetadata,
+    TaskStatus,
+)
+from machinate.models.operations import (
     PlanInfo,
     PlanOverview,
+    PlanQuery,
     PlanUpdate,
     ProjectOverview,
+    StatusCreateInput,
 )
-from machinate.storage import (
-    ContextMetadata,
-    Document,
-    DocumentRecord,
-    DocumentStore,
-    Layout,
-    PlanMetadata,
-    ProjectState,
-    ProjectStateStore,
-    TaskMetadata,
-)
-from machinate.storage.models import Name, PlanStatus, TaskStatus
-from machinate.storage.queries import PlanQuery
+from machinate.storage import DocumentStore, Layout, ProjectState, ProjectStateStore
 
 
 class PlanService:
@@ -33,8 +34,16 @@ class PlanService:
         self.project_state_store: ProjectStateStore = project_state_store
 
     @validate_call
-    def create(self, name: Name, metadata: PlanMetadata, body: str = "") -> Plan:
-        self.document_store.create(self.layout.plan(name), Document(metadata=metadata, body=body))
+    def create(self, name: Name, create: StatusCreateInput[PlanStatus], body: str = "") -> Plan:
+        metadata = PlanMetadata(
+            created=datetime.now(UTC),
+            summary=create.summary,
+            tags=create.tags,
+            status=create.status if create.status is not None else "draft",
+        )
+        self.document_store.create(
+            self.layout.plan(name), ParsedDocument(metadata=metadata, body=body)
+        )
         return self.get(name)
 
     @validate_call
@@ -49,7 +58,9 @@ class PlanService:
         path = self.layout.plan(name)
         return self._plan(path, name, self.document_store.read(path, PlanMetadata))
 
-    def _plan(self, path: PurePosixPath, name: Name, document: Document[PlanMetadata]) -> Plan:
+    def _plan(
+        self, path: PurePosixPath, name: Name, document: ParsedDocument[PlanMetadata]
+    ) -> Plan:
         """Build a plan from an already-loaded document, statting the file once."""
         return Plan(
             name=name,

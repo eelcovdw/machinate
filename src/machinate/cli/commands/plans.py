@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -17,9 +16,8 @@ from machinate.cli.models import (
     UpdateResult,
 )
 from machinate.cli.update_changes import UpdateOptions, build_update
-from machinate.models.plan import PlanUpdate
-from machinate.storage import PlanMetadata
-from machinate.storage.queries import PlanQuery
+from machinate.models.documents import PlanStatus
+from machinate.models.operations import PlanQuery, PlanUpdate, StatusCreateInput
 
 
 def plan_changes(
@@ -58,15 +56,10 @@ def add_plan(  # noqa: PLR0913
     """Create a plan."""
     with execute(context, "plan add", output_format) as run:
         project_context = run.prepare(project)
-        metadata = PlanMetadata.model_validate(
-            {
-                "created": datetime.now(UTC),
-                "tags": tags or [],
-                "summary": summary,
-                "status": "draft" if status is None else status,
-            }
+        create = StatusCreateInput[PlanStatus].model_validate(
+            {"summary": summary, "tags": tags or [], "status": status}
         )
-        plan = project_context.plans.create(name, metadata)
+        plan = project_context.plans.create(name, create)
         run.render(AddResult(project=project_context.project, plan=plan))
 
 

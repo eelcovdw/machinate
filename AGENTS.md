@@ -23,6 +23,10 @@ Design docs for the v2 rewrite live in `.dev-docs/` (`CLI.md` is the accepted CL
 - A docs task is one gather and one edit — no read-backs and no live verification of text you
   just wrote from the real CLI.
 - No live demo when the tests already cover the behavior.
+- Run the verification suite **once per change**, after all edits are done: targeted pytest,
+  then the full suite, then `ruff format`, `ruff check`, `basedpyright`. Do not re-run tests or
+  linters after a formatting-only, comment-only, or notes-only change, and do not repeat the
+  suite to confirm something already verified.
 - **Task status and tracking live on machinate tasks. Never maintain task lists or statuses
   inside a plan body (`plan.md`) — the plan is the spec, tasks are the tracker.**
 - Stop when the request is satisfied. No post-completion bookkeeping (plan bodies, temp
@@ -177,6 +181,8 @@ which picks up source changes through the editable install.
   `document_store.py`) and are already sanctioned in `pyproject.toml`.
 - Comments explain *why*, not *what*. Docstrings are one line unless the contract is subtle;
   don't restate the signature.
+- Never reference task, plan, or triage identifiers in code (comments, docstrings, names).
+  Readers have no access to them; state the reason in place.
 - No dead code, commented-out code, speculative parameters, or abstractions with one
   implementation "for later". Delete code that becomes unused as part of your change.
 - Standard library first. Don't add a dependency without asking.

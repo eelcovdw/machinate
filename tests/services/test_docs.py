@@ -1,13 +1,10 @@
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
-from machinate.models.doc import DocUpdate
+from machinate.models.operations import CreateInput, DocumentQuery, DocUpdate
 from machinate.services.doc import DocService
-from machinate.storage import DocMetadata, DocumentQuery, DocumentStore, Layout
-
-_CREATED = datetime(2026, 1, 1, tzinfo=UTC)
+from machinate.storage import DocumentStore, Layout
 
 
 @pytest.fixture
@@ -16,7 +13,7 @@ def service(tmp_path: Path) -> DocService:
 
 
 def test_create_get_update_round_trip(service: DocService) -> None:
-    created = service.create("topic/spec", DocMetadata(created=_CREATED), "body")
+    created = service.create("topic/spec", CreateInput(), "body")
     assert created.name == "topic/spec"
     assert created.path.as_posix() == "docs/topic/spec.md"
     assert service.get("topic/spec").document.body == "body"
@@ -28,7 +25,7 @@ def test_create_get_update_round_trip(service: DocService) -> None:
 
 
 def test_update_with_no_fields_is_a_noop(service: DocService) -> None:
-    service.create("spec", DocMetadata(created=_CREATED), "body")
+    service.create("spec", CreateInput(), "body")
     before = service.path("spec")
     service.update("spec", DocUpdate())
     assert service.get("spec").document.body == "body"
@@ -36,7 +33,7 @@ def test_update_with_no_fields_is_a_noop(service: DocService) -> None:
 
 
 def test_trailing_markdown_suffix_is_ignored(service: DocService) -> None:
-    created = service.create("topic/spec.md", DocMetadata(created=_CREATED), "body")
+    created = service.create("topic/spec.md", CreateInput(), "body")
     assert created.name == "topic/spec"
     assert created.path.as_posix() == "docs/topic/spec.md"
     assert service.get("topic/spec.md").name == "topic/spec"
@@ -44,18 +41,16 @@ def test_trailing_markdown_suffix_is_ignored(service: DocService) -> None:
 
 
 def test_create_batch_reports_partial_failures(service: DocService) -> None:
-    service.create("existing", DocMetadata(created=_CREATED))
-    created, errors = service.create_batch(
-        ["new", "existing", "../bad"], DocMetadata(created=_CREATED)
-    )
+    service.create("existing", CreateInput())
+    created, errors = service.create_batch(["new", "existing", "../bad"], CreateInput())
     assert [doc.name for doc in created] == ["new"]
     assert [error.name for error in errors] == ["existing", "../bad"]
 
 
 def test_list_filters_sorts_and_limits(service: DocService) -> None:
-    service.create("b", DocMetadata(created=_CREATED, tags=["x"]))
-    service.create("a", DocMetadata(created=_CREATED, tags=["y"]))
-    service.create("c", DocMetadata(created=_CREATED, tags=["x"]))
+    service.create("b", CreateInput(tags=["x"]))
+    service.create("a", CreateInput(tags=["y"]))
+    service.create("c", CreateInput(tags=["x"]))
 
     tagged = service.list(DocumentQuery(tags={"x"}))
     assert [record.name for record in tagged] == ["b", "c"]

@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -14,9 +13,7 @@ from machinate.cli.models import (
     PathResult,
 )
 from machinate.cli.update_changes import UpdateOptions, build_update
-from machinate.models.doc import DocUpdate
-from machinate.storage import DocMetadata
-from machinate.storage.queries import DocumentQuery
+from machinate.models.operations import CreateInput, DocumentQuery, DocUpdate
 
 _PROJECT = Annotated[
     Path | None,
@@ -55,9 +52,7 @@ def doc_add(
     """Create one or more project-level documents."""
     with execute(context, "doc add", output_format) as run:
         project_context = run.prepare(project)
-        created, errors = project_context.docs.create_batch(
-            names, DocMetadata(created=datetime.now(UTC), tags=tags or [])
-        )
+        created, errors = project_context.docs.create_batch(names, CreateInput(tags=tags or []))
         result = DocAddResult(project=project_context.project, docs=created, errors=errors)
         run.render(result)
     if result.errors:

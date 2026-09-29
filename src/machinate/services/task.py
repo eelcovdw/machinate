@@ -1,20 +1,22 @@
+from datetime import UTC, datetime
 from pathlib import PurePosixPath
 
 from pydantic import validate_call
 
-from machinate.models.batch import BatchCreateError
-from machinate.models.task import Task, TaskUpdate
-from machinate.services.batch import create_documents
-from machinate.storage import (
-    Document,
+from machinate.models.documents import (
+    NESTED_NAME_ADAPTER,
     DocumentRecord,
-    DocumentStore,
-    Layout,
+    Name,
+    NestedName,
+    ParsedDocument,
     PlanMetadata,
+    Task,
     TaskMetadata,
-    TaskQuery,
+    TaskStatus,
 )
-from machinate.storage.models import Name, TaskName, TaskNameInput
+from machinate.models.operations import BatchCreateError, StatusCreateInput, TaskQuery, TaskUpdate
+from machinate.services.batch import create_documents
+from machinate.storage import DocumentStore, Layout
 
 
 class TaskService:
@@ -22,45 +24,61 @@ class TaskService:
         self.document_store: DocumentStore = document_store
         self.layout: Layout = layout
 
-    def _require_plan(self, plan: str) -> None:
+    def _require_plan(self, plan: Name) -> None:
         self.document_store.read(self.layout.plan(plan), PlanMetadata)
 
-    @validate_call
-    def create(self, plan: Name, name: TaskName, metadata: TaskMetadata, body: str = "") -> Task:
-        self._require_plan(plan)
-        return self._create(plan, name, metadata, body)
+    @staticmethod
+    def _build_metadata(create: StatusCreateInput[TaskStatus]) -> TaskMetadata:
+        return TaskMetadata(
+            created=datetime.now(UTC),
+            summary=create.summary,
+            tags=create.tags,
+            status=create.status if create.status is not None else "todo",
+        )
 
-    def _create(self, plan: Name, name: TaskName, metadata: TaskMetadata, body: str = "") -> Task:
+    @validate_call
+    def create(
+        self, plan: Name, name: NestedName, create: StatusCreateInput[TaskStatus], body: str = ""
+    ) -> Task:
+        self._require_plan(plan)
+        return self._create(plan, name, self._build_metadata(create), body)
+
+    def _create(self, plan: Name, name: NestedName, metadata: TaskMetadata, body: str = "") -> Task:
         """Write a task without re-checking the plan; callers must have required it."""
         path = self.layout.task(plan, name)
-        document = Document(metadata=metadata, body=body)
+        document = ParsedDocument(metadata=metadata, body=body)
         self.document_store.create(path, document)
         return self._task(path, name, document)
 
     @validate_call
     def create_batch(
-        self, plan: Name, names: list[str], metadata: TaskMetadata, body: str = ""
+        self, plan: Name, names: list[str], create: StatusCreateInput[TaskStatus], body: str = ""
     ) -> tuple[list[Task], list[BatchCreateError]]:
         """Create many tasks, reporting per-name failures instead of aborting the batch."""
         self._require_plan(plan)
+        metadata = self._build_metadata(create)
         return create_documents(
             names=names,
             document_store=self.document_store,
-            validate_name=lambda name: TaskNameInput(name=name).name,
+            validate_name=NESTED_NAME_ADAPTER.validate_python,
             path_for=lambda name: self.layout.task(plan, name),
             create=lambda name: self._create(plan, name, metadata, body),
         )
 
     @validate_call
-    def get(self, plan: Name, name: TaskName) -> Task:
+    def get(self, plan: Name, name: NestedName) -> Task:
         self._require_plan(plan)
         return self._get(plan, name)
 
-    def _read(self, plan: Name, name: TaskName) -> tuple[PurePosixPath, Document[TaskMetadata]]:
+    def _read(
+        self, plan: Name, name: NestedName
+    ) -> tuple[PurePosixPath, ParsedDocument[TaskMetadata]]:
         path = self.layout.task(plan, name)
         return path, self.document_store.read(path, TaskMetadata)
 
-    def _task(self, path: PurePosixPath, name: TaskName, document: Document[TaskMetadata]) -> Task:
+    def _task(
+        self, path: PurePosixPath, name: NestedName, document: ParsedDocument[TaskMetadata]
+    ) -> Task:
         """Build a task from an already-loaded document, statting the file once."""
         return Task(
             name=name,
@@ -69,12 +87,12 @@ class TaskService:
             modified_at=self.document_store.metadata(path).modified,
         )
 
-    def _get(self, plan: Name, name: TaskName) -> Task:
+    def _get(self, plan: Name, name: NestedName) -> Task:
         path, document = self._read(plan, name)
         return self._task(path, name, document)
 
     @validate_call
-    def info(self, plan: Name, name: TaskName) -> DocumentRecord[TaskMetadata]:
+    def info(self, plan: Name, name: NestedName) -> DocumentRecord[TaskMetadata]:
         task = self.get(plan, name)
         return DocumentRecord[TaskMetadata].from_document(
             task.document, name=task.name, path=task.path, last_activity_at=task.modified_at
@@ -87,7 +105,7 @@ class TaskService:
         return self.layout.task_collection(plan).path
 
     @validate_call
-    def path(self, plan: Name, name: TaskName) -> PurePosixPath:
+    def path(self, plan: Name, name: NestedName) -> PurePosixPath:
         """Storage-relative task path; validates plan and task exist without parsing."""
         self.document_store.metadata(self.layout.plan(plan))
         target = self.layout.task(plan, name)
@@ -95,7 +113,7 @@ class TaskService:
         return target
 
     @validate_call
-    def update(self, plan: Name, name: TaskName, changes: TaskUpdate) -> Task:
+    def update(self, plan: Name, name: NestedName, changes: TaskUpdate) -> Task:
         self._require_plan(plan)
         path, document = self._read(plan, name)
         changed = changes.apply_to(document)

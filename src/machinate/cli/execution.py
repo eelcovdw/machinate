@@ -10,7 +10,7 @@ import click
 import typer
 from pydantic import ValidationError
 
-from machinate.models.plan import Plan
+from machinate.models.documents import Plan
 from machinate.services.plan import PlanService
 from machinate.storage.errors import MissingDocumentError, StorageError
 
