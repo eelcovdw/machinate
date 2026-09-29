@@ -5,9 +5,9 @@ from pydantic import validate_call
 
 from machinate.models.documents import (
     NESTED_NAME_ADAPTER,
-    Context,
     ContextMetadata,
     DocumentRecord,
+    LoadedDocument,
     Name,
     NestedName,
     ParsedDocument,
@@ -28,26 +28,46 @@ class ContextService:
 
     @staticmethod
     def _build_metadata(create: CreateInput) -> ContextMetadata:
-        return ContextMetadata(created=datetime.now(UTC), summary=create.summary, tags=create.tags)
+        return ContextMetadata(
+            created_at=datetime.now(UTC), summary=create.summary, tags=create.tags
+        )
+
+    def _record(
+        self, path: PurePosixPath, name: NestedName, document: ParsedDocument[ContextMetadata]
+    ) -> DocumentRecord[ContextMetadata]:
+        """Build a context record, statting the file once."""
+        return DocumentRecord[ContextMetadata].from_document(
+            document,
+            name=name,
+            path=path,
+            modified_at=self.document_store.metadata(path).modified_at,
+        )
+
+    def _loaded(
+        self, path: PurePosixPath, name: NestedName, document: ParsedDocument[ContextMetadata]
+    ) -> LoadedDocument[ContextMetadata]:
+        return LoadedDocument(record=self._record(path, name, document), body=document.body)
 
     @validate_call
-    def create(self, plan: Name, name: NestedName, create: CreateInput, body: str = "") -> Context:
+    def create(
+        self, plan: Name, name: NestedName, create: CreateInput, body: str = ""
+    ) -> LoadedDocument[ContextMetadata]:
         self._require_plan(plan)
         return self._create(plan, name, self._build_metadata(create), body)
 
     def _create(
         self, plan: Name, name: NestedName, metadata: ContextMetadata, body: str = ""
-    ) -> Context:
+    ) -> LoadedDocument[ContextMetadata]:
         """Write a context without re-checking the plan; callers must have required it."""
         path = self.layout.context(plan, name)
         document = ParsedDocument(metadata=metadata, body=body)
         self.document_store.create(path, document)
-        return self._context(path, name, document)
+        return self._loaded(path, name, document)
 
     @validate_call
     def create_batch(
         self, plan: Name, names: list[str], create: CreateInput, body: str = ""
-    ) -> tuple[list[Context], list[BatchCreateError]]:
+    ) -> tuple[list[LoadedDocument[ContextMetadata]], list[BatchCreateError]]:
         """Create many contexts, reporting per-name failures instead of aborting the batch."""
         self._require_plan(plan)
         metadata = self._build_metadata(create)
@@ -60,7 +80,7 @@ class ContextService:
         )
 
     @validate_call
-    def get(self, plan: Name, name: NestedName) -> Context:
+    def get(self, plan: Name, name: NestedName) -> LoadedDocument[ContextMetadata]:
         self._require_plan(plan)
         return self._get(plan, name)
 
@@ -70,52 +90,39 @@ class ContextService:
         path = self.layout.context(plan, name)
         return path, self.document_store.read(path, ContextMetadata)
 
-    def _context(
-        self, path: PurePosixPath, name: NestedName, document: ParsedDocument[ContextMetadata]
-    ) -> Context:
-        """Build a context from an already-loaded document, statting the file once."""
-        return Context(
-            name=name,
-            path=path,
-            document=document,
-            modified_at=self.document_store.metadata(path).modified,
-        )
-
-    def _get(self, plan: Name, name: NestedName) -> Context:
+    def _get(self, plan: Name, name: NestedName) -> LoadedDocument[ContextMetadata]:
         path, document = self._read(plan, name)
-        return self._context(path, name, document)
+        return self._loaded(path, name, document)
 
     @validate_call
     def info(self, plan: Name, name: NestedName) -> DocumentRecord[ContextMetadata]:
-        context = self.get(plan, name)
-        return DocumentRecord[ContextMetadata].from_document(
-            context.document,
-            name=context.name,
-            path=context.path,
-            last_activity_at=context.modified_at,
-        )
+        self._require_plan(plan)
+        path, document = self._read(plan, name)
+        return self._record(path, name, document)
 
     @validate_call
     def directory(self, plan: Name) -> PurePosixPath:
-        """Storage-relative context directory; validates the plan exists without parsing."""
+        """Store-relative context directory; validates the plan exists without parsing."""
         self.document_store.metadata(self.layout.plan(plan))
         return self.layout.context_collection(plan).path
 
     @validate_call
     def path(self, plan: Name, name: NestedName) -> PurePosixPath:
-        """Storage-relative context path; validates plan and context exist without parsing."""
+        """Store-relative context path; validates plan and context exist without parsing."""
         self.document_store.metadata(self.layout.plan(plan))
         target = self.layout.context(plan, name)
         self.document_store.metadata(target)
         return target
 
     @validate_call
-    def update(self, plan: Name, name: NestedName, changes: ContextUpdate) -> Context:
+    def update(
+        self, plan: Name, name: NestedName, changes: ContextUpdate
+    ) -> LoadedDocument[ContextMetadata]:
         self._require_plan(plan)
         path, document = self._read(plan, name)
         if changes.apply_to(document):
             self.document_store.write(path, document)
-        return self._context(path, name, document)
+        return self._loaded(path, name, document)
 
     @validate_call
     def list(

@@ -30,7 +30,7 @@ def store(tmp_path: Path) -> DocumentStore:
             ParsedDocument(
                 metadata=PlanMetadata.model_validate(
                     {
-                        "created": datetime(2026, 9, day, tzinfo=UTC),
+                        "created_at": datetime(2026, 9, day, tzinfo=UTC),
                         "status": status,
                         "tags": tags,
                     }
@@ -56,9 +56,14 @@ def names(store: DocumentStore, query: PlanQuery) -> list[str]:
         (PlanQuery(tags={"frontend", "backend"}), ["alpha", "beta", "gamma"]),
         (PlanQuery(tags={"v2"}, statuses={"done"}), ["gamma"]),
         (PlanQuery(sort="name", descending=True, limit=2), ["gamma", "beta"]),
-        (PlanQuery(sort="updated", descending=True), ["beta", "gamma", "alpha"]),
-        (PlanQuery(sort="created"), ["alpha", "beta", "gamma"]),
-        (PlanQuery(statuses={"draft", "done"}, sort="updated", descending=True, limit=1), ["beta"]),
+        (PlanQuery(sort="last_activity_at", descending=True), ["beta", "gamma", "alpha"]),
+        (PlanQuery(sort="created_at"), ["alpha", "beta", "gamma"]),
+        (
+            PlanQuery(
+                statuses={"draft", "done"}, sort="last_activity_at", descending=True, limit=1
+            ),
+            ["beta"],
+        ),
     ],
 )
 def test_query_mechanics(store: DocumentStore, query: PlanQuery, expected: list[str]) -> None:
@@ -74,9 +79,9 @@ def test_created_sort_uses_time_of_day(store: DocumentStore) -> None:
     ]:
         store.write(
             Layout().plan(name),
-            ParsedDocument(metadata=PlanMetadata.model_validate({"created": stamp}), body=""),
+            ParsedDocument(metadata=PlanMetadata.model_validate({"created_at": stamp}), body=""),
         )
-    assert names(store, PlanQuery(sort="created")) == ["beta", "alpha", "gamma"]
+    assert names(store, PlanQuery(sort="created_at")) == ["beta", "alpha", "gamma"]
 
 
 @pytest.mark.parametrize(
@@ -96,6 +101,13 @@ def test_query_validation(data: dict[str, object]) -> None:
         PlanQuery.model_validate(data)
 
 
+def test_last_activity_sort_is_plan_only() -> None:
+    with pytest.raises(ValidationError):
+        DocumentQuery(sort="last_activity_at")
+    with pytest.raises(ValidationError):
+        TaskQuery(sort="last_activity_at")
+
+
 @pytest.mark.parametrize("folder", ["tasks", "context"])
 def test_activity_precedes_filters_sort_and_limit(
     store: DocumentStore, tmp_path: Path, folder: str
@@ -110,11 +122,14 @@ def test_activity_precedes_filters_sort_and_limit(
     outside = tmp_path / "plans" / "alpha" / "unrelated.md"
     outside.write_text("also outside activity scopes")
     os.utime(outside, (900, 900))
-    query = PlanQuery(sort="updated", descending=True, limit=1)
-    records = store.list(Layout().plan_collection(), PlanMetadata, query)
+    query = PlanQuery(sort="last_activity_at", descending=True, limit=1)
+    collection = Layout().plan_collection()
+    records = store.list(collection, PlanMetadata, query)
     assert [record.name for record in records] == ["alpha"]
-    assert records[0].last_activity_at == datetime.fromtimestamp(300, UTC)
-    assert names(store, PlanQuery(sort="updated", descending=True, limit=1)) == ["alpha"]
+    assert store.get_last_activity_at(
+        records[0].path, collection.activity_scopes
+    ) == datetime.fromtimestamp(300, UTC)
+    assert names(store, PlanQuery(sort="last_activity_at", descending=True, limit=1)) == ["alpha"]
 
 
 def test_discovery_empty_scopes_and_malformed_documents(
@@ -140,8 +155,8 @@ def test_discovery_empty_scopes_and_malformed_documents(
 def test_list_skips_dotfiles_and_dangling_symlinks(store: DocumentStore, tmp_path: Path) -> None:
     tasks = tmp_path / "plans" / "alpha" / "tasks"
     tasks.mkdir(parents=True)
-    (tasks / "visible.md").write_text("---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n")
-    (tasks / ".hidden.md").write_text("---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n")
+    (tasks / "visible.md").write_text("---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n")
+    (tasks / ".hidden.md").write_text("---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n")
     (tasks / ".#lock.md").symlink_to(tasks / "missing.md")
     records = store.list(Layout().task_collection("alpha"), TaskMetadata)
     assert [record.name for record in records] == ["visible"]
@@ -150,7 +165,7 @@ def test_list_skips_dotfiles_and_dangling_symlinks(store: DocumentStore, tmp_pat
 def test_list_includes_symlinked_file(store: DocumentStore, tmp_path: Path) -> None:
     tasks = tmp_path / "plans" / "alpha" / "tasks"
     tasks.mkdir(parents=True)
-    frontmatter = "---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n"
+    frontmatter = "---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
     (tasks / "real.md").write_text(frontmatter)
     (tasks / "link.md").symlink_to(tasks / "real.md")
     records = store.list(Layout().task_collection("alpha"), TaskMetadata)
@@ -162,7 +177,7 @@ def test_list_does_not_follow_symlinked_directory(store: DocumentStore, tmp_path
     tasks.mkdir(parents=True)
     external = tmp_path / "external"
     external.mkdir()
-    (external / "nested.md").write_text("---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n")
+    (external / "nested.md").write_text("---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n")
     (tasks / "linked").symlink_to(external, target_is_directory=True)
     assert store.list(Layout().task_collection("alpha"), TaskMetadata) == []
 
@@ -207,15 +222,14 @@ def test_nested_document_names_support_ordering(
         store.create(
             path,
             ParsedDocument(
-                metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""
+                metadata=TaskMetadata(created_at=datetime(2026, 9, 22, tzinfo=UTC)), body=""
             ),
         )
         os.utime(tmp_path / path, (100, 100))
 
     for query in (
         DocumentQuery(),
-        DocumentQuery(sort="created", descending=True),
-        DocumentQuery(sort="updated", descending=True),
+        DocumentQuery(sort="created_at", descending=True),
     ):
         records = store.list(collection, TaskMetadata, query)
         assert [record.name for record in records] == ["login.v2", "one/login", "two/login"]
@@ -247,7 +261,7 @@ def test_task_status_queries(store: DocumentStore, query: TaskQuery, expected: l
             ParsedDocument(
                 metadata=TaskMetadata.model_validate(
                     {
-                        "created": datetime(2026, 9, day, tzinfo=UTC),
+                        "created_at": datetime(2026, 9, day, tzinfo=UTC),
                         "status": status,
                         "summary": summary,
                     }

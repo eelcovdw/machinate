@@ -17,7 +17,7 @@ def test_plan_path_explicit(project: Path) -> None:
     assert parsed.plan == "auth"
     assert parsed.path == project / ".machi/plans/auth/plan.md"
     assert parsed.kind == "plan"
-    assert parsed.exists is True
+    assert parsed.exists is None
     assert read_state(project).current_plan is None
 
 
@@ -59,7 +59,7 @@ def test_task_path_document(project: Path) -> None:
     assert parsed.command == "task path"
     assert parsed.kind == "task"
     assert parsed.path == project / ".machi/plans/auth/tasks/login.md"
-    assert parsed.exists is True
+    assert parsed.exists is None
 
 
 def test_task_path_directory_absent(project: Path) -> None:
@@ -98,7 +98,7 @@ def test_context_path_document(project: Path) -> None:
     assert parsed.command == "context path"
     assert parsed.kind == "context"
     assert parsed.path == project / ".machi/plans/auth/context/spec.md"
-    assert parsed.exists is True
+    assert parsed.exists is None
 
 
 def test_context_path_directory_absent(project: Path) -> None:
@@ -129,7 +129,7 @@ def test_plan_path_ignores_malformed_contents(project: Path) -> None:
         PathResult, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"]
     )
     assert parsed.path == project / ".machi/plans/auth/plan.md"
-    assert parsed.exists is True
+    assert parsed.exists is None
 
 
 def test_task_path_ignores_malformed_contents(project: Path) -> None:
@@ -142,7 +142,7 @@ def test_task_path_ignores_malformed_contents(project: Path) -> None:
         ["task", "path", "login", "-p", "auth", "-P", str(project), "--format", "json"],
     )
     assert parsed.path == target
-    assert parsed.exists is True
+    assert parsed.exists is None
 
 
 def test_context_path_ignores_malformed_contents(project: Path) -> None:
@@ -155,4 +155,4 @@ def test_context_path_ignores_malformed_contents(project: Path) -> None:
         ["context", "path", "spec", "-p", "auth", "-P", str(project), "--format", "json"],
     )
     assert parsed.path == target
-    assert parsed.exists is True
+    assert parsed.exists is None

@@ -10,7 +10,7 @@ import click
 import typer
 from pydantic import ValidationError
 
-from machinate.models.documents import Plan
+from machinate.models.documents import LoadedPlan
 from machinate.services.plan import PlanService
 from machinate.storage.errors import MissingDocumentError, StorageError
 
@@ -86,7 +86,7 @@ class Execution:
             raise PlanSelectionError(msg) from err
         return current
 
-    def get_target_plan(self, plans: PlanService, name: str | None) -> Plan:
+    def get_target_plan(self, plans: PlanService, name: str | None) -> LoadedPlan:
         """Determine the target plan name and load its document."""
         return plans.get(self.determine_plan_name(plans, name))
 

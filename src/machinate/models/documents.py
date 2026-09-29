@@ -96,10 +96,11 @@ Tag = Annotated[str, AfterValidator(validate_tag)]
 class Metadata(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow", validate_assignment=True)
 
-    created: AwareDatetime
-    # Optional authored summary; readers fall back to a derived one
+    created_at: AwareDatetime
+    # Optional authored summary; kept out of serialized output because the effective
+    # summary is the record's `summary`. Readers fall back to a derived one
     # (see ParsedDocument.get_or_derive_summary).
-    summary: str | None = None
+    summary: str | None = Field(default=None, exclude=True)
     tags: list[Tag] = Field(default_factory=list)
 
     @field_validator("tags", mode="before")
@@ -263,12 +264,15 @@ class DocumentMembership(BaseModel):
 
 
 class DocumentRecord[M: Metadata](BaseModel):
-    """A listed document: membership-shape record with metadata and effective summary."""
+    """One record shape for a stored document: name, path, metadata, and times."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     name: NestedName
     path: RelativePath
     metadata: M
-    last_activity_at: datetime
+    # File mtime; changes on any edit but is reset by copies, clones, and git.
+    modified_at: datetime
     # Effective summary: the authored one, otherwise derived from the body.
     summary: str | None = None
 
@@ -279,44 +283,38 @@ class DocumentRecord[M: Metadata](BaseModel):
         *,
         name: NestedName,
         path: RelativePath,
-        last_activity_at: datetime,
+        modified_at: datetime,
     ) -> Self:
-        """Summarize a loaded document as this domain summary type."""
+        """Summarize a loaded document as this domain record type."""
         return cls.model_construct(
             name=name,
             path=path,
             metadata=document.metadata,
-            last_activity_at=last_activity_at,
+            modified_at=modified_at,
             summary=document.get_or_derive_summary(),
         )
 
 
-# --- Per-resource entities -------------------------------------------------
+class PlanRecord(DocumentRecord[PlanMetadata]):
+    """A plan record, which always carries its newest-activity timestamp."""
+
+    # Newest modified_at across the plan and its tasks/context.
+    last_activity_at: datetime
 
 
-class Plan(BaseModel):
-    name: Name
-    path: RelativePath
-    document: ParsedDocument[PlanMetadata]
-    modified_at: datetime
+class LoadedDocument[M: Metadata](BaseModel):
+    """A document record plus its body, for commands that show or change content."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    record: DocumentRecord[M]
+    body: str
 
 
-class Task(BaseModel):
-    name: NestedName
-    path: RelativePath
-    document: ParsedDocument[TaskMetadata]
-    modified_at: datetime
+class LoadedPlan(BaseModel):
+    """A plan record plus its body."""
 
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-class Context(BaseModel):
-    name: NestedName
-    path: RelativePath
-    document: ParsedDocument[ContextMetadata]
-    modified_at: datetime
-
-
-class Doc(BaseModel):
-    name: NestedName
-    path: RelativePath
-    document: ParsedDocument[DocMetadata]
-    modified_at: datetime
+    record: PlanRecord
+    body: str

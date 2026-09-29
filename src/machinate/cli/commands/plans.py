@@ -60,7 +60,7 @@ def add_plan(  # noqa: PLR0913
             {"summary": summary, "tags": tags or [], "status": status}
         )
         plan = project_context.plans.create(name, create)
-        run.render(AddResult(project=project_context.project, plan=plan))
+        run.render(AddResult(project=project_context.project, plan=plan.record, body=plan.body))
 
 
 def list_plans(  # noqa: PLR0913
@@ -83,7 +83,9 @@ def list_plans(  # noqa: PLR0913
             help="Match any status: draft, active, done. Repeat for multiple statuses.",
         ),
     ] = None,
-    sort: Annotated[str, typer.Option(help="Sort by name, created, or updated.")] = "name",
+    sort: Annotated[
+        str, typer.Option(help="Sort by name, created_at, modified_at, or last_activity_at.")
+    ] = "name",
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
     group: Annotated[
         bool,
@@ -182,7 +184,7 @@ def select_current_plan(
         run.require_human_session()
         project_context = run.prepare(project)
         state = project_context.plans.set_current(name)
-        run.render(SelectResult(project=project_context.project, state=state))
+        run.render(SelectResult(project=project_context.project, current_plan=state.current_plan))
 
 
 def unselect_plan(
@@ -200,7 +202,7 @@ def unselect_plan(
         run.require_human_session()
         project_context = run.prepare(project)
         state = project_context.plans.clear_current()
-        run.render(UnselectResult(project=project_context.project, state=state))
+        run.render(UnselectResult(project=project_context.project, current_plan=state.current_plan))
 
 
 def update_plan(  # noqa: PLR0913
@@ -243,7 +245,9 @@ def update_plan(  # noqa: PLR0913
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.plans.update(plan_name, changes)
-        run.render(UpdateResult(project=project_context.project, plan=updated))
+        run.render(
+            UpdateResult(project=project_context.project, plan=updated.record, body=updated.body)
+        )
 
 
 def show_plan(
@@ -264,4 +268,6 @@ def show_plan(
     with execute(context, "plan show", output_format, PlanSelectionError) as run:
         project_context = run.prepare(project)
         selected = run.get_target_plan(project_context.plans, plan)
-        run.render(ShowResult(project=project_context.project, plan=selected))
+        run.render(
+            ShowResult(project=project_context.project, plan=selected.record, body=selected.body)
+        )

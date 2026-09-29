@@ -27,17 +27,17 @@ def _doc(metadata: Metadata, body: str) -> ParsedDocument[Metadata]:
 def search(tmp_path: Path) -> SearchService:
     store = DocumentStore(tmp_path)
     layout = Layout()
-    store.create(layout.plan("auth"), _doc(PlanMetadata(created=_NOW), "gamma plan body"))
-    store.create(layout.plan("billing"), _doc(PlanMetadata(created=_NOW), "delta plan body"))
+    store.create(layout.plan("auth"), _doc(PlanMetadata(created_at=_NOW), "gamma plan body"))
+    store.create(layout.plan("billing"), _doc(PlanMetadata(created_at=_NOW), "delta plan body"))
     store.create(
-        layout.task("auth", "login"), _doc(TaskMetadata(created=_NOW), "kangaroo login flow")
+        layout.task("auth", "login"), _doc(TaskMetadata(created_at=_NOW), "kangaroo login flow")
     )
     store.create(
-        layout.task("auth", "abcd/efg/h"), _doc(TaskMetadata(created=_NOW), "nested task body")
+        layout.task("auth", "abcd/efg/h"), _doc(TaskMetadata(created_at=_NOW), "nested task body")
     )
     store.create(
         layout.context("auth", "oauth"),
-        _doc(ContextMetadata(created=_NOW), "unicorn context notes"),
+        _doc(ContextMetadata(created_at=_NOW), "unicorn context notes"),
     )
     (tmp_path / "notes.txt").write_text("plain notes")
     (tmp_path / "misc").mkdir()
@@ -68,7 +68,7 @@ def test_listing_has_no_scores(search: SearchService) -> None:
 def test_dot_prefixed_document_is_listed_and_searchable(search: SearchService) -> None:
     search.document_store.create(
         search.layout.task("auth", ".hidden"),
-        _doc(TaskMetadata(created=_NOW), "quokka hidden note"),
+        _doc(TaskMetadata(created_at=_NOW), "quokka hidden note"),
     )
     assert "plans/auth/tasks/.hidden.md" in paths(search, FindQuery())
     assert paths(search, FindQuery(query="quokka")) == ["plans/auth/tasks/.hidden.md"]
@@ -173,7 +173,7 @@ def test_missing_plan_raises(search: SearchService) -> None:
 
 def test_malformed_frontmatter_does_not_raise(search: SearchService) -> None:
     broken = search.document_store.root / "broken.md"
-    broken.write_text("---\ncreated: [unterminated\n---\nbody zebra text\n")
+    broken.write_text("---\ncreated_at: [unterminated\n---\nbody zebra text\n")
     result = paths(search, FindQuery(query="zebra"))
     assert "broken.md" in result
 

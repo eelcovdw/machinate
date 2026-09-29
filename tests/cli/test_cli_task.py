@@ -53,9 +53,9 @@ def test_task_add_explicit_plan(auth_project: Path) -> None:
     task = parsed.tasks[0]
     assert task.name == "login"
     assert task.path.as_posix() == "plans/auth/tasks/login.md"
-    assert task.document.metadata.status == "todo"
-    assert task.document.metadata.created.tzinfo is not None
-    assert task.document.body == ""
+    assert task.metadata.status == "todo"
+    assert task.metadata.created_at.tzinfo is not None
+    assert parsed.body == ""
     assert (auth_project / ".machi/plans/auth/tasks/login.md").is_file()
     assert read_state(auth_project).current_plan is None
 
@@ -174,8 +174,8 @@ def test_task_show_explicit_plan(auth_project: Path) -> None:
     assert parsed.plan == "auth"
     assert parsed.task.name == "login"
     assert parsed.task.path.as_posix() == "plans/auth/tasks/login.md"
-    assert parsed.task.document.get_or_derive_summary() == "Sign in"
-    assert parsed.task.document.body == "Detailed notes"
+    assert parsed.task.summary == "Sign in"
+    assert parsed.body == "Detailed notes"
     assert read_state(auth_project).current_plan is None
 
 
@@ -237,7 +237,7 @@ def test_task_update_set_status_persists(auth_project: Path) -> None:
             "json",
         ],
     )
-    assert changed.task.document.metadata.status == "in-progress"
+    assert changed.task.metadata.status == "in-progress"
 
 
 def test_task_update_sets_summary_and_tags(auth_project: Path) -> None:
@@ -262,8 +262,8 @@ def test_task_update_sets_summary_and_tags(auth_project: Path) -> None:
             "json",
         ],
     )
-    metadata = parsed.task.document.metadata
-    assert metadata.summary == "Log in flow"
+    metadata = parsed.task.metadata
+    assert parsed.task.summary == "Log in flow"
     assert metadata.tags == ["v2", "backend"]
 
 

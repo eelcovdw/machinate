@@ -25,7 +25,7 @@ def test_info_project_overview(project: Path) -> None:
     assert overview.selection_valid is True
     assert overview.plan_count == 2
     assert overview.plans_by_status == {"draft": 1, "active": 1, "done": 0}
-    assert overview.task_totals == {"todo": 1, "in-progress": 0, "done": 1}
+    assert overview.tasks_by_status == {"todo": 1, "in-progress": 0, "done": 1}
     assert overview.context_count == 1
     assert {plan.name for plan in overview.recent_plans} == {"auth", "billing"}
 
@@ -76,8 +76,8 @@ def test_info_never_uses_current_plan(project: Path) -> None:
     ProjectStateStore(project / ".machi/machinate.toml").write(
         ProjectState(project_name="example", current_plan="billing")
     )
-    overview = cli.json(InfoResult, ["info", "-P", str(project), "--format", "json"]).overview
-    assert overview.kind == "project"
+    parsed = cli.json(InfoResult, ["info", "-P", str(project), "--format", "json"])
+    assert isinstance(parsed.overview, ProjectOverview)
 
 
 def test_info_text_smoke(project: Path) -> None:
@@ -99,9 +99,9 @@ def test_plan_info_overview(project: Path) -> None:
     assert isinstance(parsed.overview, PlanOverview)
     overview = parsed.overview
     assert overview.current is False
-    assert overview.info.plan.name == "auth"
-    assert overview.info.task_counts == {"todo": 1, "in-progress": 0, "done": 1}
-    assert overview.info.context_count == 1
+    assert overview.plan.name == "auth"
+    assert overview.tasks_by_status == {"todo": 1, "in-progress": 0, "done": 1}
+    assert overview.context_count == 1
 
 
 def test_plan_info_overview_current(project: Path) -> None:
@@ -125,7 +125,7 @@ def test_plan_info_uses_current_plan_without_flag(project: Path) -> None:
     overview = cli.json(
         PlanInfoResult, ["plan", "info", "-P", str(project), "--format", "json"]
     ).overview
-    assert overview.info.plan.name == "billing"
+    assert overview.plan.name == "billing"
 
 
 def test_plan_info_no_current_plan(project: Path) -> None:

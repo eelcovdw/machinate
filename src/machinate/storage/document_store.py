@@ -68,7 +68,7 @@ class DocumentStore:
         """Validate frontmatter, defaulting created to the file mtime only when absent."""
         if data is None:
             modified = (self.root / relative).stat().st_mtime
-            data = {"created": datetime.fromtimestamp(modified, UTC)}
+            data = {"created_at": datetime.fromtimestamp(modified, UTC)}
         return ParsedDocument[metadata_type](metadata=metadata_type.model_validate(data), body=body)
 
     def glob_files(self, path: str | PurePosixPath, patterns: list[str]) -> list[PurePosixPath]:
@@ -116,11 +116,11 @@ class DocumentStore:
             output = StringIO()
             yaml = YAML(typ="safe")
             yaml.default_flow_style = False
-            # Only an authored summary is stored; derived ones are computed on demand.
-            # Custom extra metadata is preserved as-is, including explicit null values.
+            # The authored summary is excluded from model_dump so that serialized
+            # records never repeat it; re-add it for the stored frontmatter.
             data = document.metadata.model_dump()
-            if data.get("summary") is None:
-                data.pop("summary", None)
+            if document.metadata.summary is not None:
+                data["summary"] = document.metadata.summary
             yaml.dump(data, output)  # pyright: ignore[reportUnknownMemberType]
             return f"---\n{output.getvalue()}---\n{document.body}".encode()
         except (ValueError, YAMLError) as exc:
@@ -178,7 +178,7 @@ class DocumentStore:
                 raise ValueError("Expected a regular file or directory")  # noqa: TRY301
             return FileMetadata(
                 path=relative,
-                modified=datetime.fromtimestamp(info.st_mtime, UTC),
+                modified_at=datetime.fromtimestamp(info.st_mtime, UTC),
                 kind="directory" if stat.S_ISDIR(info.st_mode) else "file",
             )
         except FileNotFoundError as exc:
@@ -207,12 +207,12 @@ class DocumentStore:
     ) -> datetime:
         """Read activity timestamps without loading descendant documents."""
         record = self.metadata(path)
-        last_activity_at = record.modified
+        last_activity_at = record.modified_at
         for scope in activity_scopes:
             for child in self._find_matching_files(
                 DocumentScope(path=record.path.parent / scope.path, pattern=scope.pattern)
             ):
-                last_activity_at = max(last_activity_at, child.modified)
+                last_activity_at = max(last_activity_at, child.modified_at)
         return last_activity_at
 
     def list[M: Metadata](
@@ -230,27 +230,29 @@ class DocumentStore:
                 if collection.name_source == "parent"
                 else file_metadata.path.relative_to(collection.path).with_suffix("").as_posix()
             )
-            last_activity_at = self.get_last_activity_at(
-                file_metadata.path, collection.activity_scopes
-            )
             if query.matches(document.metadata):
                 matching_documents.append(
                     DocumentRecord[M].from_document(
                         document,
                         name=name,
                         path=file_metadata.path,
-                        last_activity_at=last_activity_at,
+                        modified_at=file_metadata.modified_at,
                     )
                 )
         matching_documents.sort(key=lambda record: record.name)
         # Stable sorting preserves ascending names for equal primary keys.
-        if query.sort == "created":
+        if query.sort == "created_at":
             matching_documents.sort(
-                key=lambda record: record.metadata.created, reverse=query.descending
+                key=lambda record: record.metadata.created_at, reverse=query.descending
             )
-        elif query.sort == "updated":
+        elif query.sort == "modified_at":
+            matching_documents.sort(key=lambda record: record.modified_at, reverse=query.descending)
+        elif query.sort == "last_activity_at":
             matching_documents.sort(
-                key=lambda record: record.last_activity_at, reverse=query.descending
+                key=lambda record: self.get_last_activity_at(
+                    record.path, collection.activity_scopes
+                ),
+                reverse=query.descending,
             )
         elif query.descending:
             matching_documents.reverse()

@@ -60,7 +60,11 @@ def task_add(  # noqa: PLR0913
             plan_name, names, StatusCreateInput[TaskStatus](tags=tags or [])
         )
         result = TaskAddResult(
-            project=project_context.project, plan=plan_name, tasks=created, errors=errors
+            project=project_context.project,
+            plan=plan_name,
+            tasks=[task.record for task in created],
+            body="",
+            errors=errors,
         )
         run.render(result)
     if result.errors:
@@ -93,7 +97,7 @@ def task_list(  # noqa: PLR0913
             help="Match any status: todo, in-progress, done. Repeat for multiple statuses.",
         ),
     ] = None,
-    sort: Annotated[str, typer.Option(help="Sort by name, created, or updated.")] = "name",
+    sort: Annotated[str, typer.Option(help="Sort by name, created_at, or modified_at.")] = "name",
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
     group: Annotated[
         bool,
@@ -148,7 +152,9 @@ def task_show(
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         task = project_context.tasks.get(plan_name, name)
-        result = TaskShowResult(project=project_context.project, plan=plan_name, task=task)
+        result = TaskShowResult(
+            project=project_context.project, plan=plan_name, task=task.record, body=task.body
+        )
         run.render(result)
 
 
@@ -221,5 +227,10 @@ def update_task(  # noqa: PLR0913
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.tasks.update(plan_name, name, changes)
-        result = TaskUpdateResult(project=project_context.project, plan=plan_name, task=updated)
+        result = TaskUpdateResult(
+            project=project_context.project,
+            plan=plan_name,
+            task=updated.record,
+            body=updated.body,
+        )
         run.render(result)

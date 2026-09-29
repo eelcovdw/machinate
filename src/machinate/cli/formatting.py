@@ -212,21 +212,25 @@ def render_error(result: ErrorResult) -> str:
 
 @render_text.register
 def render_plan_info(result: PlanInfoResult) -> str:
-    info = result.overview.info
+    info = result.overview
     plan = info.plan
     metadata = plan.metadata
     lines = [
         _title("Plan", plan.name, metadata.status),
         _field("Project", f"{result.project.name} — {result.project.directory}"),
         _field("Path", str(result.project.storage / plan.path), style=PATH),
-        _field("Created", metadata.created.isoformat(), style=TIMESTAMP),
-        _field("Updated", plan.last_activity_at.isoformat(), style=TIMESTAMP),
+        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
+        _field(
+            "Last activity",
+            plan.last_activity_at.isoformat(),
+            style=TIMESTAMP,
+        ),
     ]
     if plan.summary:
         lines.append(_field("Summary", plan.summary))
     if metadata.tags:
         lines.append(_field("Tags", ", ".join(metadata.tags)))
-    tasks = info.task_counts
+    tasks = info.tasks_by_status
     lines.append(_field("Tasks", f"{sum(tasks.values())} ({_counts(tasks)})"))
     lines.append(_field("Contexts", str(info.context_count)))
     return _render(lines)
@@ -243,7 +247,10 @@ def render_info(result: InfoResult) -> str:
         _field("Storage", str(result.project.storage), style=PATH),
         _field("Current plan", current or "(none)", style="" if current else MUTED),
         _field("Plans", f"{overview.plan_count} ({_counts(overview.plans_by_status)})"),
-        _field("Tasks", f"{sum(overview.task_totals.values())} ({_counts(overview.task_totals)})"),
+        _field(
+            "Tasks",
+            f"{sum(overview.tasks_by_status.values())} ({_counts(overview.tasks_by_status)})",
+        ),
         _field("Contexts", str(overview.context_count)),
     ]
     if overview.recent_plans:
@@ -302,20 +309,19 @@ def render_context_list(result: ContextListResult) -> str:
 
 @render_text.register
 def render_context_show(result: ContextShowResult) -> str:
-    metadata = result.context.document.metadata
+    metadata = result.context.metadata
     lines = [
         _title("Context", result.context.name),
         _field("Project", f"{result.project.name} / {result.plan}"),
         _field("Path", str(result.project.storage / result.context.path), style=PATH),
-        _field("Created", metadata.created.isoformat(), style=TIMESTAMP),
+        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
         _field("Modified", result.context.modified_at.isoformat(), style=TIMESTAMP),
     ]
-    context_summary = result.context.document.get_or_derive_summary()
-    if context_summary:
-        lines.append(_field("Summary", context_summary))
+    if result.context.summary:
+        lines.append(_field("Summary", result.context.summary))
     if metadata.tags:
         lines.append(_field("Tags", ", ".join(metadata.tags)))
-    body = result.context.document.body.rstrip("\n")
+    body = result.body.rstrip("\n")
     if body:
         lines.extend((Text(""), Text(body)))
     return _render(lines)
@@ -333,8 +339,8 @@ def render_context_info(result: ContextInfoResult) -> str:
         _title("Context", result.context.name),
         _field("Project", f"{result.project.name} / {result.plan}"),
         _field("Path", str(result.project.storage / result.context.path), style=PATH),
-        _field("Created", metadata.created.isoformat(), style=TIMESTAMP),
-        _field("Modified", result.context.last_activity_at.isoformat(), style=TIMESTAMP),
+        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
+        _field("Modified", result.context.modified_at.isoformat(), style=TIMESTAMP),
     ]
     if result.context.summary:
         lines.append(_field("Summary", result.context.summary))
@@ -350,8 +356,8 @@ def render_task_info(result: TaskInfoResult) -> str:
         _title("Task", result.task.name, metadata.status),
         _field("Project", f"{result.project.name} / {result.plan}"),
         _field("Path", str(result.project.storage / result.task.path), style=PATH),
-        _field("Created", metadata.created.isoformat(), style=TIMESTAMP),
-        _field("Modified", result.task.last_activity_at.isoformat(), style=TIMESTAMP),
+        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
+        _field("Modified", result.task.modified_at.isoformat(), style=TIMESTAMP),
     ]
     if result.task.summary:
         lines.append(_field("Summary", result.task.summary))
@@ -411,7 +417,7 @@ def render_task_list(result: TaskListResult) -> str:
 
 @render_text.register
 def render_task_update(result: TaskUpdateResult) -> str:
-    status = result.task.document.metadata.status
+    status = result.task.metadata.status
     line = Text("Updated task ")
     line.append(result.task.name, style=HEADING)
     line.append(f" in {result.project.name}/{result.plan} (")
@@ -457,20 +463,19 @@ def render_doc_list(result: DocListResult) -> str:
 
 @render_text.register
 def render_doc_show(result: DocShowResult) -> str:
-    metadata = result.doc.document.metadata
+    metadata = result.doc.metadata
     lines = [
         _title("Doc", result.doc.name),
         _field("Project", result.project.name),
         _field("Path", str(result.project.storage / result.doc.path), style=PATH),
-        _field("Created", metadata.created.isoformat(), style=TIMESTAMP),
+        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
         _field("Modified", result.doc.modified_at.isoformat(), style=TIMESTAMP),
     ]
-    doc_summary = result.doc.document.get_or_derive_summary()
-    if doc_summary:
-        lines.append(_field("Summary", doc_summary))
+    if result.doc.summary:
+        lines.append(_field("Summary", result.doc.summary))
     if metadata.tags:
         lines.append(_field("Tags", ", ".join(metadata.tags)))
-    body = result.doc.document.body.rstrip("\n")
+    body = result.body.rstrip("\n")
     if body:
         lines.extend((Text(""), Text(body)))
     return _render(lines)
@@ -483,8 +488,8 @@ def render_doc_info(result: DocInfoResult) -> str:
         _title("Doc", result.doc.name),
         _field("Project", result.project.name),
         _field("Path", str(result.project.storage / result.doc.path), style=PATH),
-        _field("Created", metadata.created.isoformat(), style=TIMESTAMP),
-        _field("Modified", result.doc.last_activity_at.isoformat(), style=TIMESTAMP),
+        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
+        _field("Modified", result.doc.modified_at.isoformat(), style=TIMESTAMP),
     ]
     if result.doc.summary:
         lines.append(_field("Summary", result.doc.summary))
@@ -503,20 +508,19 @@ def render_doc_update(result: DocUpdateResult) -> str:
 
 @render_text.register
 def render_task_show(result: TaskShowResult) -> str:
-    metadata = result.task.document.metadata
+    metadata = result.task.metadata
     lines = [
         _title("Task", result.task.name, metadata.status),
         _field("Project", f"{result.project.name} / {result.plan}"),
         _field("Path", str(result.project.storage / result.task.path), style=PATH),
-        _field("Created", metadata.created.isoformat(), style=TIMESTAMP),
+        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
         _field("Modified", result.task.modified_at.isoformat(), style=TIMESTAMP),
     ]
-    task_summary = result.task.document.get_or_derive_summary()
-    if task_summary:
-        lines.append(_field("Summary", task_summary))
+    if result.task.summary:
+        lines.append(_field("Summary", result.task.summary))
     if metadata.tags:
         lines.append(_field("Tags", ", ".join(metadata.tags)))
-    body = result.task.document.body.rstrip("\n")
+    body = result.body.rstrip("\n")
     if body:
         lines.extend((Text(""), Text(body)))
     return _render(lines)
@@ -524,20 +528,19 @@ def render_task_show(result: TaskShowResult) -> str:
 
 @render_text.register
 def render_show(result: ShowResult) -> str:
-    metadata = result.plan.document.metadata
+    metadata = result.plan.metadata
     lines = [
         _title("Plan", result.plan.name, metadata.status),
         _field("Project", f"{result.project.name} — {result.project.directory}"),
         _field("Path", str(result.project.storage / result.plan.path), style=PATH),
-        _field("Created", metadata.created.isoformat(), style=TIMESTAMP),
+        _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
         _field("Modified", result.plan.modified_at.isoformat(), style=TIMESTAMP),
     ]
-    plan_summary = result.plan.document.get_or_derive_summary()
-    if plan_summary:
-        lines.append(_field("Summary", plan_summary))
+    if result.plan.summary:
+        lines.append(_field("Summary", result.plan.summary))
     if metadata.tags:
         lines.append(_field("Tags", ", ".join(metadata.tags)))
-    body = result.plan.document.body.rstrip("\n")
+    body = result.body.rstrip("\n")
     if body:
         lines.extend((Text(""), Text(body)))
     return _render(lines)
@@ -545,7 +548,7 @@ def render_show(result: ShowResult) -> str:
 
 @render_text.register
 def render_update(result: UpdateResult) -> str:
-    status = result.plan.document.metadata.status
+    status = result.plan.metadata.status
     line = Text("Updated plan ")
     line.append(result.plan.name, style=HEADING)
     line.append(f" in {result.project.name} (")
@@ -557,7 +560,7 @@ def render_update(result: UpdateResult) -> str:
 @render_text.register
 def render_select(result: SelectResult) -> str:
     line = Text("Selected plan ")
-    line.append(str(result.state.current_plan), style=HEADING)
+    line.append(str(result.current_plan), style=HEADING)
     line.append(f" in {result.project.name}")
     return _render([line])
 

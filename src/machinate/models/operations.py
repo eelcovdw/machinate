@@ -13,11 +13,10 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError,
 
 from .documents import (
     DocumentMembership,
-    DocumentRecord,
     Metadata,
     Name,
     ParsedDocument,
-    PlanMetadata,
+    PlanRecord,
     PlanStatus,
     RelativePath,
     Tag,
@@ -89,10 +88,20 @@ class DocUpdate(DocumentUpdate):
 class DocumentQuery(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
+    #: Sort keys valid for task, context, and doc listings.
+    _allowed_sorts: ClassVar[frozenset[str]] = frozenset({"name", "created_at", "modified_at"})
+
     tags: set[Tag] | None = None
-    sort: Literal["name", "created", "updated"] = "name"
+    sort: Literal["name", "created_at", "modified_at", "last_activity_at"] = "name"
     descending: bool = False
     limit: PositiveInt | None = None
+
+    @field_validator("sort")
+    @classmethod
+    def _validate_sort(cls, value: str) -> str:
+        if value not in cls._allowed_sorts:
+            raise ValueError("Sort key is not supported for this document kind")
+        return value
 
     def matches(self, metadata: Metadata) -> bool:
         """Return whether a document's metadata satisfies this query's filters."""
@@ -117,7 +126,11 @@ class StatusQuery[S: str](DocumentQuery):
 
 
 class PlanQuery(StatusQuery[PlanStatus]):
-    pass
+    """Plan listing filters; plans are the one kind that can sort by activity."""
+
+    _allowed_sorts: ClassVar[frozenset[str]] = frozenset(
+        {"name", "created_at", "modified_at", "last_activity_at"}
+    )
 
 
 class TaskQuery(StatusQuery[TaskStatus]):
@@ -185,28 +198,22 @@ def first_validation_message(exc: ValidationError) -> str:
 # --- Overviews -------------------------------------------------------------
 
 
-class PlanInfo(BaseModel):
-    plan: DocumentRecord[PlanMetadata]
-    task_counts: dict[TaskStatus, int]
+class PlanOverview(BaseModel):
+    """Plan-level overview for `machi plan info [-p NAME]`."""
+
+    current: bool
+    plan: PlanRecord
+    tasks_by_status: dict[TaskStatus, int]
     context_count: int
 
 
 class ProjectOverview(BaseModel):
     """Project-wide aggregates for `machi info` without an explicit plan."""
 
-    kind: Literal["project"] = "project"
     current_plan: Name | None
     selection_valid: bool
     plan_count: int
     plans_by_status: dict[PlanStatus, int]
-    task_totals: dict[TaskStatus, int]
+    tasks_by_status: dict[TaskStatus, int]
     context_count: int
-    recent_plans: list[DocumentRecord[PlanMetadata]]
-
-
-class PlanOverview(BaseModel):
-    """Plan-level overview for `machi plan info [-p NAME]`."""
-
-    kind: Literal["plan"] = "plan"
-    current: bool
-    info: PlanInfo
+    recent_plans: list[PlanRecord]

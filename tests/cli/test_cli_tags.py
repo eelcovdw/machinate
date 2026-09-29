@@ -17,7 +17,7 @@ def test_plan_show_includes_tags(project: Path) -> None:
     parsed = cli.json(
         ShowResult, ["plan", "show", "-p", "alpha", "-P", str(project), "--format", "json"]
     )
-    assert parsed.plan.document.metadata.tags == ["frontend", "v2"]
+    assert parsed.plan.metadata.tags == ["frontend", "v2"]
 
 
 def test_plan_info_includes_tags(project: Path) -> None:
@@ -27,7 +27,7 @@ def test_plan_info_includes_tags(project: Path) -> None:
         PlanInfoResult,
         ["plan", "info", "-p", "alpha", "-P", str(project), "--format", "json"],
     )
-    assert parsed.overview.info.plan.metadata.tags == ["frontend"]
+    assert parsed.overview.plan.metadata.tags == ["frontend"]
 
 
 def test_plan_update_tag_and_clear_tags_conflict(project: Path) -> None:
@@ -49,4 +49,4 @@ def test_plan_update_tag_and_clear_tags_conflict(project: Path) -> None:
         ]
     )
     assert error.command == "plan update"
-    assert prepare_project(project).plans.get("alpha").document.metadata.tags == ["frontend"]
+    assert prepare_project(project).plans.get("alpha").record.metadata.tags == ["frontend"]

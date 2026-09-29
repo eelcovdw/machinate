@@ -22,9 +22,9 @@ def test_show_explicit_plan(project: Path) -> None:
     assert parsed.project.storage == project / ".machi"
     assert parsed.plan.name == "auth"
     assert parsed.plan.path.as_posix() == "plans/auth/plan.md"
-    assert parsed.plan.document.metadata.status == "draft"
-    assert parsed.plan.document.get_or_derive_summary() == "Details"
-    assert parsed.plan.document.body == "# Auth\n\nDetails"
+    assert parsed.plan.metadata.status == "draft"
+    assert parsed.plan.summary == "Details"
+    assert parsed.body == "# Auth\n\nDetails"
 
 
 def test_show_current_plan(project: Path) -> None:

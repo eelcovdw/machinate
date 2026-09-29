@@ -4,19 +4,14 @@ from typing import Literal
 from pydantic import BaseModel
 
 from machinate.models.documents import (
-    Context,
     ContextMetadata,
-    Doc,
     DocMetadata,
     DocumentRecord,
     Name,
-    Plan,
-    PlanMetadata,
-    Task,
+    PlanRecord,
     TaskMetadata,
 )
 from machinate.models.operations import BatchCreateError, FindEntry, PlanOverview, ProjectOverview
-from machinate.storage import ProjectState
 
 
 class ProjectScope(BaseModel):
@@ -28,7 +23,7 @@ class ProjectScope(BaseModel):
 class ListResult(BaseModel):
     command: Literal["plan list"] = "plan list"
     project: ProjectScope
-    plans: list[DocumentRecord[PlanMetadata]]
+    plans: list[PlanRecord]
     current_plan: Name | None = None
     group_by: Literal["status"] | None = None
 
@@ -41,38 +36,42 @@ class InitResult(BaseModel):
 class AddResult(BaseModel):
     command: Literal["plan add"] = "plan add"
     project: ProjectScope
-    plan: Plan
+    plan: PlanRecord
+    body: str
 
 
 class ShowResult(BaseModel):
     command: Literal["plan show"] = "plan show"
     project: ProjectScope
-    plan: Plan
+    plan: PlanRecord
+    body: str
 
 
 class SelectResult(BaseModel):
     command: Literal["plan select"] = "plan select"
     project: ProjectScope
-    state: ProjectState
+    current_plan: Name | None
 
 
 class UnselectResult(BaseModel):
     command: Literal["plan unselect"] = "plan unselect"
     project: ProjectScope
-    state: ProjectState
+    current_plan: Name | None
 
 
 class UpdateResult(BaseModel):
     command: Literal["plan update"] = "plan update"
     project: ProjectScope
-    plan: Plan
+    plan: PlanRecord
+    body: str
 
 
 class TaskAddResult(BaseModel):
     command: Literal["task add"] = "task add"
     project: ProjectScope
     plan: str
-    tasks: list[Task]
+    tasks: list[DocumentRecord[TaskMetadata]]
+    body: str
     errors: list[BatchCreateError] = []
 
 
@@ -88,7 +87,8 @@ class TaskShowResult(BaseModel):
     command: Literal["task show"] = "task show"
     project: ProjectScope
     plan: str
-    task: Task
+    task: DocumentRecord[TaskMetadata]
+    body: str
 
 
 class TaskInfoResult(BaseModel):
@@ -102,14 +102,16 @@ class TaskUpdateResult(BaseModel):
     command: Literal["task update"] = "task update"
     project: ProjectScope
     plan: str
-    task: Task
+    task: DocumentRecord[TaskMetadata]
+    body: str
 
 
 class ContextAddResult(BaseModel):
     command: Literal["context add"] = "context add"
     project: ProjectScope
     plan: str
-    contexts: list[Context]
+    contexts: list[DocumentRecord[ContextMetadata]]
+    body: str
     errors: list[BatchCreateError] = []
 
 
@@ -124,7 +126,8 @@ class ContextShowResult(BaseModel):
     command: Literal["context show"] = "context show"
     project: ProjectScope
     plan: str
-    context: Context
+    context: DocumentRecord[ContextMetadata]
+    body: str
 
 
 class ContextInfoResult(BaseModel):
@@ -138,13 +141,15 @@ class ContextUpdateResult(BaseModel):
     command: Literal["context update"] = "context update"
     project: ProjectScope
     plan: str
-    context: Context
+    context: DocumentRecord[ContextMetadata]
+    body: str
 
 
 class DocAddResult(BaseModel):
     command: Literal["doc add"] = "doc add"
     project: ProjectScope
-    docs: list[Doc]
+    docs: list[DocumentRecord[DocMetadata]]
+    body: str
     errors: list[BatchCreateError] = []
 
 
@@ -157,7 +162,8 @@ class DocListResult(BaseModel):
 class DocShowResult(BaseModel):
     command: Literal["doc show"] = "doc show"
     project: ProjectScope
-    doc: Doc
+    doc: DocumentRecord[DocMetadata]
+    body: str
 
 
 class DocInfoResult(BaseModel):
@@ -169,7 +175,8 @@ class DocInfoResult(BaseModel):
 class DocUpdateResult(BaseModel):
     command: Literal["doc update"] = "doc update"
     project: ProjectScope
-    doc: Doc
+    doc: DocumentRecord[DocMetadata]
+    body: str
 
 
 class PathResult(BaseModel):
@@ -186,7 +193,8 @@ class PathResult(BaseModel):
         "doc",
         "docs_directory",
     ]
-    exists: bool
+    # Only meaningful for directory kinds; document paths are validated before rendering.
+    exists: bool | None = None
 
 
 class FindResult(BaseModel):

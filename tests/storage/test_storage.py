@@ -38,14 +38,18 @@ def store(tmp_path: Path) -> DocumentStore:
 @pytest.fixture
 def document() -> ParsedDocument[TaskMetadata]:
     return ParsedDocument(
-        metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body="# Task\n"
+        metadata=TaskMetadata(created_at=datetime(2026, 9, 22, tzinfo=UTC)), body="# Task\n"
     )
 
 
 @pytest.mark.parametrize("body", ["", "\n\n# Café\n\n", "\r\n# Task\r\n\r\n", "no final newline"])
 def test_document_round_trip(store: DocumentStore, body: str) -> None:
     metadata = TaskMetadata.model_validate(
-        {"created": "2026-09-22T00:00:00Z", "status": "in-progress", "custom": {"tags": ["one", 2]}}
+        {
+            "created_at": "2026-09-22T00:00:00Z",
+            "status": "in-progress",
+            "custom": {"tags": ["one", 2]},
+        }
     )
     document = ParsedDocument(metadata=metadata, body=body)
     document.metadata.summary = derive_summary(body)
@@ -57,17 +61,21 @@ def test_document_round_trip(store: DocumentStore, body: str) -> None:
 
 
 def test_tag_validation_and_deduplication() -> None:
-    metadata = PlanMetadata(created=datetime(2026, 9, 22, tzinfo=UTC), tags=[" A ", "a", "b", "A"])
+    metadata = PlanMetadata(
+        created_at=datetime(2026, 9, 22, tzinfo=UTC), tags=[" A ", "a", "b", "A"]
+    )
     assert metadata.tags == ["A", "b"]
     assert "tags" in PlanMetadata.model_json_schema()["properties"]
     for invalid in ("", "   ", "bad\x01"):
         with pytest.raises(ValidationError):
-            PlanMetadata(created=datetime(2026, 9, 22, tzinfo=UTC), tags=[invalid])
+            PlanMetadata(created_at=datetime(2026, 9, 22, tzinfo=UTC), tags=[invalid])
 
 
 def test_tags_round_trip(store: DocumentStore) -> None:
     document = ParsedDocument(
-        metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC), tags=["frontend", "v2"]),
+        metadata=TaskMetadata(
+            created_at=datetime(2026, 9, 22, tzinfo=UTC), tags=["frontend", "v2"]
+        ),
         body="body",
     )
     store.create("auth/tasks/login.md", document)
@@ -81,7 +89,7 @@ def test_existing_frontmatter_preserved(store: DocumentStore, tmp_path: Path) ->
     body = "\r\n\r\n# Résumé  \r\n---\r\nlast line"
     (tmp_path / "note.md").write_bytes(
         (
-            "---\r\ncreated: 2026-09-22T00:00:00Z\r\ncustom:\r\n  nested: [true, 7]\r\n---\r\n"
+            "---\r\ncreated_at: 2026-09-22T00:00:00Z\r\ncustom:\r\n  nested: [true, 7]\r\n---\r\n"
             + body
         ).encode()
     )
@@ -91,7 +99,7 @@ def test_existing_frontmatter_preserved(store: DocumentStore, tmp_path: Path) ->
     result = store.read("note.md", ContextMetadata)
     assert result.body == body
     assert result.metadata.model_extra == {"custom": {"nested": [True, 7]}}
-    assert json.loads(result.model_dump_json())["metadata"]["created"] == "2026-09-22T00:00:00Z"
+    assert json.loads(result.model_dump_json())["metadata"]["created_at"] == "2026-09-22T00:00:00Z"
 
 
 def test_duplicate_and_missing(
@@ -112,11 +120,11 @@ def test_duplicate_and_missing(
 @pytest.mark.parametrize(
     "content",
     [
-        "---\ncreated: 2026-09-22T00:00:00Z",
+        "---\ncreated_at: 2026-09-22T00:00:00Z",
         "---\nsummary: missing date\n---\n",
         "---\n[\n---\n",
         "---\n- list\n---\n",
-        "---\ncreated: 2026-09-22T00:00:00Z\nstatus: invalid\n---\n",
+        "---\ncreated_at: 2026-09-22T00:00:00Z\nstatus: invalid\n---\n",
     ],
 )
 def test_invalid_documents(store: DocumentStore, tmp_path: Path, content: str) -> None:
@@ -151,8 +159,8 @@ def test_glob_files_includes_dot_prefixed_files(store: DocumentStore, tmp_path: 
 
 
 def test_read_text_returns_raw_frontmatter(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "raw.md").write_text("---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n")
-    assert store.read_text("raw.md") == "---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n"
+    (tmp_path / "raw.md").write_text("---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n")
+    assert store.read_text("raw.md") == "---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
 
 
 def test_read_text_errors_are_typed(store: DocumentStore, tmp_path: Path) -> None:
@@ -190,7 +198,7 @@ def test_missing_frontmatter_created_from_mtime(store: DocumentStore, tmp_path: 
     target.write_text("body")
     expected = datetime.fromtimestamp(target.stat().st_mtime, UTC)
     document = store.read("bare.md", PlanMetadata)
-    assert document.metadata.created == expected
+    assert document.metadata.created_at == expected
     assert document.metadata.status == "draft"
 
 
@@ -203,11 +211,11 @@ def test_empty_file_is_treated_as_body(store: DocumentStore, tmp_path: Path) -> 
 
 def test_utf8_bom_is_stripped_on_read(store: DocumentStore, tmp_path: Path) -> None:
     (tmp_path / "bom.md").write_bytes(
-        b"\xef\xbb\xbf---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n"
+        b"\xef\xbb\xbf---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
     )
     document = store.read("bom.md", TaskMetadata)
     assert document.body == "body\n"
-    assert store.read_text("bom.md") == "---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n"
+    assert store.read_text("bom.md") == "---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
 
 
 def test_empty_frontmatter_block_uses_defaults(store: DocumentStore, tmp_path: Path) -> None:
@@ -217,21 +225,21 @@ def test_empty_frontmatter_block_uses_defaults(store: DocumentStore, tmp_path: P
     document = store.read("empty-block.md", TaskMetadata)
     assert document.body == "body\n"
     assert document.metadata.status == "todo"
-    assert document.metadata.created == expected
+    assert document.metadata.created_at == expected
 
 
 def test_scalar_and_non_string_frontmatter_values_are_coerced(
     store: DocumentStore, tmp_path: Path
 ) -> None:
     (tmp_path / "edited.md").write_text(
-        "---\ncreated: 2026-09-22T00:00:00Z\nsummary: 1.5\ntags: v2\n---\nbody\n"
+        "---\ncreated_at: 2026-09-22T00:00:00Z\nsummary: 1.5\ntags: v2\n---\nbody\n"
     )
     document = store.read("edited.md", TaskMetadata)
     assert document.metadata.summary == "1.5"
     assert document.metadata.tags == ["v2"]
 
     (tmp_path / "tags.md").write_text(
-        "---\ncreated: 2026-09-22T00:00:00Z\ntags: [v2, 2026]\n---\nbody\n"
+        "---\ncreated_at: 2026-09-22T00:00:00Z\ntags: [v2, 2026]\n---\nbody\n"
     )
     assert store.read("tags.md", TaskMetadata).metadata.tags == ["v2", "2026"]
 
@@ -361,7 +369,7 @@ def test_successful_update_replaces_file(
 def test_null_extra_metadata_preserved(store: DocumentStore, tmp_path: Path) -> None:
     document = ParsedDocument(
         metadata=Metadata.model_validate(
-            {"created": "2026-09-22T00:00:00Z", "custom": {"owner": None}}
+            {"created_at": "2026-09-22T00:00:00Z", "custom": {"owner": None}}
         ),
         body="# Note\n",
     )
@@ -372,7 +380,7 @@ def test_null_extra_metadata_preserved(store: DocumentStore, tmp_path: Path) -> 
 
 def test_unset_summary_omitted(store: DocumentStore, tmp_path: Path) -> None:
     document = ParsedDocument(
-        metadata=Metadata.model_validate({"created": "2026-09-22T00:00:00Z"}), body="# Note\n"
+        metadata=Metadata.model_validate({"created_at": "2026-09-22T00:00:00Z"}), body="# Note\n"
     )
     store.create("note.md", document)
     assert "summary" not in (tmp_path / "note.md").read_text()
@@ -438,22 +446,22 @@ def test_io_errors_have_path_and_reason(
 def test_yaml_uses_block_style(store: DocumentStore, tmp_path: Path) -> None:
     document = ParsedDocument(
         metadata=Metadata.model_validate(
-            {"created": "2026-09-22T00:00:00Z", "custom": {"owner": "Alice"}}
+            {"created_at": "2026-09-22T00:00:00Z", "custom": {"owner": "Alice"}}
         ),
         body="# Note\n",
     )
     store.create("note.md", document)
     text = (tmp_path / "note.md").read_text()
-    assert "\ncreated: 2026-09-22 00:00:00+00:00\n" in text
+    assert "\ncreated_at: 2026-09-22 00:00:00+00:00\n" in text
     assert "\ncustom:\n  owner: Alice\n" in text
     assert store.read("note.md", Metadata) == document
 
 
 def test_created_preserves_precision_and_offset(store: DocumentStore) -> None:
-    metadata = TaskMetadata.model_validate({"created": "2026-09-22T12:34:56.123456+02:00"})
+    metadata = TaskMetadata.model_validate({"created_at": "2026-09-22T12:34:56.123456+02:00"})
     store.create("precise.md", ParsedDocument(metadata=metadata, body=""))
     result = store.read("precise.md", TaskMetadata)
-    assert result.metadata.created.isoformat() == "2026-09-22T12:34:56.123456+02:00"
+    assert result.metadata.created_at.isoformat() == "2026-09-22T12:34:56.123456+02:00"
 
 
 def test_names_are_normalized_to_nfc() -> None:

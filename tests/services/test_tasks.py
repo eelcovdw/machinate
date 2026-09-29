@@ -32,7 +32,9 @@ def service(tmp_path: Path) -> TaskService:
     store = DocumentStore(tmp_path / "docs")
     store.create(
         Layout().plan("alpha"),
-        ParsedDocument(metadata=PlanMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""),
+        ParsedDocument(
+            metadata=PlanMetadata(created_at=datetime(2026, 9, 22, tzinfo=UTC)), body=""
+        ),
     )
     return TaskService(store, Layout())
 
@@ -40,7 +42,7 @@ def service(tmp_path: Path) -> TaskService:
 @pytest.fixture
 def metadata() -> TaskMetadata:
     return TaskMetadata.model_validate(
-        {"created": "2026-09-22T00:00:00Z", "custom": {"owner": "Alice"}}
+        {"created_at": "2026-09-22T00:00:00Z", "custom": {"owner": "Alice"}}
     )
 
 
@@ -48,12 +50,12 @@ def test_create_get_duplicates_and_exact_names(service: TaskService) -> None:
     create = StatusCreateInput[TaskStatus](summary="Login flow", tags=["auth"])
     task = service.create("alpha", "login", create, "Body\n")
     assert task == service.get("alpha", "login")
-    assert task.path == PurePosixPath("plans/alpha/tasks/login.md")
-    assert task.document.body == "Body\n"
-    assert task.document.metadata.summary == "Login flow"
-    assert task.document.metadata.tags == ["auth"]
-    assert task.document.metadata.created.tzinfo is not None
-    assert json.loads(task.model_dump_json())["path"] == "plans/alpha/tasks/login.md"
+    assert task.record.path == PurePosixPath("plans/alpha/tasks/login.md")
+    assert task.body == "Body\n"
+    assert task.record.metadata.summary == "Login flow"
+    assert task.record.metadata.tags == ["auth"]
+    assert task.record.metadata.created_at.tzinfo is not None
+    assert json.loads(task.model_dump_json())["record"]["path"] == "plans/alpha/tasks/login.md"
     with pytest.raises(DocumentExistsError):
         service.create("alpha", "login", StatusCreateInput[TaskStatus]())
     with pytest.raises(MissingDocumentError):
@@ -66,7 +68,7 @@ def test_create_batch_reports_partial_results(service: TaskService) -> None:
     created, errors = service.create_batch(
         "alpha", ["new", "existing", "../bad", "later"], StatusCreateInput[TaskStatus]()
     )
-    assert [task.name for task in created] == ["new", "later"]
+    assert [task.record.name for task in created] == ["new", "later"]
     assert [error.name for error in errors] == ["existing", "../bad"]
     assert service.get("alpha", "new")
     assert service.get("alpha", "later")
@@ -76,7 +78,7 @@ def test_create_batch_rejects_case_only_duplicates(service: TaskService) -> None
     created, errors = service.create_batch(
         "alpha", ["Login", "login"], StatusCreateInput[TaskStatus]()
     )
-    assert [task.name for task in created] == ["Login"]
+    assert [task.record.name for task in created] == ["Login"]
     assert [error.name for error in errors] == ["login"]
 
 
@@ -108,20 +110,20 @@ def test_patches(service: TaskService, metadata: TaskMetadata) -> None:
         service.layout.task("alpha", "login"), ParsedDocument(metadata=metadata, body="Body")
     )
     task = service.update("alpha", "login", TaskUpdate(status="in-progress"))
-    assert task.document.body == "Body"
-    assert task.document.metadata.status == "in-progress"
-    assert task.document.get_or_derive_summary() == "Body"
+    assert task.body == "Body"
+    assert task.record.metadata.status == "in-progress"
+    assert task.record.summary == "Body"
     task = service.update("alpha", "login", TaskUpdate(body=""))
-    assert task.document.body == ""
-    assert task.document.metadata.status == "in-progress"
-    assert task.document.get_or_derive_summary() is None
-    assert task.document.metadata.created.tzinfo is not None
-    assert task.document.metadata.model_extra == metadata.model_extra
+    assert task.body == ""
+    assert task.record.metadata.status == "in-progress"
+    assert task.record.summary is None
+    assert task.record.metadata.created_at.tzinfo is not None
+    assert task.record.metadata.model_extra == metadata.model_extra
 
 
 def test_empty_patch(service: TaskService, monkeypatch: pytest.MonkeyPatch) -> None:
     task = service.create("alpha", "login", StatusCreateInput[TaskStatus](), "Body")
-    target = service.document_store.root / task.path
+    target = service.document_store.root / task.record.path
     os.utime(target, ns=(1234567890123456789, 1234567890123456789))
     before = target.read_bytes(), target.stat().st_mtime_ns
     task = service.get("alpha", "login")
@@ -171,14 +173,14 @@ def test_invalid_names(service: TaskService, name: str) -> None:
 def test_nested_round_trip_and_query(service: TaskService) -> None:
     for name in ("nested/login", "other/login", "login.v2"):
         service.create("alpha", name, StatusCreateInput[TaskStatus]())
-    for summary in service.list("alpha"):
-        task = service.get("alpha", summary.name)
-        assert task.path == summary.path
-        assert task.modified_at == summary.last_activity_at
-        assert "body" not in summary.model_dump()
-        service.update("alpha", summary.name, TaskUpdate(status="done"))
+    for record in service.list("alpha"):
+        task = service.get("alpha", record.name)
+        assert task.record.path == record.path
+        assert task.record.modified_at == record.modified_at
+        assert "body" not in record.model_dump()
+        service.update("alpha", record.name, TaskUpdate(status="done"))
     service.update("alpha", "nested/login", TaskUpdate(body="OAuth"))
-    assert service.get("alpha", "nested/login").document.body == "OAuth"
+    assert service.get("alpha", "nested/login").body == "OAuth"
     found = service.list("alpha", TaskQuery(statuses={"done"}))
     assert [task.name for task in found] == ["login.v2", "nested/login", "other/login"]
 
@@ -194,7 +196,7 @@ def test_explicit_plan_isolation(service: TaskService, tmp_path: Path) -> None:
     service.create("alpha", "login", StatusCreateInput[TaskStatus](), "Alpha")
     service.update("alpha", "login", TaskUpdate(body="Alpha only"))
     service.update("alpha", "login", TaskUpdate(status="done"))
-    assert service.get("beta", "login").document.body == "Beta"
-    assert service.list("beta")[0].metadata == beta.document.metadata
+    assert service.get("beta", "login").body == "Beta"
+    assert service.list("beta")[0].metadata == beta.record.metadata
     assert service.list("alpha")[0].metadata.status == "done"
     assert state.read().current_plan == "beta"

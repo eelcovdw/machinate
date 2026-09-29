@@ -14,9 +14,9 @@ def test_add_explicit_project(project: Path) -> None:
     assert parsed.project.storage == project / ".machi"
     assert parsed.plan.name == "alpha"
     assert parsed.plan.path.as_posix() == "plans/alpha/plan.md"
-    assert parsed.plan.document.metadata.status == "draft"
-    assert parsed.plan.document.metadata.created.tzinfo is not None
-    assert parsed.plan.document.body == ""
+    assert parsed.plan.metadata.status == "draft"
+    assert parsed.plan.metadata.created_at.tzinfo is not None
+    assert parsed.body == ""
     assert (project / ".machi/plans/alpha/plan.md").is_file()
     assert read_state(project).current_plan is None
 
@@ -44,8 +44,8 @@ def test_add_sets_summary_and_status(project: Path) -> None:
             "json",
         ],
     )
-    metadata = parsed.plan.document.metadata
-    assert metadata.summary == "Does the thing"
+    metadata = parsed.plan.metadata
+    assert parsed.plan.summary == "Does the thing"
     assert metadata.status == "active"
 
 

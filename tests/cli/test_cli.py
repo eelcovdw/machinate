@@ -14,7 +14,7 @@ from machinate.cli.dependencies import Dependencies
 from machinate.cli.formatting import Formatter
 from machinate.cli.models import CommandResult, ErrorResult, ListResult
 from machinate.cli.project_setup import prepare_project
-from machinate.models.documents import ParsedDocument, PlanMetadata
+from machinate.models.documents import ParsedDocument, PlanMetadata, PlanRecord
 from machinate.models.operations import PlanQuery
 from machinate.storage import (
     DocumentStore,
@@ -35,7 +35,7 @@ def populate(project: Path) -> None:
             ParsedDocument(
                 metadata=PlanMetadata.model_validate(
                     {
-                        "created": datetime(2026, 9, 22, tzinfo=UTC),
+                        "created_at": datetime(2026, 9, 22, tzinfo=UTC),
                         "status": status,
                         "summary": f"Summary of {name}",
                     }
@@ -179,7 +179,7 @@ def test_query_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> Non
             "--status",
             "done",
             "--sort",
-            "updated",
+            "last_activity_at",
             "--descending",
             "--limit",
             "1",
@@ -190,12 +190,14 @@ def test_query_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     listing.assert_called_once_with(
         PlanQuery(
             statuses={"active", "done"},
-            sort="updated",
+            sort="last_activity_at",
             descending=True,
             limit=1,
         )
     )
-    assert ListResult.model_validate(json.loads(result.stdout)).plans == summaries
+    assert ListResult.model_validate(json.loads(result.stdout)).plans == [
+        PlanRecord.model_validate(summary.model_dump()) for summary in summaries
+    ]
 
 
 def test_query_integration(project: Path) -> None:

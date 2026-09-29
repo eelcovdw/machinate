@@ -5,17 +5,16 @@ from pydantic import validate_call
 
 from machinate.models.documents import (
     ContextMetadata,
-    DocumentRecord,
+    LoadedPlan,
     Name,
     ParsedDocument,
-    Plan,
     PlanMetadata,
+    PlanRecord,
     PlanStatus,
     TaskMetadata,
     TaskStatus,
 )
 from machinate.models.operations import (
-    PlanInfo,
     PlanOverview,
     PlanQuery,
     PlanUpdate,
@@ -33,10 +32,35 @@ class PlanService:
         self.layout: Layout = layout
         self.project_state_store: ProjectStateStore = project_state_store
 
+    def _record(
+        self,
+        path: PurePosixPath,
+        name: Name,
+        document: ParsedDocument[PlanMetadata],
+    ) -> PlanRecord:
+        """Build a plan record, statting the file once and walking descendants for activity."""
+        return PlanRecord(
+            name=name,
+            path=path,
+            metadata=document.metadata,
+            modified_at=self.document_store.metadata(path).modified_at,
+            last_activity_at=self.document_store.get_last_activity_at(
+                path, self.layout.plan_collection().activity_scopes
+            ),
+            summary=document.get_or_derive_summary(),
+        )
+
+    def _loaded(
+        self, path: PurePosixPath, name: Name, document: ParsedDocument[PlanMetadata]
+    ) -> LoadedPlan:
+        return LoadedPlan(record=self._record(path, name, document), body=document.body)
+
     @validate_call
-    def create(self, name: Name, create: StatusCreateInput[PlanStatus], body: str = "") -> Plan:
+    def create(
+        self, name: Name, create: StatusCreateInput[PlanStatus], body: str = ""
+    ) -> LoadedPlan:
         metadata = PlanMetadata(
-            created=datetime.now(UTC),
+            created_at=datetime.now(UTC),
             summary=create.summary,
             tags=create.tags,
             status=create.status if create.status is not None else "draft",
@@ -48,29 +72,18 @@ class PlanService:
 
     @validate_call
     def path(self, name: Name) -> PurePosixPath:
-        """Storage-relative plan path; validates the plan exists without parsing."""
+        """Store-relative plan path; validates the plan exists without parsing."""
         target = self.layout.plan(name)
         self.document_store.metadata(target)
         return target
 
     @validate_call
-    def get(self, name: Name) -> Plan:
+    def get(self, name: Name) -> LoadedPlan:
         path = self.layout.plan(name)
-        return self._plan(path, name, self.document_store.read(path, PlanMetadata))
-
-    def _plan(
-        self, path: PurePosixPath, name: Name, document: ParsedDocument[PlanMetadata]
-    ) -> Plan:
-        """Build a plan from an already-loaded document, statting the file once."""
-        return Plan(
-            name=name,
-            path=path,
-            document=document,
-            modified_at=self.document_store.metadata(path).modified,
-        )
+        return self._loaded(path, name, self.document_store.read(path, PlanMetadata))
 
     @validate_call
-    def update(self, name: Name, changes: PlanUpdate) -> Plan:
+    def update(self, name: Name, changes: PlanUpdate) -> LoadedPlan:
         path = self.layout.plan(name)
         document = self.document_store.read(path, PlanMetadata)
         changed = changes.apply_to(document)
@@ -79,11 +92,24 @@ class PlanService:
             changed = True
         if changed:
             self.document_store.write(path, document)
-        return self._plan(path, name, document)
+        return self._loaded(path, name, document)
 
     @validate_call
-    def list(self, query: PlanQuery | None = None) -> list[DocumentRecord[PlanMetadata]]:
-        return self.document_store.list(self.layout.plan_collection(), PlanMetadata, query)
+    def list(self, query: PlanQuery | None = None) -> list[PlanRecord]:
+        scopes = self.layout.plan_collection().activity_scopes
+        return [
+            PlanRecord(
+                name=record.name,
+                path=record.path,
+                metadata=record.metadata,
+                modified_at=record.modified_at,
+                last_activity_at=self.document_store.get_last_activity_at(record.path, scopes),
+                summary=record.summary,
+            )
+            for record in self.document_store.list(
+                self.layout.plan_collection(), PlanMetadata, query
+            )
+        ]
 
     @validate_call
     def set_current(self, name: Name) -> ProjectState:
@@ -103,50 +129,38 @@ class PlanService:
         """Return the selected plan's name without loading its document."""
         return self.project_state_store.read().current_plan
 
-    def _task_counts(self, name: Name) -> dict[TaskStatus, int]:
+    def _tasks_by_status(self, name: Name) -> dict[TaskStatus, int]:
         task_records = self.document_store.list(self.layout.task_collection(name), TaskMetadata)
-        task_counts: dict[TaskStatus, int] = {"todo": 0, "in-progress": 0, "done": 0}
+        tasks_by_status: dict[TaskStatus, int] = {"todo": 0, "in-progress": 0, "done": 0}
         for task in task_records:
-            task_counts[task.metadata.status] += 1
-        return task_counts
+            tasks_by_status[task.metadata.status] += 1
+        return tasks_by_status
 
     def _context_count(self, name: Name) -> int:
         return len(self.document_store.list(self.layout.context_collection(name), ContextMetadata))
 
     @validate_call
-    def info(self, name: Name) -> PlanInfo:
-        plan = self.get(name)
-        return PlanInfo(
-            plan=DocumentRecord[PlanMetadata].from_document(
-                plan.document,
-                name=plan.name,
-                path=plan.path,
-                last_activity_at=self.document_store.get_last_activity_at(
-                    plan.path, self.layout.plan_collection().activity_scopes
-                ),
-            ),
-            task_counts=self._task_counts(name),
-            context_count=self._context_count(name),
-        )
-
-    @validate_call
     def plan_overview(self, name: Name) -> PlanOverview:
+        path = self.layout.plan(name)
+        document = self.document_store.read(path, PlanMetadata)
         return PlanOverview(
             current=self.project_state_store.read().current_plan == name,
-            info=self.info(name),
+            plan=self._record(path, name, document),
+            tasks_by_status=self._tasks_by_status(name),
+            context_count=self._context_count(name),
         )
 
     def project_overview(self) -> ProjectOverview:
         state = self.project_state_store.read()
         plans = self.list()
         plans_by_status: dict[PlanStatus, int] = {"draft": 0, "active": 0, "done": 0}
-        task_totals: dict[TaskStatus, int] = {"todo": 0, "in-progress": 0, "done": 0}
+        tasks_by_status: dict[TaskStatus, int] = {"todo": 0, "in-progress": 0, "done": 0}
         context_count = 0
         for plan in plans:
             plans_by_status[plan.metadata.status] += 1
             context_count += self._context_count(plan.name)
-            for status, count in self._task_counts(plan.name).items():
-                task_totals[status] += count
+            for status, count in self._tasks_by_status(plan.name).items():
+                tasks_by_status[status] += count
         recent_plans = sorted(plans, key=lambda plan: plan.last_activity_at, reverse=True)[:5]
         return ProjectOverview(
             current_plan=state.current_plan,
@@ -154,7 +168,7 @@ class PlanService:
             or any(plan.name == state.current_plan for plan in plans),
             plan_count=len(plans),
             plans_by_status=plans_by_status,
-            task_totals=task_totals,
+            tasks_by_status=tasks_by_status,
             context_count=context_count,
             recent_plans=recent_plans,
         )

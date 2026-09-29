@@ -10,7 +10,7 @@ from machinate.models.documents import Name, RelativePath
 
 class FileMetadata(BaseModel):
     path: RelativePath
-    modified: datetime
+    modified_at: datetime
     kind: Literal["file", "directory"]
 
 

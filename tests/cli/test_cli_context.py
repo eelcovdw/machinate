@@ -50,9 +50,9 @@ def test_context_add_explicit_plan(project: Path) -> None:
     context = parsed.contexts[0]
     assert context.name == "spec"
     assert context.path.as_posix() == "plans/auth/context/spec.md"
-    assert context.document.metadata.created.tzinfo is not None
-    assert context.document.metadata.summary is None
-    assert context.document.body == ""
+    assert context.metadata.created_at.tzinfo is not None
+    assert context.metadata.summary is None
+    assert parsed.body == ""
     assert (project / ".machi/plans/auth/context/spec.md").is_file()
     assert read_state(project).current_plan is None
 
@@ -171,9 +171,9 @@ def test_context_show_explicit_plan(project: Path) -> None:
     assert parsed.plan == "auth"
     assert parsed.context.name == "spec"
     assert parsed.context.path.as_posix() == "plans/auth/context/spec.md"
-    assert parsed.context.document.get_or_derive_summary() == "Details."
-    assert parsed.context.document.body == "# Spec\n\nDetails.\n"
-    assert parsed.context.document.metadata.created.tzinfo is not None
+    assert parsed.context.summary == "Details."
+    assert parsed.body == "# Spec\n\nDetails.\n"
+    assert parsed.context.metadata.created_at.tzinfo is not None
 
 
 def test_context_show_unknown_context(project: Path) -> None:
@@ -208,7 +208,7 @@ def test_context_info_explicit_plan(project: Path) -> None:
     assert parsed.context.name == "spec"
     assert parsed.context.path.as_posix() == "plans/auth/context/spec.md"
     assert parsed.context.summary == "Details."
-    assert parsed.context.last_activity_at.tzinfo is not None
+    assert parsed.context.modified_at.tzinfo is not None
 
 
 def test_context_info_omits_body(project: Path) -> None:
@@ -253,7 +253,7 @@ def test_context_update_explicit_plan(project: Path) -> None:
     )
     assert parsed.plan == "auth"
     assert parsed.context.name == "spec"
-    assert parsed.context.document.metadata.summary == "New"
+    assert parsed.context.summary == "New"
 
 
 def test_context_update_unknown_context(project: Path) -> None:

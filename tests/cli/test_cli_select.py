@@ -18,7 +18,7 @@ def test_select_explicit_plan(project: Path) -> None:
     )
     assert parsed.project.name == "example"
     assert parsed.project.directory == project
-    assert parsed.state.current_plan == "auth"
+    assert parsed.current_plan == "auth"
     assert read_state(project).current_plan == "auth"
 
 
@@ -42,7 +42,7 @@ def test_select_then_show(project: Path) -> None:
     selected = cli.json(
         SelectResult, ["plan", "select", "auth", "-P", str(project), "--format", "json"]
     )
-    assert selected.state.current_plan == "auth"
+    assert selected.current_plan == "auth"
     shown = cli.json(ShowResult, ["plan", "show", "-P", str(project), "--format", "json"])
     assert shown.plan.name == "auth"
 

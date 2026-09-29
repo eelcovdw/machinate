@@ -35,23 +35,44 @@ def service(tmp_path: Path) -> PlanService:
 @pytest.fixture
 def metadata() -> PlanMetadata:
     return PlanMetadata.model_validate(
-        {"created": "2026-09-22T00:00:00Z", "custom": {"owner": "Alice"}}
+        {"created_at": "2026-09-22T00:00:00Z", "custom": {"owner": "Alice"}}
     )
 
 
 def test_create_get_and_duplicate(service: PlanService) -> None:
     plan = service.create("alpha", StatusCreateInput[PlanStatus](summary="Alpha"), "Body\n")
     assert plan == service.get("alpha")
-    assert plan.name == "alpha"
-    assert plan.path == PurePosixPath("plans/alpha/plan.md")
-    assert plan.document.body == "Body\n"
-    assert plan.document.metadata.summary == "Alpha"
-    assert plan.document.metadata.status == "draft"
-    assert plan.document.metadata.created.tzinfo is not None
+    assert plan.record.name == "alpha"
+    assert plan.record.path == PurePosixPath("plans/alpha/plan.md")
+    assert plan.body == "Body\n"
+    assert plan.record.metadata.summary == "Alpha"
+    assert plan.record.metadata.status == "draft"
+    assert plan.record.metadata.created_at.tzinfo is not None
     assert service.current_name() is None
     assert service.project_state_store.read() == ProjectState(project_name="demo")
     with pytest.raises(DocumentExistsError):
         service.create("alpha", StatusCreateInput[PlanStatus]())
+
+
+def test_plan_activity_matches_across_show_list_and_info(service: PlanService) -> None:
+    service.create("alpha", StatusCreateInput[PlanStatus](), "Body")
+    service.document_store.create(
+        PurePosixPath("plans/alpha/tasks/01-work.md"),
+        ParsedDocument(
+            metadata=TaskMetadata(created_at=datetime(2026, 9, 22, tzinfo=UTC)), body=""
+        ),
+    )
+    newest = datetime.fromtimestamp(2_000_000_000, UTC)
+    os.utime(
+        service.document_store.root / "plans/alpha/tasks/01-work.md",
+        (2_000_000_000, 2_000_000_000),
+    )
+
+    shown = service.get("alpha").record.last_activity_at
+    listed = service.list()[0].last_activity_at
+    info = service.plan_overview("alpha").plan.last_activity_at
+
+    assert shown == listed == info == newest
 
 
 def test_patch_preserves_omitted_fields_and_extra_metadata(
@@ -61,15 +82,15 @@ def test_patch_preserves_omitted_fields_and_extra_metadata(
         service.layout.plan("alpha"), ParsedDocument(metadata=metadata, body="Body")
     )
     result = service.update("alpha", PlanUpdate(status="active"))
-    assert result.document.body == "Body"
-    assert result.document.metadata.status == "active"
-    assert result.document.get_or_derive_summary() == "Body"
-    assert result.document.metadata.created.tzinfo is not None
+    assert result.body == "Body"
+    assert result.record.metadata.status == "active"
+    assert result.record.summary == "Body"
+    assert result.record.metadata.created_at.tzinfo is not None
     result = service.update("alpha", PlanUpdate(body=""))
-    assert result.document.body == ""
-    assert result.document.metadata.status == "active"
-    assert result.document.get_or_derive_summary() is None
-    assert result.document.metadata.model_extra == metadata.model_extra
+    assert result.body == ""
+    assert result.record.metadata.status == "active"
+    assert result.record.summary is None
+    assert result.record.metadata.model_extra == metadata.model_extra
 
 
 def test_empty_patch_never_writes(service: PlanService, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -81,12 +102,12 @@ def test_empty_patch_never_writes(service: PlanService, monkeypatch: pytest.Monk
     monkeypatch.setattr(service.document_store, "write", write)
     result = service.update("alpha", PlanUpdate())
     assert (target.read_bytes(), target.stat().st_mtime_ns) == before
-    assert result.modified_at == datetime.fromtimestamp(target.stat().st_mtime, UTC)
+    assert result.record.modified_at == datetime.fromtimestamp(target.stat().st_mtime, UTC)
     write.assert_not_called()
 
 
 def test_missing_operations_and_dangling_selection(service: PlanService) -> None:
-    for operation in (service.get, service.set_current, service.info):
+    for operation in (service.get, service.set_current, service.plan_overview):
         with pytest.raises(MissingDocumentError):
             operation("missing")
     with pytest.raises(MissingDocumentError):
@@ -108,17 +129,17 @@ def test_selection_does_not_retarget_explicit_operations(service: PlanService) -
     service.set_current("beta")
     service.update("alpha", PlanUpdate(body="only alpha"))
     service.update("alpha", PlanUpdate(status="done"))
-    assert service.get("alpha").document.body == "only alpha"
-    assert service.get("beta").document.body == ""
+    assert service.get("alpha").body == "only alpha"
+    assert service.get("beta").body == ""
     assert service.current_name() == "beta"
-    assert service.info("alpha").plan.metadata.status == "done"
+    assert service.plan_overview("alpha").plan.metadata.status == "done"
     assert service.project_state_store.read().project_name == "demo"
 
 
 def test_info_counts_and_list_ignores_malformed_children(service: PlanService) -> None:
     service.create("alpha", StatusCreateInput[PlanStatus]())
-    empty = service.info("alpha")
-    assert empty.task_counts == {"todo": 0, "in-progress": 0, "done": 0}
+    empty = service.plan_overview("alpha")
+    assert empty.tasks_by_status == {"todo": 0, "in-progress": 0, "done": 0}
     assert empty.context_count == 0
     for name, status in [
         ("one", "todo"),
@@ -130,7 +151,7 @@ def test_info_counts_and_list_ignores_malformed_children(service: PlanService) -
             PurePosixPath("plans/alpha/tasks", f"{name}.md"),
             ParsedDocument(
                 metadata=TaskMetadata.model_validate(
-                    {"created": datetime(2026, 9, 22, tzinfo=UTC), "status": status}
+                    {"created_at": datetime(2026, 9, 22, tzinfo=UTC), "status": status}
                 ),
                 body="",
             ),
@@ -138,15 +159,15 @@ def test_info_counts_and_list_ignores_malformed_children(service: PlanService) -
     service.document_store.create(
         PurePosixPath("plans/alpha/context/nested/note.md"),
         ParsedDocument(
-            metadata=ContextMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""
+            metadata=ContextMetadata(created_at=datetime(2026, 9, 22, tzinfo=UTC)), body=""
         ),
     )
-    info = service.info("alpha")
-    assert info.task_counts == {"todo": 2, "in-progress": 1, "done": 1}
+    info = service.plan_overview("alpha")
+    assert info.tasks_by_status == {"todo": 2, "in-progress": 1, "done": 1}
     assert info.context_count == 1
     assert info.plan == service.list()[0]
     bad = service.document_store.root / "plans/alpha/tasks/bad.md"
     bad.write_text("---\nsummary: missing date\n---\n")
     assert len(service.list()) == 1
     with pytest.raises(InvalidDocumentError):
-        service.info("alpha")
+        service.plan_overview("alpha")

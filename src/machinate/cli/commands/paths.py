@@ -38,7 +38,6 @@ def plan_path(
             plan=plan_name,
             path=target,
             kind="plan",
-            exists=target.is_file(),
         )
         run.render(result)
 
@@ -77,7 +76,6 @@ def task_path(
                 plan=plan_name,
                 path=target,
                 kind="task",
-                exists=target.is_file(),
             )
         run.render(result)
 
@@ -116,6 +114,5 @@ def context_path(
                 plan=plan_name,
                 path=target,
                 kind="context",
-                exists=target.is_file(),
             )
         run.render(result)

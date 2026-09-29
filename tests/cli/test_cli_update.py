@@ -9,7 +9,7 @@ from machinate.models.documents import PlanMetadata
 
 
 def read_metadata(project: Path, name: str = "auth") -> PlanMetadata:
-    return prepare_project(project).plans.get(name).document.metadata
+    return prepare_project(project).plans.get(name).record.metadata
 
 
 def set_current(project: Path, name: str) -> None:
@@ -34,7 +34,7 @@ def test_update_sets_status_explicit(project: Path) -> None:
         ],
     )
     assert parsed.project.name == "example"
-    assert parsed.plan.document.metadata.status == "active"
+    assert parsed.plan.metadata.status == "active"
     assert read_metadata(project).status == "active"
 
 

@@ -60,7 +60,11 @@ def context_add(  # noqa: PLR0913
             plan_name, names, CreateInput(tags=tags or [])
         )
         result = ContextAddResult(
-            project=project_context.project, plan=plan_name, contexts=created, errors=errors
+            project=project_context.project,
+            plan=plan_name,
+            contexts=[context.record for context in created],
+            body="",
+            errors=errors,
         )
         run.render(result)
     if result.errors:
@@ -86,7 +90,7 @@ def context_list(  # noqa: PLR0913
         list[str] | None,
         typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
     ] = None,
-    sort: Annotated[str, typer.Option(help="Sort by name, created, or updated.")] = "name",
+    sort: Annotated[str, typer.Option(help="Sort by name, created_at, or modified_at.")] = "name",
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
     limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
 ) -> None:
@@ -133,7 +137,10 @@ def context_show(
         plan_name = run.determine_plan_name(project_context.plans, plan)
         document = project_context.contexts.get(plan_name, name)
         result = ContextShowResult(
-            project=project_context.project, plan=plan_name, context=document
+            project=project_context.project,
+            plan=plan_name,
+            context=document.record,
+            body=document.body,
         )
         run.render(result)
 
@@ -202,6 +209,9 @@ def context_update(  # noqa: PLR0913
         plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.contexts.update(plan_name, name, changes)
         result = ContextUpdateResult(
-            project=project_context.project, plan=plan_name, context=updated
+            project=project_context.project,
+            plan=plan_name,
+            context=updated.record,
+            body=updated.body,
         )
         run.render(result)

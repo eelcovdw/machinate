@@ -49,7 +49,7 @@ def test_summary_is_not_persisted(tmp_path: Path) -> None:
     store.create(
         "note.md",
         ParsedDocument(
-            metadata=ContextMetadata(created=datetime(2026, 1, 1, tzinfo=UTC)), body="Hello"
+            metadata=ContextMetadata(created_at=datetime(2026, 1, 1, tzinfo=UTC)), body="Hello"
         ),
     )
     assert "summary" not in (tmp_path / "note.md").read_text()
@@ -58,7 +58,7 @@ def test_summary_is_not_persisted(tmp_path: Path) -> None:
 
 def test_stored_summary_wins(tmp_path: Path) -> None:
     (tmp_path / "note.md").write_text(
-        "---\ncreated: 2026-01-01T00:00:00Z\nsummary: Curated\n---\nBody paragraph.\n"
+        "---\ncreated_at: 2026-01-01T00:00:00Z\nsummary: Curated\n---\nBody paragraph.\n"
     )
     document = DocumentStore(tmp_path).read("note.md", ContextMetadata)
     assert document.metadata.summary == "Curated"
@@ -69,7 +69,9 @@ def test_stored_summary_survives_rewrite(tmp_path: Path) -> None:
     store.create(
         "note.md",
         ParsedDocument(
-            metadata=ContextMetadata(created=datetime(2026, 1, 1, tzinfo=UTC), summary="Curated"),
+            metadata=ContextMetadata(
+                created_at=datetime(2026, 1, 1, tzinfo=UTC), summary="Curated"
+            ),
             body="Body paragraph.",
         ),
     )

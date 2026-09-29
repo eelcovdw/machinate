@@ -20,7 +20,15 @@ from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import ErrorResult
 from machinate.cli.project_setup import prepare_project
 from machinate.cli.settings import LogLevel, Settings
-from machinate.models.documents import Context, Doc, Plan, PlanStatus, Task, TaskStatus
+from machinate.models.documents import (
+    ContextMetadata,
+    DocMetadata,
+    LoadedDocument,
+    LoadedPlan,
+    PlanStatus,
+    TaskMetadata,
+    TaskStatus,
+)
 from machinate.models.operations import CreateInput, StatusCreateInput
 from machinate.storage import ProjectState
 
@@ -82,7 +90,7 @@ class Seed:
         status: PlanStatus = "draft",
         summary: str | None = None,
         body: str = "",
-    ) -> Plan:
+    ) -> LoadedPlan:
         return prepare_project(project).plans.create(
             name, StatusCreateInput[PlanStatus](status=status, summary=summary), body
         )
@@ -96,7 +104,7 @@ class Seed:
         status: TaskStatus = "todo",
         summary: str | None = None,
         body: str = "",
-    ) -> Task:
+    ) -> LoadedDocument[TaskMetadata]:
         return prepare_project(project).tasks.create(
             plan, name, StatusCreateInput[TaskStatus](status=status, summary=summary), body
         )
@@ -109,7 +117,7 @@ class Seed:
         *,
         summary: str | None = None,
         body: str = "",
-    ) -> Context:
+    ) -> LoadedDocument[ContextMetadata]:
         return prepare_project(project).contexts.create(
             plan, name, CreateInput(summary=summary), body
         )
@@ -121,7 +129,7 @@ class Seed:
         *,
         summary: str | None = None,
         body: str = "",
-    ) -> Doc:
+    ) -> LoadedDocument[DocMetadata]:
         return prepare_project(project).docs.create(name, CreateInput(summary=summary), body)
 
 

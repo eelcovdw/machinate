@@ -53,7 +53,12 @@ def doc_add(
     with execute(context, "doc add", output_format) as run:
         project_context = run.prepare(project)
         created, errors = project_context.docs.create_batch(names, CreateInput(tags=tags or []))
-        result = DocAddResult(project=project_context.project, docs=created, errors=errors)
+        result = DocAddResult(
+            project=project_context.project,
+            docs=[doc.record for doc in created],
+            body="",
+            errors=errors,
+        )
         run.render(result)
     if result.errors:
         raise typer.Exit(1)  # Partial failure; the result still reports what was created.
@@ -67,7 +72,7 @@ def doc_list(  # noqa: PLR0913
         list[str] | None,
         typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
     ] = None,
-    sort: Annotated[str, typer.Option(help="Sort by name, created, or updated.")] = "name",
+    sort: Annotated[str, typer.Option(help="Sort by name, created_at, or modified_at.")] = "name",
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
     limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
 ) -> None:
@@ -99,7 +104,9 @@ def doc_show(
     with execute(context, "doc show", output_format) as run:
         project_context = run.prepare(project)
         document = project_context.docs.get(name)
-        result = DocShowResult(project=project_context.project, doc=document)
+        result = DocShowResult(
+            project=project_context.project, doc=document.record, body=document.body
+        )
         run.render(result)
 
 
@@ -147,7 +154,6 @@ def doc_path(
                 project=scope,
                 path=target,
                 kind="doc",
-                exists=target.is_file(),
             )
         run.render(result)
 
@@ -175,5 +181,7 @@ def doc_update(  # noqa: PLR0913
         changes = doc_changes(summary, tags, clear_tags)
         project_context = run.prepare(project)
         updated = project_context.docs.update(name, changes)
-        result = DocUpdateResult(project=project_context.project, doc=updated)
+        result = DocUpdateResult(
+            project=project_context.project, doc=updated.record, body=updated.body
+        )
         run.render(result)
