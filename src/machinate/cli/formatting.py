@@ -135,7 +135,7 @@ def _not_created(errors: Sequence[BatchCreateError]) -> list[Text]:
     if not errors:
         return []
     lines = [Text(), Text("Not created:", style=ERROR)]
-    lines.extend(_bullet(error.name, error.error, style=ERROR) for error in errors)
+    lines.extend(_bullet(error.name, error.message, style=ERROR) for error in errors)
     return lines
 
 

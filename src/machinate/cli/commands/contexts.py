@@ -1,9 +1,8 @@
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 
-from machinate.cli.errors import PlanSelectionError
 from machinate.cli.execution import execute
 from machinate.cli.models import (
     ContextAddResult,
@@ -12,6 +11,7 @@ from machinate.cli.models import (
     ContextShowResult,
     ContextUpdateResult,
 )
+from machinate.cli.options import OUTPUT_FORMAT
 from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 
@@ -48,12 +48,10 @@ def context_add(  # noqa: PLR0913
             "--tag", help="Tag(s) to apply to every created context. Repeat for multiple tags."
         ),
     ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create one or more context documents in a plan."""
-    with execute(context, "context add", output_format, PlanSelectionError) as run:
+    with execute(context, "context add", output_format) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         batch = project_context.contexts.create_batch(
@@ -68,8 +66,6 @@ def context_add(  # noqa: PLR0913
             ),
         )
         run.render(result)
-    if result.batch.errors:
-        raise typer.Exit(1)  # Partial failure; the result still reports what was created.
 
 
 def context_list(  # noqa: PLR0913
@@ -84,26 +80,27 @@ def context_list(  # noqa: PLR0913
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
     ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
     tags: Annotated[
         list[str] | None,
         typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
     ] = None,
-    sort: Annotated[str, typer.Option(help="Sort by name, created_at, or modified_at.")] = "name",
+    sort: Annotated[
+        Literal["name", "created_at", "modified_at"],
+        typer.Option(help="Sort by name, created_at, or modified_at."),
+    ] = "name",
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
-    limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
+    limit: Annotated[
+        int | None, typer.Option(min=1, help="Maximum results (positive integer).")
+    ] = None,
 ) -> None:
     """List context documents in a plan."""
-    with execute(context, "context list", output_format, PlanSelectionError) as run:
-        query = DocumentQuery.model_validate(
-            {
-                "tags": tags,
-                "sort": sort,
-                "descending": descending,
-                "limit": limit,
-            }
+    with execute(context, "context list", output_format) as run:
+        query = DocumentQuery(
+            tags=set(tags) if tags is not None else None,
+            sort=sort,
+            descending=descending,
+            limit=limit,
         )
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
@@ -129,12 +126,10 @@ def context_show(
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
     ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show context metadata and body."""
-    with execute(context, "context show", output_format, PlanSelectionError) as run:
+    with execute(context, "context show", output_format) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         document = project_context.contexts.get(plan_name, name)
@@ -161,12 +156,10 @@ def context_info(
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
     ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show context metadata."""
-    with execute(context, "context info", output_format, PlanSelectionError) as run:
+    with execute(context, "context info", output_format) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         document = project_context.contexts.info(plan_name, name)
@@ -204,12 +197,10 @@ def context_update(  # noqa: PLR0913
         bool,
         typer.Option("--clear-tags", help="Remove all tags; mutually exclusive with --tag."),
     ] = False,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change context summary or tags."""
-    with execute(context, "context update", output_format, PlanSelectionError) as run:
+    with execute(context, "context update", output_format) as run:
         changes = context_changes(summary, tags, clear_tags)
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)

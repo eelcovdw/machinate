@@ -30,6 +30,7 @@ class TaskService(DocumentService[TaskMetadata, StatusCreateInput[TaskStatus]]):
             document_store,
             layout,
             Collection(
+                kind="task",
                 metadata_type=TaskMetadata,
                 storage=lambda plan: layout.task_collection(ensure_plan(plan)),
                 path=lambda plan, name: layout.task(ensure_plan(plan), name),

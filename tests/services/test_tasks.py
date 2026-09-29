@@ -8,8 +8,9 @@ import pytest
 
 from machinate.models.documents import ParsedDocument, PlanMetadata, TaskMetadata, TaskStatus
 from machinate.models.operations import StatusCreateInput
+from machinate.services.errors import NotFoundError
 from machinate.services.task import TaskService
-from machinate.storage import DocumentStore, Layout, MissingDocumentError
+from machinate.storage import DocumentStore, Layout
 
 
 @pytest.fixture
@@ -31,6 +32,7 @@ def test_create_batch_reports_partial_results(service: TaskService) -> None:
     )
     assert [task.record.name for task in batch.created] == ["new", "later"]
     assert [error.name for error in batch.errors] == ["existing", "../bad"]
+    assert [error.reason for error in batch.errors] == ["exists", "invalid_name"]
     assert service.get("alpha", "new")
     assert service.get("alpha", "later")
 
@@ -39,6 +41,7 @@ def test_create_batch_rejects_case_only_duplicates(service: TaskService) -> None
     batch = service.create_batch("alpha", ["Login", "login"], StatusCreateInput[TaskStatus]())
     assert [task.record.name for task in batch.created] == ["Login"]
     assert [error.name for error in batch.errors] == ["login"]
+    assert batch.errors[0].reason == "exists"
 
 
 def test_create_batch_empty(service: TaskService) -> None:
@@ -48,7 +51,7 @@ def test_create_batch_empty(service: TaskService) -> None:
 
 
 def test_create_batch_unknown_plan(service: TaskService) -> None:
-    with pytest.raises(MissingDocumentError):
+    with pytest.raises(NotFoundError):
         service.create_batch("missing", ["a"], StatusCreateInput[TaskStatus]())
 
 
@@ -69,10 +72,10 @@ def test_orphan_task_cannot_make_a_missing_plan_valid(service: TaskService) -> N
     service.document_store.create(
         service.layout.task("missing", "orphan"), ParsedDocument(metadata=metadata, body="")
     )
-    with pytest.raises(MissingDocumentError):
+    with pytest.raises(NotFoundError):
         service.get("missing", "orphan")
-    with pytest.raises(MissingDocumentError):
+    with pytest.raises(NotFoundError):
         service.list_records("missing")
-    with pytest.raises(MissingDocumentError):
+    with pytest.raises(NotFoundError):
         service.create("missing", "new", StatusCreateInput[TaskStatus]())
     assert not (service.document_store.root / service.layout.task("missing", "new")).exists()

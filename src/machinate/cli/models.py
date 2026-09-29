@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from machinate.models.documents import (
     ContextMetadata,
@@ -11,7 +11,14 @@ from machinate.models.documents import (
     PlanRecord,
     TaskMetadata,
 )
-from machinate.models.operations import BatchCreated, FindEntry, PlanOverview, ProjectOverview
+from machinate.models.errors import ErrorCode
+from machinate.models.operations import (
+    BatchCreated,
+    FindEntry,
+    PlanOverview,
+    ProjectOverview,
+    SearchSkip,
+)
 
 
 class ProjectScope(BaseModel):
@@ -203,6 +210,7 @@ class FindResult(BaseModel):
     query: str | None = None
     globs: list[str]
     entries: list[FindEntry]
+    skipped: list[SearchSkip] = Field(default_factory=list)
 
 
 class InfoResult(BaseModel):
@@ -219,6 +227,7 @@ class InstructionsResult(BaseModel):
 class ErrorResult(BaseModel):
     command: str
     error: str
+    code: ErrorCode
     project: ProjectScope | None = None
 
 

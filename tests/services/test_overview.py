@@ -9,16 +9,11 @@ from machinate.models.documents import ParsedDocument, PlanStatus, TaskMetadata,
 from machinate.models.operations import CreateInput, StatusCreateInput
 from machinate.services.context import ContextService
 from machinate.services.doc import DocService
+from machinate.services.errors import InvalidDocumentError
 from machinate.services.overview import OverviewService
 from machinate.services.plan import PlanService
 from machinate.services.task import TaskService
-from machinate.storage import (
-    DocumentStore,
-    InvalidDocumentError,
-    Layout,
-    ProjectState,
-    ProjectStateStore,
-)
+from machinate.storage import DocumentStore, Layout, ProjectState, ProjectStateStore
 
 
 def _overview(tmp_path: Path) -> OverviewService:

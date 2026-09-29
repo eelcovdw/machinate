@@ -28,6 +28,7 @@ class DocService(DocumentService[DocMetadata]):
             document_store,
             layout,
             Collection(
+                kind="doc",
                 metadata_type=DocMetadata,
                 storage=lambda _plan: layout.docs_collection(),
                 path=lambda _plan, name: layout.doc(name),

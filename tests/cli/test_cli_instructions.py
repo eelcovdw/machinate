@@ -20,8 +20,8 @@ def test_instructions_writes_no_files(tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 def test_instructions_invalid_format() -> None:
-    error = cli.error(["instructions", "--format", "yaml"])
-    assert error.command == "instructions"
+    result = cli.run(["instructions", "--format", "yaml"])
+    assert result.exit_code == 2
 
 
 def test_instructions_json_default_in_agent_mode() -> None:

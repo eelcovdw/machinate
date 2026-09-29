@@ -1,4 +1,4 @@
-"""Shared batch creation for task and context documents."""
+"""Shared batch creation for the plan, task, context, and doc resources."""
 
 from collections.abc import Callable
 from pathlib import PurePosixPath
@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 from pydantic import ValidationError
 
 from machinate.models.operations import BatchCreated, BatchCreateError
+from machinate.services.errors import ExistsError, ServiceError
 from machinate.storage import DocumentStore
 from machinate.storage.errors import MissingDocumentError, StorageError
 
@@ -26,29 +27,78 @@ def create_documents[DocumentT](
 ) -> BatchCreated[DocumentT]:
     """Create one document per name, preflighting conflicts and reporting per-name failures.
 
-    Invalid and already-existing names become BatchCreateError entries; every remaining name is
-    still attempted, so a mid-batch failure cannot silently skip later names.
+    Names are deduplicated during preflight; errors keep input order and carry a machine
+    reason next to the message. Every remaining name is still attempted, so a mid-batch
+    failure cannot silently skip later names.
     """
-    errors: list[BatchCreateError] = []
-    candidates: list[str] = []
-    for name in names:
+    preflight = _preflight_names(names, document_store, validate_name, path_for)
+    return _create_pending(preflight, names, create)
+
+
+def _preflight_names(
+    names: list[str],
+    document_store: DocumentStore,
+    validate_name: Callable[[str], str],
+    path_for: Callable[[str], PurePosixPath],
+) -> list[BatchCreateError | None]:
+    """Validate and dedupe names; an entry is the rejection, or None when free to create."""
+    slots: list[BatchCreateError | None] = [None] * len(names)
+    seen: set[str] = set()
+    for index, name in enumerate(names):
         try:
             valid = validate_name(name)
         except ValidationError as exc:
-            errors.append(BatchCreateError(name=name, error=first_validation_message(exc)))
+            slots[index] = BatchCreateError(
+                name=name, reason="invalid_name", message=first_validation_message(exc)
+            )
+            continue
+        if valid.casefold() in seen:
+            slots[index] = BatchCreateError(
+                name=name, reason="exists", message="Duplicate name in this batch"
+            )
+            continue
+        seen.add(valid.casefold())
+        slots[index] = _existing_error(document_store, path_for(valid), name)
+    return slots
+
+
+def _existing_error(
+    document_store: DocumentStore, target: PurePosixPath, name: str
+) -> BatchCreateError | None:
+    """None when the target is free; otherwise the reason it cannot be created."""
+    try:
+        document_store.metadata(target)
+    except MissingDocumentError:
+        return None
+    except StorageError:
+        return BatchCreateError(
+            name=name, reason="failed", message="Could not inspect the document"
+        )
+    return BatchCreateError(name=name, reason="exists", message="Already exists")
+
+
+def _create_pending[DocumentT](
+    slots: list[BatchCreateError | None],
+    names: list[str],
+    create: Callable[[str], DocumentT],
+) -> BatchCreated[DocumentT]:
+    """Create each free slot in input order, recording per-name failures in input order."""
+    created: list[DocumentT] = []
+    errors: list[BatchCreateError] = []
+    for index, slot in enumerate(slots):
+        if slot is not None:
+            errors.append(slot)
             continue
         try:
-            document_store.metadata(path_for(valid))
-        except MissingDocumentError:
-            candidates.append(valid)
-        except StorageError as exc:
-            errors.append(BatchCreateError(name=name, error=str(exc)))
-        else:
-            errors.append(BatchCreateError(name=name, error=f"Already exists: {path_for(valid)}"))
-    created: list[DocumentT] = []
-    for name in candidates:
-        try:
-            created.append(create(name))
-        except (StorageError, ValidationError) as exc:
-            errors.append(BatchCreateError(name=name, error=str(exc)))
+            created.append(create(names[index]))
+        except ExistsError as exc:
+            errors.append(BatchCreateError(name=names[index], reason="exists", message=str(exc)))
+        except ServiceError as exc:
+            errors.append(BatchCreateError(name=names[index], reason="failed", message=str(exc)))
+        except StorageError, ValidationError:
+            errors.append(
+                BatchCreateError(
+                    name=names[index], reason="failed", message="Could not create the document"
+                )
+            )
     return BatchCreated(created=created, errors=errors)

@@ -9,7 +9,7 @@ from typer.core import TyperCommand, TyperGroup
 from .commands.catalog import ALIASES, COMMANDS, CommandSpec
 from .commands.schema import schema_command
 from .dependencies import Dependencies, get_dependencies, get_settings
-from .errors import describe_error
+from .errors import EXIT_USAGE, describe_error
 from .execution import resolve_formatter
 from .formatting import Formatter, UnknownFormatError
 from .help import plain_help_sections
@@ -32,7 +32,7 @@ class Command(TyperCommand):
             return super().parse_args(ctx, args)
         except click.UsageError as exc:
             _report_usage_error(ctx, exc, original_args)
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
 
 
 class Group(TyperGroup):
@@ -52,7 +52,7 @@ class Group(TyperGroup):
             raise
         except click.UsageError as exc:
             _report_usage_error(ctx, exc, original_args)
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
 
     @override
     def invoke(self, ctx: click.Context) -> object:
@@ -63,7 +63,7 @@ class Group(TyperGroup):
         except click.UsageError as exc:
             # Unknown subcommands and other resolution failures reach here.
             _report_usage_error(ctx, exc, None)
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
 
 
 def _report_usage_error(
@@ -90,9 +90,9 @@ def _report_usage_error(
         override = override_name if isinstance(override_name, str) else None
         formatter = resolve_formatter(override, get_settings(ctx), get_dependencies(ctx))
     except (ValidationError, UnknownFormatError) as formatting_error:
-        message = describe_error(formatting_error)
+        message = describe_error(formatting_error).message
     typer.echo(
-        formatter.format(ErrorResult(command=_command_label(ctx), error=message)),
+        formatter.format(ErrorResult(command=_command_label(ctx), error=message, code="input")),
         err=True,
     )
 

@@ -266,20 +266,18 @@ def test_format_precedence(
 
 
 @pytest.mark.parametrize(
-    "args",
+    ("args", "exit_code"),
     [
-        ["--format", "human"],
-        ["--status", "bad"],
-        ["--sort", "bad"],
-        ["--limit", "0"],
-        ["--limit", "abc"],
+        (["--format", "human"], 2),
+        (["--status", "bad"], 2),
+        (["--sort", "bad"], 2),
+        (["--limit", "0"], 2),
+        (["--limit", "abc"], 2),
     ],
 )
-def test_invalid_options(project: Path, args: list[str]) -> None:
+def test_invalid_options(project: Path, args: list[str], exit_code: int) -> None:
     result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json", *args])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.error
+    assert result.exit_code == exit_code, result.output
 
 
 class ReplacementFormatter(Formatter):

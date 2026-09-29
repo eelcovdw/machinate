@@ -1,9 +1,9 @@
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
+import click
 import typer
 
-from machinate.cli.errors import PlanSelectionError
 from machinate.cli.execution import execute
 from machinate.cli.models import (
     TaskAddResult,
@@ -12,6 +12,7 @@ from machinate.cli.models import (
     TaskShowResult,
     TaskUpdateResult,
 )
+from machinate.cli.options import OUTPUT_FORMAT
 from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.documents import TaskStatus
 from machinate.models.operations import BatchCreated, StatusCreateInput, StatusUpdate, TaskQuery
@@ -48,12 +49,10 @@ def task_add(  # noqa: PLR0913
             "--tag", help="Tag(s) to apply to every created task. Repeat for multiple tags."
         ),
     ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create one or more tasks in a plan."""
-    with execute(context, "task add", output_format, PlanSelectionError) as run:
+    with execute(context, "task add", output_format) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         batch = project_context.tasks.create_batch(
@@ -68,8 +67,6 @@ def task_add(  # noqa: PLR0913
             ),
         )
         run.render(result)
-    if result.batch.errors:
-        raise typer.Exit(1)  # Partial failure; the result still reports what was created.
 
 
 def task_list(  # noqa: PLR0913
@@ -84,21 +81,23 @@ def task_list(  # noqa: PLR0913
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
     ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
     tags: Annotated[
         list[str] | None,
         typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
     ] = None,
     statuses: Annotated[
-        list[str] | None,
+        list[TaskStatus] | None,
         typer.Option(
             "--status",
             help="Match any status: todo, in-progress, done. Repeat for multiple statuses.",
+            click_type=click.Choice(["todo", "in-progress", "done"]),
         ),
     ] = None,
-    sort: Annotated[str, typer.Option(help="Sort by name, created_at, or modified_at.")] = "name",
+    sort: Annotated[
+        Literal["name", "created_at", "modified_at"],
+        typer.Option(help="Sort by name, created_at, or modified_at."),
+    ] = "name",
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
     group: Annotated[
         bool,
@@ -107,18 +106,18 @@ def task_list(  # noqa: PLR0913
             help="Group rows under status headers; use --no-group for a flat list.",
         ),
     ] = True,
-    limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
+    limit: Annotated[
+        int | None, typer.Option(min=1, help="Maximum results (positive integer).")
+    ] = None,
 ) -> None:
     """List tasks in a plan."""
-    with execute(context, "task list", output_format, PlanSelectionError) as run:
-        query = TaskQuery.model_validate(
-            {
-                "tags": tags,
-                "statuses": statuses,
-                "sort": sort,
-                "descending": descending,
-                "limit": limit,
-            }
+    with execute(context, "task list", output_format) as run:
+        query = TaskQuery(
+            tags=set(tags) if tags is not None else None,
+            statuses=set(statuses) if statuses is not None else None,
+            sort=sort,
+            descending=descending,
+            limit=limit,
         )
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
@@ -145,12 +144,10 @@ def task_show(
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
     ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show task metadata and body."""
-    with execute(context, "task show", output_format, PlanSelectionError) as run:
+    with execute(context, "task show", output_format) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         task = project_context.tasks.get(plan_name, name)
@@ -177,12 +174,10 @@ def task_info(
         Path | None,
         typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
     ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show task metadata."""
-    with execute(context, "task info", output_format, PlanSelectionError) as run:
+    with execute(context, "task info", output_format) as run:
         project_context = run.prepare(project)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         task = project_context.tasks.info(plan_name, name)
@@ -210,7 +205,8 @@ def update_task(  # noqa: PLR0913
         typer.Option("--summary", help="New summary; pass an empty string to clear it."),
     ] = None,
     status: Annotated[
-        str | None, typer.Option("--status", help="New status: todo, in-progress, or done.")
+        Literal["todo", "in-progress", "done"] | None,
+        typer.Option("--status", help="New status: todo, in-progress, or done."),
     ] = None,
     tags: Annotated[
         list[str] | None,
@@ -220,16 +216,13 @@ def update_task(  # noqa: PLR0913
         bool,
         typer.Option("--clear-tags", help="Remove all tags; mutually exclusive with --tag."),
     ] = False,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change task status, summary, or tags."""
     with execute(
         context,
         "task update",
         output_format,
-        PlanSelectionError,
     ) as run:
         changes = task_changes(summary, status, tags, clear_tags)
         project_context = run.prepare(project)

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from pydantic.json_schema import JsonSchemaValue
 
 from machinate.cli.commands.catalog import COMMANDS, CommandSpec
+from machinate.cli.errors import EXIT_ERROR
 from machinate.cli.models import ErrorResult
 
 
@@ -124,6 +125,9 @@ def schema_command(
     try:
         payload = schema_payload(command) if command else schema_bundle()
     except UnknownSchemaError as exc:
-        typer.echo(ErrorResult(command="schema", error=str(exc)).model_dump_json(), err=True)
-        raise typer.Exit(1) from exc
+        typer.echo(
+            ErrorResult(command="schema", error=str(exc), code="input").model_dump_json(),
+            err=True,
+        )
+        raise typer.Exit(EXIT_ERROR) from exc
     typer.echo(json.dumps(payload, separators=(",", ":")))

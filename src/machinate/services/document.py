@@ -6,7 +6,8 @@ and expose the resource-shaped public methods.
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Protocol
@@ -26,7 +27,21 @@ from machinate.models.operations import (
     DocumentQuery,
 )
 from machinate.services.batch import create_documents
+from machinate.services.errors import (
+    ExistsError,
+    InputError,
+    InvalidDocumentError,
+    NotFoundError,
+    invalid_document_detail,
+)
 from machinate.storage import DocumentStore, Layout
+from machinate.storage.errors import (
+    DocumentExistsError,
+    MissingDocumentError,
+)
+from machinate.storage.errors import (
+    InvalidDocumentError as StorageInvalidDocumentError,
+)
 from machinate.storage.models import DocumentCollection as StorageCollection
 
 
@@ -41,9 +56,11 @@ class Collection[M: Metadata]:
     """One kind of document: its metadata type and where its files live.
 
     ``storage`` and ``path`` take the owning plan name; plan and doc ignore it.
-    ``requires_plan`` controls whether the owning plan must exist first.
+    ``requires_plan`` controls whether the owning plan must exist first. ``kind`` is
+    the singular noun used in domain errors (``not found``, ``already exists``).
     """
 
+    kind: str
     metadata_type: type[M]
     storage: Callable[[Name | None], StorageCollection]
     path: Callable[[Name | None, NestedName], PurePosixPath]
@@ -54,8 +71,21 @@ def ensure_plan(plan: Name | None) -> Name:
     """Return the plan name, or fail when a project-level document kind received none."""
     if plan is None:
         msg = "A plan name is required for this document kind"
-        raise ValueError(msg)
+        raise InputError(msg)
     return plan
+
+
+@contextmanager
+def _translate_errors(kind: str, name: str) -> Iterator[None]:
+    """Turn storage failures into domain errors; the CLI renders both in one place."""
+    try:
+        yield
+    except MissingDocumentError as exc:
+        raise NotFoundError(kind, name) from exc
+    except DocumentExistsError as exc:
+        raise ExistsError(kind, name) from exc
+    except StorageInvalidDocumentError as exc:
+        raise InvalidDocumentError(str(exc.path), invalid_document_detail(exc.reason)) from exc
 
 
 class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
@@ -77,7 +107,9 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
         """The single plan-existence check; every resource uses this instead of parsing."""
         if not self.collection.requires_plan:
             return
-        self.document_store.metadata(self.layout.plan(ensure_plan(plan)))
+        plan_name = ensure_plan(plan)
+        with _translate_errors("plan", plan_name):
+            self.document_store.metadata(self.layout.plan(plan_name))
 
     def _directory(self, plan: Name | None) -> PurePosixPath:
         return self.collection.storage(plan).path
@@ -85,7 +117,8 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
     def _path(self, plan: Name | None, name: NestedName) -> PurePosixPath:
         self._require_plan(plan)
         target = self.collection.path(plan, name)
-        self.document_store.metadata(target)
+        with _translate_errors(self.collection.kind, name):
+            self.document_store.metadata(target)
         return target
 
     def _count(self, plan: Name | None) -> int:
@@ -115,14 +148,17 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
 
     def _read(self, plan: Name | None, name: NestedName) -> tuple[PurePosixPath, ParsedDocument[M]]:
         path = self.collection.path(plan, name)
-        return path, self.document_store.read(path, self.collection.metadata_type)
+        with _translate_errors(self.collection.kind, name):
+            document = self.document_store.read(path, self.collection.metadata_type)
+        return path, document
 
     # --- operations ---------------------------------------------------------
 
     def _write(self, plan: Name | None, name: NestedName, metadata: M) -> LoadedDocument[M]:
         path = self.collection.path(plan, name)
         document = ParsedDocument(metadata=metadata, body="")
-        self.document_store.create(path, document)
+        with _translate_errors(self.collection.kind, name):
+            self.document_store.create(path, document)
         return self._loaded(path, name, document)
 
     def _create(self, plan: Name | None, name: NestedName, create: C) -> LoadedDocument[M]:
@@ -165,6 +201,7 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
 
     def _list(self, plan: Name | None, query: DocumentQuery | None) -> list[DocumentRecord[M]]:
         self._require_plan(plan)
-        return self.document_store.list(
-            self.collection.storage(plan), self.collection.metadata_type, query
-        )
+        with _translate_errors(self.collection.kind, plan or ""):
+            return self.document_store.list(
+                self.collection.storage(plan), self.collection.metadata_type, query
+            )

@@ -5,6 +5,7 @@ import typer
 
 from machinate.cli.execution import execute
 from machinate.cli.models import InitResult
+from machinate.cli.options import OUTPUT_FORMAT
 
 
 def init_project(
@@ -16,9 +17,7 @@ def init_project(
     project_name: Annotated[
         str | None, typer.Option("--project-name", help="Project name; defaults to directory name.")
     ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Initialize the target directory as a Machinate project."""
     with execute(context, "init", output_format) as run:

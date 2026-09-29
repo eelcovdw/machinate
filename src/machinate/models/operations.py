@@ -118,6 +118,9 @@ class StatusUpdate[S: str](BaseModel):
 
 # --- Queries ---------------------------------------------------------------
 
+# The widest set of sort keys; subclasses narrow what they accept via `_allowed_sorts`.
+type DocumentSort = Literal["name", "created_at", "modified_at", "last_activity_at"]
+
 
 class DocumentQuery(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -126,7 +129,7 @@ class DocumentQuery(BaseModel):
     _allowed_sorts: ClassVar[frozenset[str]] = frozenset({"name", "created_at", "modified_at"})
 
     tags: set[Tag] | None = None
-    sort: Literal["name", "created_at", "modified_at", "last_activity_at"] = "name"
+    sort: DocumentSort = "name"
     descending: bool = False
     limit: PositiveInt | None = None
 
@@ -217,10 +220,11 @@ class FindEntry(DocumentMembership):
 
 
 class BatchCreateError(BaseModel):
-    """A name from a batch creation that was not created, with the reason."""
+    """A name from a batch creation that was not created, with the machine reason."""
 
     name: str
-    error: str
+    reason: Literal["invalid_name", "exists", "failed"]
+    message: str
 
 
 class BatchCreated[T](BaseModel):
@@ -228,6 +232,18 @@ class BatchCreated[T](BaseModel):
 
     created: list[T]
     errors: list[BatchCreateError]
+
+    @property
+    def failed(self) -> bool:
+        """Whether any name in the batch failed."""
+        return bool(self.errors)
+
+
+class SearchSkip(BaseModel):
+    """A file the search could not read, with why, reported instead of logged."""
+
+    path: RelativePath
+    reason: str
 
 
 # --- Overviews -------------------------------------------------------------

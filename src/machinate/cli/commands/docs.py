@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import typer
 
@@ -12,15 +12,13 @@ from machinate.cli.models import (
     DocUpdateResult,
     PathResult,
 )
+from machinate.cli.options import OUTPUT_FORMAT as _OUTPUT_FORMAT
 from machinate.cli.update_changes import UpdateOptions, build_update
 from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 
 _PROJECT = Annotated[
     Path | None,
     typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-]
-_OUTPUT_FORMAT = Annotated[
-    str | None, typer.Option("--format", help="Formatter name (text or json by default).")
 ]
 
 
@@ -59,8 +57,6 @@ def doc_add(
             batch=BatchCreated(created=[doc.record for doc in batch.created], errors=batch.errors),
         )
         run.render(result)
-    if result.batch.errors:
-        raise typer.Exit(1)  # Partial failure; the result still reports what was created.
 
 
 def doc_list(  # noqa: PLR0913
@@ -71,19 +67,22 @@ def doc_list(  # noqa: PLR0913
         list[str] | None,
         typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
     ] = None,
-    sort: Annotated[str, typer.Option(help="Sort by name, created_at, or modified_at.")] = "name",
+    sort: Annotated[
+        Literal["name", "created_at", "modified_at"],
+        typer.Option(help="Sort by name, created_at, or modified_at."),
+    ] = "name",
     descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
-    limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
+    limit: Annotated[
+        int | None, typer.Option(min=1, help="Maximum results (positive integer).")
+    ] = None,
 ) -> None:
     """List project-level documents."""
     with execute(context, "doc list", output_format) as run:
-        query = DocumentQuery.model_validate(
-            {
-                "tags": tags,
-                "sort": sort,
-                "descending": descending,
-                "limit": limit,
-            }
+        query = DocumentQuery(
+            tags=set(tags) if tags is not None else None,
+            sort=sort,
+            descending=descending,
+            limit=limit,
         )
         project_context = run.prepare(project)
         result = DocListResult(

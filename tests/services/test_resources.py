@@ -38,13 +38,12 @@ from machinate.models.operations import (
 )
 from machinate.services.context import ContextService
 from machinate.services.doc import DocService
+from machinate.services.errors import ExistsError, NotFoundError
 from machinate.services.plan import PlanService
 from machinate.services.task import TaskService
 from machinate.storage import (
-    DocumentExistsError,
     DocumentStore,
     Layout,
-    MissingDocumentError,
     ProjectState,
     ProjectStateStore,
 )
@@ -391,6 +390,8 @@ ADAPTER_CASES = pytest.mark.parametrize(
     "adapter", ["plan", "task", "context", "doc"], indirect=True
 )
 
+COUNT_CASES = pytest.mark.parametrize("adapter", ["context", "doc"], indirect=True)
+
 
 @ADAPTER_CASES
 def test_create_get_path_duplicate_and_suffix(adapter: ResourceAdapter) -> None:
@@ -417,7 +418,7 @@ def test_create_get_path_duplicate_and_suffix(adapter: ResourceAdapter) -> None:
     loaded = adapter.get(adapter.name)
     assert loaded.body == "Body\n"
     assert loaded == adapter.get(adapter.name)
-    with pytest.raises(DocumentExistsError):
+    with pytest.raises(ExistsError):
         adapter.create(adapter.name)
 
 
@@ -482,14 +483,14 @@ def test_update_applies_and_empty_update_never_writes(
 @ADAPTER_CASES
 def test_missing_operations(adapter: ResourceAdapter) -> None:
     adapter.ensure_parent()
-    with pytest.raises(MissingDocumentError):
+    with pytest.raises(NotFoundError):
         adapter.get("missing")
-    with pytest.raises(MissingDocumentError):
+    with pytest.raises(NotFoundError):
         adapter.info("missing")
-    with pytest.raises(MissingDocumentError):
+    with pytest.raises(NotFoundError):
         adapter.update("missing")
     if adapter.is_plan_scoped:
-        with pytest.raises(MissingDocumentError):
+        with pytest.raises(NotFoundError):
             adapter.list_records(plan="missing")
 
 
@@ -505,14 +506,14 @@ def test_invalid_names(adapter: ResourceAdapter, name: str) -> None:
         adapter.get(name)
 
 
-@ADAPTER_CASES
+@COUNT_CASES
 def test_count_documents_matches_list(adapter: ResourceAdapter) -> None:
-    if adapter.count is None:
-        pytest.skip("this resource does not expose a public count")
+    count = adapter.count
+    assert count is not None
     adapter.ensure_parent()
     for name in ("one", "two/nested"):
         adapter.create(name)
-    assert adapter.count() == len(adapter.list_records()) == 2
+    assert count() == len(adapter.list_records()) == 2
 
 
 def test_concrete_services_are_thin_instances(tmp_path: Path) -> None:

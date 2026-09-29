@@ -33,6 +33,7 @@ class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):
             document_store,
             layout,
             Collection(
+                kind="plan",
                 metadata_type=PlanMetadata,
                 storage=lambda _plan: layout.plan_collection(),
                 path=lambda _plan, name: layout.plan(name),

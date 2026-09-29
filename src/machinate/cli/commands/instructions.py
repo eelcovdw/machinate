@@ -1,9 +1,8 @@
-from typing import Annotated
-
 import typer
 
 from machinate.cli.execution import execute
 from machinate.cli.models import InstructionsResult
+from machinate.cli.options import OUTPUT_FORMAT
 
 # Paste-ready agent guidance. Kept as one literal so it stays word-for-word in
 # sync with the `## Machinate` section of this project's AGENTS.md.
@@ -65,9 +64,7 @@ def build_instructions() -> str:
 
 def instructions_command(
     context: typer.Context,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print a paste-ready description of the machinate CLI for agent instruction files."""
     with execute(context, "instructions", output_format) as run:

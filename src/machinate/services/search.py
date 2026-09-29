@@ -1,4 +1,3 @@
-import logging
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import cast
@@ -7,10 +6,10 @@ import tantivy
 from pydantic import validate_call
 
 from machinate.models.documents import PlanMetadata
-from machinate.models.operations import DEFAULT_GLOB, FindEntry, FindQuery
+from machinate.models.operations import DEFAULT_GLOB, FindEntry, FindQuery, SearchSkip
+from machinate.services.errors import NotFoundError, SearchQueryError
 from machinate.storage import DocumentStore, Layout, StorageError
-
-logger = logging.getLogger(__name__)
+from machinate.storage.errors import MissingDocumentError
 
 _TEXT_FIELDS = ("path", "body")
 _PATH_BOOST = 2.0
@@ -20,10 +19,11 @@ _FUZZY_FIELD: tuple[bool, int, bool] = (True, 1, True)
 
 @dataclass(frozen=True, slots=True)
 class SearchMatches:
-    """The effective globs and the entries a search produced."""
+    """The effective globs, the entries a search produced, and the files it skipped."""
 
     globs: list[str]
     entries: list[FindEntry]
+    skipped: list[SearchSkip]
 
 
 def _doc_id(searcher: tantivy.Searcher, address: tantivy.DocAddress) -> int:
@@ -51,13 +51,17 @@ class SearchService:
         base = PurePosixPath()
         if query.plan is not None:
             plan_path = self.layout.plan(query.plan)
-            self.document_store.read(plan_path, PlanMetadata)
+            try:
+                self.document_store.read(plan_path, PlanMetadata)
+            except MissingDocumentError as exc:
+                raise NotFoundError("plan", query.plan) from exc
             base = plan_path.parent
 
         relatives = self.document_store.glob_files(base, globs)
         text = (query.query or "").strip()
+        skipped: list[SearchSkip] = []
         if text:
-            entries = self._rank(query, text, relatives)
+            entries = self._rank(query, text, relatives, skipped)
         else:
             entries = sorted(
                 (self._entry(relative, None) for relative in relatives),
@@ -65,23 +69,33 @@ class SearchService:
             )
         if query.limit is not None:
             entries = entries[: query.limit]
-        return SearchMatches(entries=entries, globs=globs)
+        return SearchMatches(entries=entries, globs=globs, skipped=skipped)
 
-    def _rank(self, query: FindQuery, text: str, relatives: list[PurePosixPath]) -> list[FindEntry]:
+    def _rank(
+        self,
+        query: FindQuery,
+        text: str,
+        relatives: list[PurePosixPath],
+        skipped: list[SearchSkip],
+    ) -> list[FindEntry]:
         if not relatives:
             return []
-        index = self._build(relatives)
+        index = self._build(relatives, skipped)
         searcher = index.searcher()
         fuzzy_fields: dict[str, tuple[bool, int, bool]] = (
             {} if query.exact else dict.fromkeys(_TEXT_FIELDS, _FUZZY_FIELD)
         )
-        parsed = index.parse_query(
-            text,
-            default_field_names=list(_TEXT_FIELDS),
-            field_boosts={"path": _PATH_BOOST},
-            fuzzy_fields=fuzzy_fields,
-            allow_regexes=query.regex,
-        )
+        try:
+            parsed = index.parse_query(
+                text,
+                default_field_names=list(_TEXT_FIELDS),
+                field_boosts={"path": _PATH_BOOST},
+                fuzzy_fields=fuzzy_fields,
+                allow_regexes=query.regex,
+            )
+        except ValueError as exc:
+            msg = f"Invalid search query: {exc}"
+            raise SearchQueryError(msg) from exc
         limit = query.limit if query.limit is not None else len(relatives)
         hits = cast(
             "list[tuple[float, tantivy.DocAddress]]",
@@ -93,7 +107,7 @@ class SearchService:
             entries.append(self._entry(relative, score))
         return entries
 
-    def _build(self, relatives: list[PurePosixPath]) -> tantivy.Index:
+    def _build(self, relatives: list[PurePosixPath], skipped: list[SearchSkip]) -> tantivy.Index:
         builder = tantivy.SchemaBuilder()
         builder.add_text_field("path", stored=False)
         builder.add_text_field("body", stored=False)
@@ -104,7 +118,9 @@ class SearchService:
         for doc_id, relative in enumerate(relatives):
             writer.add_document(
                 tantivy.Document(
-                    path=relative.as_posix(), body=self._read_text(relative), doc_id=doc_id
+                    path=relative.as_posix(),
+                    body=self._read_text(relative, skipped),
+                    doc_id=doc_id,
                 )
             )
         writer.commit()
@@ -121,10 +137,10 @@ class SearchService:
             score=score,
         )
 
-    def _read_text(self, relative: PurePosixPath) -> str:
+    def _read_text(self, relative: PurePosixPath, skipped: list[SearchSkip]) -> str:
         """Raw text for indexing; unreadable files are reported and indexed by path only."""
         try:
             return self.document_store.read_text(relative)
         except StorageError as exc:
-            logger.warning("Unreadable document body skipped: %s", exc)
+            skipped.append(SearchSkip(path=relative, reason=str(exc)))
             return ""

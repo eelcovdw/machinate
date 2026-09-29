@@ -29,6 +29,7 @@ class ContextService(DocumentService[ContextMetadata]):
             document_store,
             layout,
             Collection(
+                kind="context",
                 metadata_type=ContextMetadata,
                 storage=lambda plan: layout.context_collection(ensure_plan(plan)),
                 path=lambda plan, name: layout.context(ensure_plan(plan), name),

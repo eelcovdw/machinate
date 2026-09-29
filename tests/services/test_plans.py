@@ -10,16 +10,11 @@ from machinate.models.documents import ParsedDocument, PlanStatus, TaskMetadata
 from machinate.models.operations import StatusCreateInput, StatusUpdate
 from machinate.services.context import ContextService
 from machinate.services.doc import DocService
+from machinate.services.errors import NotFoundError
 from machinate.services.overview import OverviewService
 from machinate.services.plan import PlanService
 from machinate.services.task import TaskService
-from machinate.storage import (
-    DocumentStore,
-    Layout,
-    MissingDocumentError,
-    ProjectState,
-    ProjectStateStore,
-)
+from machinate.storage import DocumentStore, Layout, ProjectState, ProjectStateStore
 
 
 @pytest.fixture
@@ -57,16 +52,16 @@ def test_missing_operations_and_dangling_selection(
     service: PlanService, state: ProjectStateStore
 ) -> None:
     for operation in (service.get, service.set_current):
-        with pytest.raises(MissingDocumentError):
+        with pytest.raises(NotFoundError):
             operation("missing")
-    with pytest.raises(MissingDocumentError):
+    with pytest.raises(NotFoundError):
         service.update("missing", StatusUpdate[PlanStatus]())
-    with pytest.raises(MissingDocumentError):
+    with pytest.raises(NotFoundError):
         service.update("missing", StatusUpdate[PlanStatus](status="done"))
     assert service.current_name() is None
     state.write(ProjectState(project_name="demo", current_plan="missing"))
     assert service.current_name() == "missing"
-    with pytest.raises(MissingDocumentError):
+    with pytest.raises(NotFoundError):
         service.get(service.current_name() or "")
 
 

@@ -1,4 +1,3 @@
-import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,8 +12,9 @@ from machinate.models.documents import (
     TaskMetadata,
 )
 from machinate.models.operations import FindQuery
+from machinate.services.errors import NotFoundError, SearchQueryError
 from machinate.services.search import SearchService
-from machinate.storage import DocumentStore, Layout, MissingDocumentError
+from machinate.storage import DocumentStore, Layout
 
 _NOW = datetime(2026, 9, 22, tzinfo=UTC)
 
@@ -150,7 +150,7 @@ def test_regex_needs_opt_in_and_a_field(search: SearchService) -> None:
     assert paths(search, FindQuery(query="path:/.*oauth.*/", regex=True)) == [
         "plans/auth/context/oauth.md"
     ]
-    with pytest.raises(ValueError, match="Regex"):
+    with pytest.raises(SearchQueryError):
         _ = search.find(FindQuery(query="path:/.*oauth.*/")).entries
 
 
@@ -167,7 +167,7 @@ def test_plan_scope_narrows_results(search: SearchService) -> None:
 
 
 def test_missing_plan_raises(search: SearchService) -> None:
-    with pytest.raises(MissingDocumentError):
+    with pytest.raises(NotFoundError):
         search.find(FindQuery(plan="nope"))
 
 
@@ -184,15 +184,15 @@ def test_invalid_utf8_does_not_raise(search: SearchService) -> None:
     assert "binary.md" in paths(search)
 
 
-def test_unreadable_document_is_reported_and_still_path_searchable(
-    search: SearchService, caplog: pytest.LogCaptureFixture
+def test_unreadable_document_is_skipped_but_still_path_searchable(
+    search: SearchService,
 ) -> None:
     broken = search.document_store.root / "binary.md"
     broken.write_bytes(b"\xff\xfe\x00bad")
-    with caplog.at_level(logging.WARNING):
-        result = paths(search, FindQuery(query="binary"))
-    assert result == ["binary.md"]  # Path text is indexed even when the body cannot be read.
-    assert "binary.md" in caplog.text
+    result = search.find(FindQuery(query="binary"))
+    # Path text is indexed even when the body cannot be read.
+    assert [entry.path.as_posix() for entry in result.entries] == ["binary.md"]
+    assert [skip.path.as_posix() for skip in result.skipped] == ["binary.md"]
 
 
 def test_frontmatter_is_indexed(search: SearchService) -> None:

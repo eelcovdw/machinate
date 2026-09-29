@@ -1,5 +1,7 @@
 """Shared per-command execution plumbing: settings, formatter, project, error output."""
 
+import os
+import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -11,24 +13,34 @@ import typer
 from pydantic import ValidationError
 
 from machinate.models.documents import LoadedPlan
+from machinate.services.errors import NotFoundError, ServiceError
 from machinate.services.plan import PlanService
-from machinate.storage.errors import MissingDocumentError, StorageError
+from machinate.storage.errors import StorageError
 
 from .dependencies import Dependencies, get_dependencies, get_settings
-from .errors import InputError, PlanSelectionError, describe_error
+from .errors import EXIT_ERROR, PlanSelectionError, describe_error
 from .formatting import Formatter, UnknownFormatError, select_formatter
-from .models import CommandResult, ErrorResult, ProjectScope
+from .models import (
+    CommandResult,
+    ContextAddResult,
+    DocAddResult,
+    ErrorResult,
+    ProjectScope,
+    TaskAddResult,
+)
 from .project_setup import ProjectContext, ProjectError
 from .settings import Settings
 
 DEFAULT_ERRORS: tuple[type[Exception], ...] = (
-    InputError,
+    ServiceError,
     ProjectError,
     UnknownFormatError,
     StorageError,
     ValidationError,
     OSError,
 )
+
+_ADD_RESULTS_WITH_BATCH = (TaskAddResult, ContextAddResult, DocAddResult)
 
 
 def resolve_formatter(
@@ -55,18 +67,26 @@ class Execution:
         return project_context
 
     def report(self, exc: Exception) -> NoReturn:
-        """Render an error through the resolved formatter and exit with status 1."""
+        """Render an error through the resolved formatter and exit with the error code."""
+        detail = describe_error(exc)
         typer.echo(
             self.formatter.format(
-                ErrorResult(command=self.command, error=describe_error(exc), project=self.project)
+                ErrorResult(
+                    command=self.command,
+                    error=detail.message,
+                    code=detail.code,
+                    project=self.project,
+                )
             ),
             err=True,
         )
-        raise typer.Exit(1) from exc
+        raise typer.Exit(EXIT_ERROR) from exc
 
     def render(self, result: CommandResult) -> None:
-        """Render a command result through the resolved formatter."""
+        """Render a command result, failing the batch commands when any name failed."""
         typer.echo(self.formatter.format(result))
+        if isinstance(result, _ADD_RESULTS_WITH_BATCH) and result.batch.errors:
+            raise typer.Exit(EXIT_ERROR)
 
     def determine_plan_name(self, plans: PlanService, name: str | None) -> str:
         """Determine the explicit or current plan name, enforcing agent targeting."""
@@ -81,7 +101,7 @@ class Execution:
             raise PlanSelectionError(msg)
         try:
             plans.path(current)
-        except MissingDocumentError as err:
+        except NotFoundError as err:
             msg = f"Current plan {current!r} no longer exists; use -p NAME or plan select."
             raise PlanSelectionError(msg) from err
         return current
@@ -102,13 +122,8 @@ def execute(
     context: click.Context,
     command: str,
     output_format: str | None,
-    *extra_errors: type[Exception],
 ) -> Generator[Execution]:
-    """Resolve settings and formatter, and route failures to structured error output.
-
-    ``command`` labels errors; ``extra_errors`` adds command-specific exceptions to the
-    default set already reported here.
-    """
+    """Resolve settings and formatter, and route failures to structured error output."""
     dependencies = get_dependencies(context)
     execution = Execution(
         dependencies=dependencies,
@@ -123,5 +138,13 @@ def execute(
         execution.report(exc)
     try:
         yield execution
-    except DEFAULT_ERRORS + extra_errors as exc:
+    except BrokenPipeError:
+        _exit_broken_pipe()
+    except DEFAULT_ERRORS as exc:
         execution.report(exc)
+
+
+def _exit_broken_pipe() -> NoReturn:
+    """Exit quietly when the reader closes the pipe, as a Unix filter should."""
+    os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+    raise typer.Exit(0)

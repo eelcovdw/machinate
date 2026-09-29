@@ -146,8 +146,9 @@ def test_context_list_invalid_limit(project: Path) -> None:
     error = cli.error(
         ["context", "list", "-p", "auth", "-P", str(project), "--limit", "0"],
         dependencies=JSON,
+        expect=2,
     )
-    assert error.command == "context list"
+    assert error.code == "input"
 
 
 def test_context_list_text_output(project: Path) -> None:

@@ -5,6 +5,7 @@ import typer
 
 from machinate.cli.execution import execute
 from machinate.cli.models import FindResult
+from machinate.cli.options import OUTPUT_FORMAT
 from machinate.models.operations import FindQuery
 
 
@@ -39,11 +40,9 @@ def find_command(  # noqa: PLR0913
         ),
     ] = False,
     limit: Annotated[
-        str | None, typer.Option("--limit", help="Maximum results (positive integer).")
+        int | None, typer.Option("--limit", min=1, help="Maximum results (positive integer).")
     ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     r"""Search files under the project's .machi store.
 
@@ -88,18 +87,15 @@ def find_command(  # noqa: PLR0913
 
     Results list matching paths only.
     """
-    with execute(context, "find", output_format, ValueError) as run:
-        payload: dict[str, object] = {
-            "query": query,
-            "globs": glob or [],
-            "regex": regex,
-            "exact": exact,
-        }
-        if plan is not None:
-            payload["plan"] = plan
-        if limit is not None:
-            payload["limit"] = limit
-        find_query = FindQuery.model_validate(payload)
+    with execute(context, "find", output_format) as run:
+        find_query = FindQuery(
+            query=query,
+            globs=glob or [],
+            plan=plan,
+            limit=limit,
+            regex=regex,
+            exact=exact,
+        )
         project_context = run.prepare(project)
         matches = project_context.search.find(find_query)
         run.render(
@@ -110,5 +106,6 @@ def find_command(  # noqa: PLR0913
                 query=find_query.query,
                 globs=matches.globs,
                 entries=matches.entries,
+                skipped=matches.skipped,
             )
         )

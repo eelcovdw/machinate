@@ -44,9 +44,13 @@ def test_status_style_covers_known_states() -> None:
 def test_no_color_env_disables_styling(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setattr(sys, "stdout", _Tty())
-    assert "\x1b[" in formatting.render_text(ErrorResult(command="plan list", error="boom"))
+    assert "\x1b[" in formatting.render_text(
+        ErrorResult(command="plan list", error="boom", code="input")
+    )
     monkeypatch.setenv("NO_COLOR", "1")
-    assert "\x1b[" not in formatting.render_text(ErrorResult(command="plan list", error="boom"))
+    assert "\x1b[" not in formatting.render_text(
+        ErrorResult(command="plan list", error="boom", code="input")
+    )
 
 
 def test_no_color_when_not_a_terminal(auth_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
