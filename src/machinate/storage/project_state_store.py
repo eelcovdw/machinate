@@ -1,11 +1,10 @@
-import stat
 import tomllib
 from pathlib import Path
 
 import tomli_w
 
-from .atomic import atomic_write
-from .errors import InvalidDocumentError, MissingDocumentError, StorageError, SymbolicLinkError
+from .atomic import atomic_write, existing_mode
+from .errors import InvalidDocumentError, MissingDocumentError, StorageError
 from .models import ProjectState
 
 
@@ -31,16 +30,6 @@ class ProjectStateStore:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             # Preserve permissions on update; fresh files use the umask default like
             # documents, so the state file is not a special owner-only case.
-            try:
-                info = self.path.lstat()
-            except FileNotFoundError:
-                mode = None
-            else:
-                if stat.S_ISLNK(info.st_mode):
-                    # A rename would replace the link itself; refuse rather than rewrite it.
-                    # No underlying OS error, so no fabricated reason.
-                    raise SymbolicLinkError(self.path)
-                mode = stat.S_IMODE(info.st_mode)
-            atomic_write(self.path, content, mode=mode)
+            atomic_write(self.path, content, mode=existing_mode(self.path))
         except OSError as exc:
             raise StorageError(self.path, exc) from exc

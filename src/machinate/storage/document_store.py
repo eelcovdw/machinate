@@ -11,7 +11,7 @@ from machinate.models.documents import (
 )
 from machinate.models.operations import DocumentQuery
 
-from .atomic import atomic_create, atomic_write
+from .atomic import atomic_create, atomic_write, existing_mode
 from .errors import (
     DocumentExistsError,
     InvalidDocumentError,
@@ -140,16 +140,17 @@ class DocumentStore:
         content = self._encode(relative, document)
         target = self.root / relative
         try:
-            info = target.lstat()  # Updates must not silently create missing documents.
-            if stat.S_ISLNK(info.st_mode):
-                # A rename would replace the link itself; refuse rather than rewrite it.
-                # No underlying OS error, so no fabricated reason.
-                raise SymbolicLinkError(relative)
-            if not stat.S_ISREG(info.st_mode):
+            mode = existing_mode(target)
+            if mode is None:  # Updates must not silently create missing documents.
+                raise FileNotFoundError(str(target))  # noqa: TRY301 - raised into the handler below
+            if not target.is_file():
                 raise IsADirectoryError(str(target))
-            atomic_write(target, content, mode=stat.S_IMODE(info.st_mode))
+            atomic_write(target, content, mode=mode)
         except FileNotFoundError as exc:
             raise MissingDocumentError(relative, exc) from exc
+        except SymbolicLinkError as exc:
+            # The helper works on the absolute path; report the store-relative one.
+            raise SymbolicLinkError(relative) from exc
         except OSError as exc:
             raise StorageError(relative, exc) from exc
 

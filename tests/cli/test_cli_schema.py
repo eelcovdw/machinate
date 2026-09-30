@@ -9,7 +9,7 @@ from pydantic.json_schema import JsonSchemaValue
 from typer.testing import CliRunner
 
 from machinate.cli.cli import build_cli
-from machinate.cli.commands.catalog import ALIASES, COMMANDS, leaves
+from machinate.cli.commands.catalog import ALIASES, COMMANDS, CommandGroup, leaves
 from machinate.cli.commands.schema import _result_models
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import CommandResult, ErrorResult
@@ -71,8 +71,10 @@ def test_catalog_is_the_single_source_of_truth() -> None:
     registered = {command.name for command in cli.registered_commands}
     groups = {group.name for group in cli.registered_groups}
     hidden = {spec.name for spec in ALIASES}
-    assert registered == {spec.name for spec in COMMANDS if not spec.children} | hidden | {"schema"}
-    assert groups == {spec.name for spec in COMMANDS if spec.children}
+    assert registered == {
+        spec.name for spec in COMMANDS if not isinstance(spec, CommandGroup)
+    } | hidden | {"schema"}
+    assert groups == {spec.name for spec in COMMANDS if isinstance(spec, CommandGroup)}
     assert hidden.isdisjoint(spec.name for spec in COMMANDS)
 
 

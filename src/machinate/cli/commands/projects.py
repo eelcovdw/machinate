@@ -5,6 +5,7 @@ import typer
 from machinate.cli.execution import execute
 from machinate.cli.models import InfoResult, InitResult
 from machinate.cli.options import OUTPUT_FORMAT, PROJECT_DIR
+from machinate.cli.project_setup import initialize_project
 
 
 def init_command(
@@ -17,7 +18,7 @@ def init_command(
 ) -> None:
     """Initialize the target directory as a Machinate project."""
     with execute(ctx, output_format) as run:
-        scope = run.dependencies.initialize_project(project_directory, project_name)
+        scope = initialize_project(project_directory, project_name)
         run.emit(InitResult(command="init", project=scope))
 
 

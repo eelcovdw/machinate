@@ -19,7 +19,8 @@ from machinate.models.operations import (
     DocumentUpdate,
 )
 from machinate.services.document import Collection, DocumentService, LocatedPath
-from machinate.storage import DocumentStore, Layout
+from machinate.storage.document_store import DocumentStore
+from machinate.storage.layout import Layout
 
 
 class DocService(DocumentService[DocMetadata]):
@@ -50,7 +51,7 @@ class DocService(DocumentService[DocMetadata]):
     @validate_call
     def create_many(
         self, names: list[str], create: CreateInput
-    ) -> BatchCreated[LoadedDocument[DocMetadata]]:
+    ) -> BatchCreated[DocumentRecord[DocMetadata]]:
         return self._create_many(None, names, create)
 
     @validate_call

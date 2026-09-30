@@ -5,7 +5,7 @@ import typer
 from pydantic import ValidationError
 from typer.core import TyperCommand, TyperGroup
 
-from .commands.catalog import ALIASES, COMMANDS, CommandSpec
+from .commands.catalog import ALIASES, COMMANDS, CommandEntry, CommandGroup
 from .commands.schema import schema_command
 from .dependencies import Dependencies, get_dependencies
 from .errors import EXIT_USAGE, describe_error
@@ -84,13 +84,13 @@ def _report_usage_error(
     )
 
 
-def _register(parent: typer.Typer, spec: CommandSpec) -> None:
-    if spec.children:
+def _register(parent: typer.Typer, spec: CommandEntry) -> None:
+    if isinstance(spec, CommandGroup):
         group = typer.Typer(no_args_is_help=True, cls=Group, rich_markup_mode=None)
         for child in spec.children:
             _register(group, child)
         parent.add_typer(group, name=spec.name, help=spec.help)
-    elif spec.handler is not None:
+    else:
         parent.command(spec.name, cls=Command)(spec.handler)
 
 
@@ -105,8 +105,7 @@ def build_cli(dependencies: Dependencies | None = None) -> typer.Typer:
     for spec in COMMANDS:
         _register(cli, spec)
     for alias in ALIASES:
-        if alias.handler is not None:
-            cli.command(alias.name, cls=Command, hidden=True)(alias.handler)
+        cli.command(alias.name, cls=Command, hidden=True)(alias.handler)
     cli.command("schema", cls=Command)(schema_command)
     return cli
 

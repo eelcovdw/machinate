@@ -88,7 +88,7 @@ class ResourceAdapter:
     document_store: DocumentStore
     ensure_parent: Callable[[], None]
     create: Callable[..., LoadedDocument[Metadata]]
-    create_many: Callable[..., BatchCreated[LoadedDocument[Metadata]]] | None
+    create_many: Callable[..., BatchCreated[DocumentRecord[Metadata]]] | None
     get: Callable[[str], LoadedDocument[Metadata]]
     info: Callable[[str], DocumentRecord[Metadata]]
     update: Callable[..., LoadedDocument[Metadata]]
@@ -180,12 +180,12 @@ def _task_adapter(tasks: TaskService, plans: PlanService) -> ResourceAdapter:
 
     def create_many(
         names: list[str], *, summary: str | None = None, tags: list[Tag] | None = None
-    ) -> BatchCreated[LoadedDocument[Metadata]]:
+    ) -> BatchCreated[DocumentRecord[Metadata]]:
         batch = tasks.create_many(
             "alpha", names, StatusCreateInput[TaskStatus](summary=summary, tags=tags or [])
         )
         return BatchCreated(
-            created=[_flat_loaded(loaded) for loaded in batch.created], failures=batch.failures
+            created=[_flat_record(record) for record in batch.created], failures=batch.failures
         )
 
     def get(name: str) -> LoadedDocument[Metadata]:
@@ -248,10 +248,10 @@ def _context_adapter(contexts: ContextService, plans: PlanService) -> ResourceAd
 
     def create_many(
         names: list[str], *, summary: str | None = None, tags: list[Tag] | None = None
-    ) -> BatchCreated[LoadedDocument[Metadata]]:
+    ) -> BatchCreated[DocumentRecord[Metadata]]:
         batch = contexts.create_many("alpha", names, CreateInput(summary=summary, tags=tags or []))
         return BatchCreated(
-            created=[_flat_loaded(loaded) for loaded in batch.created], failures=batch.failures
+            created=[_flat_record(record) for record in batch.created], failures=batch.failures
         )
 
     def get(name: str) -> LoadedDocument[Metadata]:
@@ -306,10 +306,10 @@ def _doc_adapter(docs: DocService) -> ResourceAdapter:
 
     def create_many(
         names: list[str], *, summary: str | None = None, tags: list[Tag] | None = None
-    ) -> BatchCreated[LoadedDocument[Metadata]]:
+    ) -> BatchCreated[DocumentRecord[Metadata]]:
         batch = docs.create_many(names, CreateInput(summary=summary, tags=tags or []))
         return BatchCreated(
-            created=[_flat_loaded(loaded) for loaded in batch.created], failures=batch.failures
+            created=[_flat_record(record) for record in batch.created], failures=batch.failures
         )
 
     def get(name: str) -> LoadedDocument[Metadata]:
@@ -418,7 +418,7 @@ def test_create_many(adapter: ResourceAdapter) -> None:
         pytest.skip("batch create is not offered for plans")
     adapter.ensure_parent()
     batch = adapter.create_many(["one", "two"])
-    assert [loaded.record.name for loaded in batch.created] == ["one", "two"]
+    assert [record.name for record in batch.created] == ["one", "two"]
     assert batch.failures == []
 
 

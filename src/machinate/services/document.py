@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
+from pydantic import ValidationError
+
 from machinate.models.documents import (
     NESTED_NAME_ADAPTER,
     CollectionKind,
@@ -25,25 +27,29 @@ from machinate.models.documents import (
 )
 from machinate.models.operations import (
     BatchCreated,
+    CreateFailure,
     CreateInput,
     DocumentQuery,
 )
-from machinate.services.batch import create_many
 from machinate.services.errors import (
     ExistsError,
     InputError,
     InvalidDocumentError,
     NotFoundError,
+    ServiceError,
     invalid_document_detail,
+    validation_failure_detail,
 )
-from machinate.storage import DocumentStore, Layout
+from machinate.storage.document_store import DocumentStore
 from machinate.storage.errors import (
     DocumentExistsError,
     MissingDocumentError,
+    StorageError,
 )
 from machinate.storage.errors import (
     InvalidDocumentError as StorageInvalidDocumentError,
 )
+from machinate.storage.layout import Layout
 from machinate.storage.models import DocumentCollection as StorageCollection
 
 
@@ -53,7 +59,7 @@ class DocumentChanges(Protocol):
     def apply_to[M: Metadata](self, document: ParsedDocument[M]) -> ParsedDocument[M] | None: ...
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass
 class Collection[M: Metadata]:
     """One kind of document: its metadata type and where its files live.
 
@@ -72,7 +78,7 @@ class Collection[M: Metadata]:
     directory_kind: PathKind | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass
 class LocatedPath:
     """An absolute editing path, its kind, and whether it currently exists."""
 
@@ -190,29 +196,68 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
 
     def _create_document(
         self, plan: Name | None, name: NestedName, metadata: M
-    ) -> LoadedDocument[M]:
+    ) -> DocumentRecord[M]:
         path = self.resource.path(plan, name)
         document = ParsedDocument(metadata=metadata, body="")
         with _translate_errors(self.resource.kind, name):
             self.document_store.create(path, document)
-        return self._loaded(path, name, document)
+        return self._record(path, name, document)
 
     def _create(self, plan: Name | None, name: NestedName, create: C) -> LoadedDocument[M]:
         self._require_plan(plan)
-        return self._create_document(plan, name, self._build_metadata(create))
+        record = self._create_document(plan, name, self._build_metadata(create))
+        return LoadedDocument(record=record, body="")
 
     def _create_many(
         self, plan: Name | None, names: list[str], create: C
-    ) -> BatchCreated[LoadedDocument[M]]:
+    ) -> BatchCreated[DocumentRecord[M]]:
+        """Create one record per name, reporting per-name failures in input order.
+
+        Validation, case-insensitive duplicate detection, and the store's atomic create
+        cover every rejection, so no separate preflight pass is needed.
+        """
         self._require_plan(plan)
         metadata = self._build_metadata(create)
-        return create_many(
-            names=names,
-            document_store=self.document_store,
-            validate_name=NESTED_NAME_ADAPTER.validate_python,
-            path_for=lambda name: self.resource.path(plan, name),
-            create=lambda name: self._create_document(plan, name, metadata),
-        )
+        created: list[DocumentRecord[M]] = []
+        failures: list[CreateFailure] = []
+        seen: set[str] = set()
+        for name in names:
+            try:
+                valid = NESTED_NAME_ADAPTER.validate_python(name)
+            except ValidationError as exc:
+                failures.append(
+                    CreateFailure(
+                        name=name,
+                        reason="invalid_name",
+                        message=validation_failure_detail(exc),
+                    )
+                )
+                continue
+            if valid.casefold() in seen:
+                failures.append(
+                    CreateFailure(
+                        name=name,
+                        reason="exists",
+                        message="Duplicate name in this batch",
+                    )
+                )
+                continue
+            seen.add(valid.casefold())
+            try:
+                created.append(self._create_document(plan, valid, metadata))
+            except ExistsError as exc:
+                failures.append(CreateFailure(name=name, reason="exists", message=str(exc)))
+            except (ServiceError, StorageError) as exc:
+                failures.append(CreateFailure(name=name, reason="failed", message=str(exc)))
+            except ValidationError as exc:
+                failures.append(
+                    CreateFailure(
+                        name=name,
+                        reason="failed",
+                        message=validation_failure_detail(exc),
+                    )
+                )
+        return BatchCreated(created=created, failures=failures)
 
     def _get(self, plan: Name | None, name: NestedName) -> LoadedDocument[M]:
         self._require_plan(plan)

@@ -18,20 +18,13 @@ from machinate.storage.errors import StorageError
 
 from .project_setup import ProjectError
 
-__all__ = [
-    "EXIT_ERROR",
-    "EXIT_USAGE",
-    "ErrorDetail",
-    "describe_error",
-]
-
 #: A command failed at runtime; a structured error was already written.
 EXIT_ERROR = 1
 #: typer/click usage error (bad option or value).
 EXIT_USAGE = 2
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass
 class ErrorDetail:
     code: ErrorCode
     message: str

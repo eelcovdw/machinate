@@ -5,15 +5,13 @@ from pathlib import Path
 
 import click
 
-from .models import ProjectScope
-from .project_setup import ProjectServices, initialize_project, open_project
+from .project_setup import ProjectServices, open_project
 from .settings import Settings
 
 
-@dataclass(frozen=True)
+@dataclass
 class Dependencies:
     open_project: Callable[[Path | None], ProjectServices] = open_project
-    initialize_project: Callable[[Path | None, str | None], ProjectScope] = initialize_project
     settings: Settings | None = None
 
     def resolve_settings(self) -> Settings:

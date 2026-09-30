@@ -21,7 +21,10 @@ from machinate.models.operations import (
     StatusUpdate,
 )
 from machinate.services.document import Collection, DocumentService, LocatedPath
-from machinate.storage import DocumentStore, Layout, ProjectState, ProjectStateStore
+from machinate.storage.document_store import DocumentStore
+from machinate.storage.layout import Layout
+from machinate.storage.models import ProjectState
+from machinate.storage.project_state_store import ProjectStateStore
 
 
 class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):

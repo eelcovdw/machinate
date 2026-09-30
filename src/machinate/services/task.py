@@ -21,7 +21,8 @@ from machinate.models.operations import (
     TaskQuery,
 )
 from machinate.services.document import Collection, DocumentService, LocatedPath, ensure_plan
-from machinate.storage import DocumentStore, Layout
+from machinate.storage.document_store import DocumentStore
+from machinate.storage.layout import Layout
 
 
 class TaskService(DocumentService[TaskMetadata, StatusCreateInput[TaskStatus]]):
@@ -57,7 +58,7 @@ class TaskService(DocumentService[TaskMetadata, StatusCreateInput[TaskStatus]]):
     @validate_call
     def create_many(
         self, plan: Name, names: list[str], create: StatusCreateInput[TaskStatus]
-    ) -> BatchCreated[LoadedDocument[TaskMetadata]]:
+    ) -> BatchCreated[DocumentRecord[TaskMetadata]]:
         return self._create_many(plan, names, create)
 
     @validate_call

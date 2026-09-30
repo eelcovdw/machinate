@@ -2,6 +2,7 @@ from typing import Annotated
 
 import typer
 
+from machinate.cli.errors import EXIT_ERROR
 from machinate.cli.execution import execute
 from machinate.cli.models import (
     ContextAddResult,
@@ -21,9 +22,9 @@ from machinate.cli.options import (
     SORT,
     SUMMARY,
     TAGS,
+    build_update,
 )
-from machinate.cli.update_options import UpdateOptions, build_update
-from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
+from machinate.models.operations import CreateInput, DocumentQuery, DocumentUpdate
 
 
 def context_add_command(
@@ -46,11 +47,11 @@ def context_add_command(
             command="context add",
             project=services.project,
             plan_name=plan_name,
-            batch=BatchCreated(
-                created=[context.record for context in batch.created], failures=batch.failures
-            ),
+            batch=batch,
         )
         run.emit(result)
+        if result.batch.failures:
+            raise typer.Exit(EXIT_ERROR)
 
 
 def context_list_command(
@@ -139,7 +140,9 @@ def context_update_command(
     with execute(ctx, output_format) as run:
         update = build_update(
             DocumentUpdate,
-            UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
+            summary=summary,
+            tags=tags,
+            clear_tags=clear_tags,
             hint="--summary, --tag, or --clear-tags",
         )
         services = run.open_project(project_directory)

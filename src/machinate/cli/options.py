@@ -10,9 +10,11 @@ from typing import Annotated
 
 import click
 import typer
+from pydantic import BaseModel
 
 from machinate.models.documents import PLAN_STATUSES, TASK_STATUSES, PlanStatus, TaskStatus
 from machinate.models.operations import DOCUMENT_SORTS, PLAN_SORTS, DocumentSort, PlanSort
+from machinate.services.errors import InputError
 
 from .formatting import OutputFormat
 
@@ -127,3 +129,35 @@ LIMIT = Annotated[
     int | None,
     typer.Option("--limit", min=1, help="Maximum results (positive integer)."),
 ]
+
+
+def build_update[M: BaseModel](  # noqa: PLR0913 - one keyword per update field
+    model: type[M],
+    *,
+    summary: str | None = None,
+    status: str | None = None,
+    tags: list[str] | None = None,
+    clear_tags: bool = False,
+    hint: str,
+) -> M:
+    """Build a validated update model from the raw CLI options that were supplied.
+
+    Only the provided options become fields, so an omitted field never resets a stored
+    value. ``hint`` names the options that would have an effect when none were passed.
+    """
+    update: dict[str, object] = {}
+    if summary is not None:
+        update["summary"] = summary
+    if status is not None:
+        update["status"] = status
+    if clear_tags:
+        if tags is not None:
+            msg = "--tag and --clear-tags are mutually exclusive."
+            raise InputError(msg)
+        update["tags"] = []
+    elif tags is not None:
+        update["tags"] = tags
+    if not update:
+        msg = f"Nothing to update; pass {hint}."
+        raise InputError(msg)
+    return model.model_validate(update)

@@ -8,7 +8,9 @@ from pydantic import validate_call
 from machinate.models.operations import DEFAULT_GLOB, SearchMatch, SearchQuery, SearchSkip
 from machinate.services.errors import SearchQueryError
 from machinate.services.plan import PlanService
-from machinate.storage import DocumentStore, Layout, StorageError
+from machinate.storage.document_store import DocumentStore
+from machinate.storage.errors import StorageError
+from machinate.storage.layout import Layout
 
 _TEXT_FIELDS = ("path", "body")
 _PATH_BOOST = 2.0
@@ -16,7 +18,7 @@ _PATH_BOOST = 2.0
 _FUZZY_FIELD: tuple[bool, int, bool] = (True, 1, True)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass
 class SearchMatches:
     """The effective globs, the entries a search produced, and the files it skipped."""
 

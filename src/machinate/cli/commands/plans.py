@@ -26,8 +26,8 @@ from machinate.cli.options import (
     PROJECT_DIR,
     SUMMARY,
     TAGS,
+    build_update,
 )
-from machinate.cli.update_options import UpdateOptions, build_update
 from machinate.models.documents import PlanStatus
 from machinate.models.operations import PlanQuery, StatusCreateInput, StatusUpdate
 
@@ -162,7 +162,10 @@ def plan_update_command(
     with execute(ctx, output_format) as run:
         update = build_update(
             StatusUpdate[PlanStatus],
-            UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
+            summary=summary,
+            status=status,
+            tags=tags,
+            clear_tags=clear_tags,
             hint="--summary, --status, --tag, or --clear-tags",
         )
         services = run.open_project(project_directory)

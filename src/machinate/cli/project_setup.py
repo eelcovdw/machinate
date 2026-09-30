@@ -8,7 +8,10 @@ from machinate.services.overview import OverviewService
 from machinate.services.plan import PlanService
 from machinate.services.search import SearchService
 from machinate.services.task import TaskService
-from machinate.storage import DocumentStore, Layout, ProjectState, ProjectStateStore
+from machinate.storage.document_store import DocumentStore
+from machinate.storage.layout import Layout
+from machinate.storage.models import ProjectState
+from machinate.storage.project_state_store import ProjectStateStore
 
 from .models import ProjectScope
 

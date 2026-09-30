@@ -22,13 +22,10 @@ from .errors import EXIT_ERROR, describe_error
 from .formatting import FORMATTERS, Formatter, JsonFormatter, OutputFormat
 from .models import (
     CommandResult,
-    ContextAddResult,
-    DocAddResult,
     ErrorResult,
     PathCommand,
     PathResult,
     ProjectScope,
-    TaskAddResult,
 )
 from .project_setup import ProjectError, ProjectServices
 from .settings import Settings
@@ -40,8 +37,6 @@ REPORTED_ERRORS: tuple[type[Exception], ...] = (
     ValidationError,
     OSError,
 )
-
-_ADD_RESULTS_WITH_BATCH = (TaskAddResult, ContextAddResult, DocAddResult)
 
 
 def command_label(ctx: click.Context) -> str:
@@ -94,10 +89,8 @@ class Execution:
         raise typer.Exit(EXIT_ERROR) from exc
 
     def emit(self, result: CommandResult) -> None:
-        """Render a command result, failing the batch commands when any name failed."""
+        """Render a command result."""
         typer.echo(self.formatter.format(result))
-        if isinstance(result, _ADD_RESULTS_WITH_BATCH) and result.batch.failures:
-            raise typer.Exit(EXIT_ERROR)
 
     def render_path(
         self,

@@ -2,6 +2,7 @@ from typing import Annotated
 
 import typer
 
+from machinate.cli.errors import EXIT_ERROR
 from machinate.cli.execution import execute
 from machinate.cli.models import (
     TaskAddResult,
@@ -24,10 +25,10 @@ from machinate.cli.options import (
     TAGS,
     TASK_STATUS,
     TASK_STATUS_FILTER,
+    build_update,
 )
-from machinate.cli.update_options import UpdateOptions, build_update
 from machinate.models.documents import TaskStatus
-from machinate.models.operations import BatchCreated, StatusCreateInput, StatusUpdate, TaskQuery
+from machinate.models.operations import StatusCreateInput, StatusUpdate, TaskQuery
 
 
 def task_add_command(
@@ -53,11 +54,11 @@ def task_add_command(
             command="task add",
             project=services.project,
             plan_name=plan_name,
-            batch=BatchCreated(
-                created=[task.record for task in batch.created], failures=batch.failures
-            ),
+            batch=batch,
         )
         run.emit(result)
+        if result.batch.failures:
+            raise typer.Exit(EXIT_ERROR)
 
 
 def task_list_command(
@@ -148,7 +149,10 @@ def task_update_command(
     with execute(ctx, output_format) as run:
         update = build_update(
             StatusUpdate[TaskStatus],
-            UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
+            summary=summary,
+            status=status,
+            tags=tags,
+            clear_tags=clear_tags,
             hint="--summary, --status, --tag, or --clear-tags",
         )
         services = run.open_project(project_directory)

@@ -71,94 +71,95 @@ from machinate.cli.models import (
 )
 
 
-@dataclass(frozen=True)
-class CommandSpec:
-    """A CLI command or group: its name, handler, result model, or child commands."""
+@dataclass
+class Command:
+    """A leaf CLI command: its name, handler, and result model."""
 
     name: str
-    handler: Callable[..., None] | None = None
-    result_model: type[BaseModel] | None = None
-    children: tuple[CommandSpec, ...] = ()
-    help: str | None = None
-
-    def __post_init__(self) -> None:
-        if bool(self.children) == (self.handler is not None):
-            msg = f"{self.name!r}: define exactly one of handler or children"
-            raise ValueError(msg)
-        if self.handler is not None and self.result_model is None:
-            msg = f"{self.name!r}: a command handler requires a result model"
-            raise ValueError(msg)
+    handler: Callable[..., None]
+    result_model: type[BaseModel]
 
 
-COMMANDS: tuple[CommandSpec, ...] = (
-    CommandSpec("init", init_command, InitResult),
-    CommandSpec("info", info_command, InfoResult),
-    CommandSpec("instructions", instructions_command, InstructionsResult),
-    CommandSpec("search", search_command, SearchResult),
-    CommandSpec(
+@dataclass
+class CommandGroup:
+    """A CLI command group: its name, help, and child commands."""
+
+    name: str
+    help: str
+    children: tuple[Command | CommandGroup, ...]
+
+
+type CommandEntry = Command | CommandGroup
+
+COMMANDS: tuple[CommandEntry, ...] = (
+    Command("init", init_command, InitResult),
+    Command("info", info_command, InfoResult),
+    Command("instructions", instructions_command, InstructionsResult),
+    Command("search", search_command, SearchResult),
+    CommandGroup(
         "plan",
         help="Manage plans; plan select sets the current plan used when -p is omitted.",
         children=(
-            CommandSpec("add", plan_add_command, PlanAddResult),
-            CommandSpec("info", plan_info_command, PlanInfoResult),
-            CommandSpec("path", plan_path_command, PathResult),
-            CommandSpec("list", plan_list_command, PlanListResult),
-            CommandSpec("show", plan_show_command, PlanShowResult),
-            CommandSpec("select", plan_select_command, PlanSelectResult),
-            CommandSpec("unselect", plan_unselect_command, PlanUnselectResult),
-            CommandSpec("update", plan_update_command, PlanUpdateResult),
+            Command("add", plan_add_command, PlanAddResult),
+            Command("info", plan_info_command, PlanInfoResult),
+            Command("path", plan_path_command, PathResult),
+            Command("list", plan_list_command, PlanListResult),
+            Command("show", plan_show_command, PlanShowResult),
+            Command("select", plan_select_command, PlanSelectResult),
+            Command("unselect", plan_unselect_command, PlanUnselectResult),
+            Command("update", plan_update_command, PlanUpdateResult),
         ),
     ),
-    CommandSpec(
+    CommandGroup(
         "task",
         help="Manage tasks in a plan.",
         children=(
-            CommandSpec("add", task_add_command, TaskAddResult),
-            CommandSpec("info", task_info_command, TaskInfoResult),
-            CommandSpec("path", task_path_command, PathResult),
-            CommandSpec("list", task_list_command, TaskListResult),
-            CommandSpec("show", task_show_command, TaskShowResult),
-            CommandSpec("update", task_update_command, TaskUpdateResult),
+            Command("add", task_add_command, TaskAddResult),
+            Command("info", task_info_command, TaskInfoResult),
+            Command("path", task_path_command, PathResult),
+            Command("list", task_list_command, TaskListResult),
+            Command("show", task_show_command, TaskShowResult),
+            Command("update", task_update_command, TaskUpdateResult),
         ),
     ),
-    CommandSpec(
+    CommandGroup(
         "context",
         help="Manage context in a plan.",
         children=(
-            CommandSpec("add", context_add_command, ContextAddResult),
-            CommandSpec("info", context_info_command, ContextInfoResult),
-            CommandSpec("path", context_path_command, PathResult),
-            CommandSpec("list", context_list_command, ContextListResult),
-            CommandSpec("show", context_show_command, ContextShowResult),
-            CommandSpec("update", context_update_command, ContextUpdateResult),
+            Command("add", context_add_command, ContextAddResult),
+            Command("info", context_info_command, ContextInfoResult),
+            Command("path", context_path_command, PathResult),
+            Command("list", context_list_command, ContextListResult),
+            Command("show", context_show_command, ContextShowResult),
+            Command("update", context_update_command, ContextUpdateResult),
         ),
     ),
-    CommandSpec(
+    CommandGroup(
         "doc",
         help="Manage project-level docs.",
         children=(
-            CommandSpec("add", doc_add_command, DocAddResult),
-            CommandSpec("info", doc_info_command, DocInfoResult),
-            CommandSpec("path", doc_path_command, PathResult),
-            CommandSpec("list", doc_list_command, DocListResult),
-            CommandSpec("show", doc_show_command, DocShowResult),
-            CommandSpec("update", doc_update_command, DocUpdateResult),
+            Command("add", doc_add_command, DocAddResult),
+            Command("info", doc_info_command, DocInfoResult),
+            Command("path", doc_path_command, PathResult),
+            Command("list", doc_list_command, DocListResult),
+            Command("show", doc_show_command, DocShowResult),
+            Command("update", doc_update_command, DocUpdateResult),
         ),
     ),
 )
 
 # Hidden top-level conveniences that reuse an existing handler. Kept out of COMMANDS
 # so they are neither listed in help nor emitted in the schema bundle.
-ALIASES: tuple[CommandSpec, ...] = (CommandSpec("list", plan_list_command, PlanListResult),)
+ALIASES: tuple[Command, ...] = (Command("list", plan_list_command, PlanListResult),)
 
 
 def leaves(
-    specs: tuple[CommandSpec, ...] = COMMANDS, prefix: str = ""
-) -> Iterator[tuple[str, CommandSpec]]:
+    specs: tuple[CommandEntry, ...] = COMMANDS, prefix: str = ""
+) -> Iterator[tuple[str, Command]]:
     """Yield each leaf command with its space-separated command path, depth-first."""
     for spec in specs:
         path = f"{prefix} {spec.name}".strip()
-        if spec.children:
+        if isinstance(spec, CommandGroup):
             yield from leaves(spec.children, path)
         else:
             yield path, spec

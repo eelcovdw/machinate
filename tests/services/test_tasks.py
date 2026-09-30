@@ -30,7 +30,7 @@ def test_create_many_reports_partial_results(service: TaskService) -> None:
     batch = service.create_many(
         "alpha", ["new", "existing", "../bad", "later"], StatusCreateInput[TaskStatus]()
     )
-    assert [task.record.name for task in batch.created] == ["new", "later"]
+    assert [record.name for record in batch.created] == ["new", "later"]
     assert [failure.name for failure in batch.failures] == ["existing", "../bad"]
     assert [failure.reason for failure in batch.failures] == ["exists", "invalid_name"]
     assert service.get("alpha", "new")
@@ -39,7 +39,7 @@ def test_create_many_reports_partial_results(service: TaskService) -> None:
 
 def test_create_many_rejects_case_only_duplicates(service: TaskService) -> None:
     batch = service.create_many("alpha", ["Login", "login"], StatusCreateInput[TaskStatus]())
-    assert [task.record.name for task in batch.created] == ["Login"]
+    assert [record.name for record in batch.created] == ["Login"]
     assert [failure.name for failure in batch.failures] == ["login"]
     assert batch.failures[0].reason == "exists"
 

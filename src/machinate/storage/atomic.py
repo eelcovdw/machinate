@@ -1,9 +1,27 @@
 """Atomic file operations for the storage layer."""
 
 import os
+import stat
 import sys
 import tempfile
 from pathlib import Path
+
+from .errors import SymbolicLinkError
+
+
+def existing_mode(target: Path) -> int | None:
+    """Return target's permission mode, or None when it does not exist.
+
+    A symlink is refused: a rename would replace the link itself, so replacing its
+    target would silently rewrite the wrong path.
+    """
+    try:
+        info = target.lstat()
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(info.st_mode):
+        raise SymbolicLinkError(target)
+    return stat.S_IMODE(info.st_mode)
 
 
 def _umask_default_mode() -> int:
