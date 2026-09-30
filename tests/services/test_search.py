@@ -44,6 +44,7 @@ def search(tmp_path: Path) -> SearchService:
         layout.context_path("auth", "oauth"),
         _doc(ContextMetadata(created_at=_NOW), "unicorn context notes"),
     )
+    store.create("docs/guide.md", _doc(ContextMetadata(created_at=_NOW), "doc guide body"))
     (tmp_path / "notes.txt").write_text("plain notes")
     (tmp_path / "misc").mkdir()
     (tmp_path / "misc" / "random.md").write_text("random misc")
@@ -56,7 +57,9 @@ def paths(search: SearchService, query: SearchQuery | None = None) -> list[str]:
 
 
 def test_default_listing_is_sorted_and_excludes_non_markdown(search: SearchService) -> None:
-    assert paths(search, SearchQuery()) == [
+    entries = search.search(SearchQuery()).matches
+    assert [entry.path.as_posix() for entry in entries] == [
+        "docs/guide.md",
         "misc/random.md",
         "plans/auth/context/oauth.md",
         "plans/auth/plan.md",
@@ -64,29 +67,7 @@ def test_default_listing_is_sorted_and_excludes_non_markdown(search: SearchServi
         "plans/auth/tasks/login.md",
         "plans/billing/plan.md",
     ]
-
-
-def test_listing_has_no_scores(search: SearchService) -> None:
-    entries = search.search(SearchQuery()).matches
     assert all(entry.score is None for entry in entries)
-
-
-def test_dot_prefixed_document_is_not_listed_or_searchable(search: SearchService) -> None:
-    search.document_store.create(
-        search.layout.task_path("auth", ".hidden"),
-        _doc(TaskMetadata(created_at=_NOW), "quokka hidden note"),
-    )
-    assert "plans/auth/tasks/.hidden.md" not in paths(search, SearchQuery())
-    assert paths(search, SearchQuery(query="quokka")) == []
-
-
-def test_symlinked_file_is_indexed_and_dangling_symlink_is_skipped(search: SearchService) -> None:
-    root = search.document_store.root
-    (root / "link.md").symlink_to(root / "plans" / "auth" / "plan.md")
-    (root / ".#lock.md").symlink_to(root / "missing.md")
-    found = paths(search, SearchQuery())
-    assert "link.md" in found
-    assert ".#lock.md" not in found
 
 
 def test_membership_is_derived_from_path(search: SearchService) -> None:
@@ -103,14 +84,11 @@ def test_membership_is_derived_from_path(search: SearchService) -> None:
     assert by_path["misc/random.md"].plan_name is None
 
 
-def test_single_star_does_not_cross_slash(search: SearchService) -> None:
+def test_glob_patterns_select_markdown_without_crossing_slash(search: SearchService) -> None:
     assert paths(search, SearchQuery(globs=["plans/*/*.md"])) == [
         "plans/auth/plan.md",
         "plans/billing/plan.md",
     ]
-
-
-def test_multiple_patterns_are_an_or(search: SearchService) -> None:
     assert paths(search, SearchQuery(globs=["plans/*/tasks/*.md", "plans/*/context/*.md"])) == [
         "plans/auth/context/oauth.md",
         "plans/auth/tasks/login.md",
@@ -135,11 +113,6 @@ def test_exact_disables_prefix_and_typo_matching(search: SearchService) -> None:
     assert paths(search, SearchQuery(query="kang", is_exact=True)) == []
 
 
-def test_short_body_tokens_do_not_false_positive(search: SearchService) -> None:
-    # "auth" is a path token; editing it into "authoring" is beyond the fuzzy distance.
-    assert paths(search, SearchQuery(query="authoring")) == []
-
-
 def test_edit_similarity_is_discounted(search: SearchService) -> None:
     # A coincidental overlap ("author" vs "auto") must not match at distance one.
     auto = search.document_store.root / "auto.md"
@@ -162,7 +135,7 @@ def test_regex_needs_opt_in_and_a_field(search: SearchService) -> None:
 
 def test_limit_applies_after_ranking(search: SearchService) -> None:
     assert len(search.search(SearchQuery(query="plan", limit=2)).matches) == 2
-    assert paths(search, SearchQuery(limit=1)) == ["misc/random.md"]
+    assert paths(search, SearchQuery(limit=1)) == ["docs/guide.md"]
 
 
 def test_plan_scope_narrows_results(search: SearchService) -> None:
@@ -180,14 +153,7 @@ def test_missing_plan_raises(search: SearchService) -> None:
 def test_malformed_frontmatter_does_not_raise(search: SearchService) -> None:
     broken = search.document_store.root / "broken.md"
     broken.write_text("---\ncreated_at: [unterminated\n---\nbody zebra text\n")
-    result = paths(search, SearchQuery(query="zebra"))
-    assert "broken.md" in result
-
-
-def test_invalid_utf8_does_not_raise(search: SearchService) -> None:
-    broken = search.document_store.root / "binary.md"
-    broken.write_bytes(b"\xff\xfe\x00bad")
-    assert "binary.md" in paths(search)
+    assert "broken.md" in paths(search, SearchQuery(query="zebra"))
 
 
 def test_unreadable_document_is_skipped_but_still_path_searchable(

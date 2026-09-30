@@ -1,7 +1,6 @@
 """Task documents: plan-scoped, status-bearing, nested names."""
 
 from datetime import UTC, datetime
-from pathlib import PurePosixPath
 from typing import override
 
 from pydantic import validate_call
@@ -50,12 +49,6 @@ class TaskService(DocumentService[TaskMetadata, StatusCreateInput[TaskStatus]]):
         )
 
     @validate_call
-    def create(
-        self, plan: Name, name: NestedName, create: StatusCreateInput[TaskStatus]
-    ) -> LoadedDocument[TaskMetadata]:
-        return self._create(plan, name, create)
-
-    @validate_call
     def create_many(
         self, plan: Name, names: list[str], create: StatusCreateInput[TaskStatus]
     ) -> BatchCreated[DocumentRecord[TaskMetadata]]:
@@ -68,10 +61,6 @@ class TaskService(DocumentService[TaskMetadata, StatusCreateInput[TaskStatus]]):
     @validate_call
     def get_record(self, plan: Name, name: NestedName) -> DocumentRecord[TaskMetadata]:
         return self._info(plan, name)
-
-    @validate_call
-    def get_path(self, plan: Name, name: NestedName) -> PurePosixPath:
-        return self._path(plan, name)
 
     @validate_call
     def locate(self, plan: Name, name: NestedName | None = None) -> LocatedPath:

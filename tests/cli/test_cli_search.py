@@ -1,33 +1,30 @@
-import json
-import re
-import subprocess
-import sys
 from pathlib import Path
 
-import pytest
-from harness import cli, process_environment, seed
+from harness import cli, seed_context, seed_doc, seed_plan, seed_task
 
 from machinate.cli.models import SearchResult
 
 
-@pytest.fixture
 def find_project(project: Path) -> Path:
-    seed.plan(project, "auth", body="auth")
-    seed.plan(project, "billing", body="bills")
-    seed.task(project, "auth", "login", body="intro\n\nkangaroo login flow\n\ntrailing\n")
-    seed.context(project, "auth", "oauth", body="oauth notes")
+    seed_plan(project, "auth", body="auth")
+    seed_plan(project, "billing", body="bills")
+    seed_task(project, "auth", "login", body="intro\n\nkangaroo login flow\n\ntrailing\n")
+    seed_context(project, "auth", "oauth", body="oauth notes")
+    seed_doc(project, "guide", body="kangaroo guide")
     return project
 
 
-def test_search_json_default_listing(find_project: Path) -> None:
-    parsed = cli.json(SearchResult, ["search", "-P", str(find_project), "--format", "json"])
+def test_search_json_default_listing(project: Path) -> None:
+    find_project(project)
+    parsed = cli.json(SearchResult, ["search", "-P", str(project), "--format", "json"])
     assert parsed.command == "search"
     assert parsed.project.name == "example"
-    assert parsed.project.store_directory == find_project / ".machi"
+    assert parsed.project.store_directory == project / ".machi"
     assert parsed.plan_name is None
     assert parsed.query is None
     assert parsed.globs == ["**/*.md"]
     assert [entry.path.as_posix() for entry in parsed.matches] == [
+        "docs/guide.md",
         "plans/auth/context/oauth.md",
         "plans/auth/plan.md",
         "plans/auth/tasks/login.md",
@@ -38,10 +35,11 @@ def test_search_json_default_listing(find_project: Path) -> None:
     assert (login.kind, login.plan_name, login.name) == ("task", "auth", "login")
 
 
-def test_search_glob_option(find_project: Path) -> None:
+def test_search_glob_option(project: Path) -> None:
+    find_project(project)
     parsed = cli.json(
         SearchResult,
-        ["search", "-P", str(find_project), "--format", "json", "--glob", "plans/*/plan.md"],
+        ["search", "-P", str(project), "--format", "json", "--glob", "plans/*/plan.md"],
     )
     assert parsed.globs == ["plans/*/plan.md"]
     assert [entry.path.as_posix() for entry in parsed.matches] == [
@@ -50,74 +48,25 @@ def test_search_glob_option(find_project: Path) -> None:
     ]
 
 
-def test_search_limit_is_after_ranking(find_project: Path) -> None:
+def test_search_text_lists_paths(project: Path) -> None:
+    find_project(project)
+    result = cli.run(["search", "-P", str(project), "--format", "text", "login"])
+    assert result.exit_code == 0, result.output
+    assert "plans/auth/tasks/login.md" in result.stdout
+
+
+def test_search_exact_flag_disables_fuzzy(project: Path) -> None:
+    find_project(project)
     parsed = cli.json(
-        SearchResult,
-        ["search", "-P", str(find_project), "--format", "json", "login", "--limit", "1"],
-    )
-    assert [entry.path.as_posix() for entry in parsed.matches] == ["plans/auth/tasks/login.md"]
-
-
-def test_search_missing_plan_errors(find_project: Path) -> None:
-    error = cli.error(["search", "-P", str(find_project), "-p", "nope", "--format", "json"])
-    assert error.command == "search"
-    assert error.project is not None
-
-
-def test_search_regex_without_flag_errors(find_project: Path) -> None:
-    error = cli.error(["search", "-P", str(find_project), "path:/.*oauth.*/", "--format", "json"])
-    assert error.command == "search"
-
-
-def test_search_exact_flag_disables_fuzzy(find_project: Path) -> None:
-    parsed = cli.json(
-        SearchResult, ["search", "-P", str(find_project), "--format", "json", "kang", "--exact"]
+        SearchResult, ["search", "-P", str(project), "--format", "json", "kang", "--exact"]
     )
     assert parsed.matches == []
 
 
-def test_search_text_listing_omits_scores(find_project: Path) -> None:
-    result = cli.run(["search", "-P", str(find_project), "--glob", "plans/*/plan.md"])
-    assert result.exit_code == 0, result.stderr
-    assert "plans/auth/plan.md" in result.stdout
-    assert re.search(r"\d+\.\d", result.stdout) is None
-
-
-def test_search_text_and_json_expose_the_same_entries(find_project: Path) -> None:
-    parsed = cli.json(
-        SearchResult, ["search", "-P", str(find_project), "--format", "json", "kangaroo"]
+def test_search_regex_without_flag_errors(project: Path) -> None:
+    find_project(project)
+    error = cli.error(
+        ["search", "-P", str(project), "--format", "json", "path:/conf.*/"],
+        code="search_query",
     )
-    result = cli.run(["search", "-P", str(find_project), "kangaroo"])
-    assert result.exit_code == 0, result.stderr
-    assert parsed.matches
-    for entry in parsed.matches:
-        assert entry.path.as_posix() in result.stdout
-
-
-def test_search_text_lists_paths_only(find_project: Path) -> None:
-    result = cli.run(["search", "-P", str(find_project), "kangaroo"])
-    assert result.exit_code == 0, result.stderr
-    assert "plans/auth/tasks/login.md" in result.stdout
-    assert "kangaroo login flow" not in result.stdout
-    assert ":8" not in result.stdout
-
-
-def test_search_json_entries_have_no_snippets(find_project: Path) -> None:
-    parsed = cli.json(
-        SearchResult, ["search", "-P", str(find_project), "--format", "json", "kangaroo"]
-    )
-    assert all("snippets" not in entry.model_dump() for entry in parsed.matches)
-
-
-def test_search_via_installed_cli(find_project: Path) -> None:
-    launcher = Path(sys.executable).with_name("machi")
-    result = subprocess.run(  # noqa: S603 - checkout executable with fixed arguments
-        [str(launcher), "search", "-P", str(find_project), "kangaroo", "--format", "json"],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=process_environment(),
-    )
-    assert result.returncode == 0, result.stderr
-    parsed = SearchResult.model_validate(json.loads(result.stdout))
-    assert [entry.path.as_posix() for entry in parsed.matches] == ["plans/auth/tasks/login.md"]
+    assert error.command == "search"

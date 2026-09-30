@@ -1,7 +1,6 @@
 """Project-wide doc documents: not plan-scoped, no status, nested names."""
 
 from datetime import UTC, datetime
-from pathlib import PurePosixPath
 from typing import override
 
 from pydantic import validate_call
@@ -45,10 +44,6 @@ class DocService(DocumentService[DocMetadata]):
         )
 
     @validate_call
-    def create(self, name: NestedName, create: CreateInput) -> LoadedDocument[DocMetadata]:
-        return self._create(None, name, create)
-
-    @validate_call
     def create_many(
         self, names: list[str], create: CreateInput
     ) -> BatchCreated[DocumentRecord[DocMetadata]]:
@@ -61,10 +56,6 @@ class DocService(DocumentService[DocMetadata]):
     @validate_call
     def get_record(self, name: NestedName) -> DocumentRecord[DocMetadata]:
         return self._info(None, name)
-
-    @validate_call
-    def get_path(self, name: NestedName) -> PurePosixPath:
-        return self._path(None, name)
 
     @validate_call
     def locate(self, name: NestedName | None = None) -> LocatedPath:

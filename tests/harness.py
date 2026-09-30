@@ -6,8 +6,7 @@ or per-test patching stay in ``tests/conftest.py``.
 """
 
 import os
-from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TypeVar
 
 from click.testing import Result
@@ -24,6 +23,7 @@ from machinate.models.documents import (
     DocMetadata,
     LoadedDocument,
     LoadedPlan,
+    Metadata,
     ParsedDocument,
     PlanStatus,
     TaskMetadata,
@@ -31,6 +31,7 @@ from machinate.models.documents import (
 )
 from machinate.models.operations import CreateInput, StatusCreateInput
 from machinate.storage import ProjectState
+from machinate.storage.document_store import DocumentStore
 
 runner = CliRunner()
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -45,21 +46,18 @@ def filtered_environment() -> dict[str, str]:
     }
 
 
-process_environment = filtered_environment
-
-
 def make_settings(
     *,
     ai_agent: str | None = None,
     format_name: str | None = None,
 ) -> Settings:
-    """Build settings with every field explicit, so the environment cannot leak in."""
-    return Settings.model_validate(
-        {
-            "ai_agent": ai_agent,
-            "format": format_name if format_name is not None else ("json" if ai_agent else "text"),
-        }
-    )
+    """Build settings for tests, leaving the format for ``Settings`` to resolve."""
+    data: dict[str, object] = {}
+    if ai_agent is not None:
+        data["ai_agent"] = ai_agent
+    if format_name is not None:
+        data["format"] = format_name
+    return Settings.model_validate(data)
 
 
 DEFAULT_SETTINGS = make_settings()
@@ -78,88 +76,77 @@ def snapshot(project: Path) -> dict[Path, bytes]:
     return {path: path.read_bytes() for path in project.rglob("*") if path.is_file()}
 
 
-@dataclass
-class Seed:
-    """Create plan/task/context/doc documents with a fixed timestamp."""
-
-    def plan(
-        self,
-        project: Path,
-        name: str,
-        *,
-        status: PlanStatus = "draft",
-        summary: str | None = None,
-        body: str = "",
-    ) -> LoadedPlan:
-        service = open_project(project).plans
-        loaded = service.create(name, StatusCreateInput[PlanStatus](status=status, summary=summary))
-        if body:
-            service.document_store.write(
-                service.get_path(name), ParsedDocument(metadata=loaded.record.metadata, body=body)
-            )
-            return loaded.model_copy(update={"body": body})
-        return loaded
-
-    def task(  # noqa: PLR0913 -- helper mirrors the document options
-        self,
-        project: Path,
-        plan: str,
-        name: str,
-        *,
-        status: TaskStatus = "todo",
-        summary: str | None = None,
-        body: str = "",
-    ) -> LoadedDocument[TaskMetadata]:
-        service = open_project(project).tasks
-        loaded = service.create(
-            plan, name, StatusCreateInput[TaskStatus](status=status, summary=summary)
-        )
-        if body:
-            service.document_store.write(
-                service.get_path(plan, name),
-                ParsedDocument(metadata=loaded.record.metadata, body=body),
-            )
-            return loaded.model_copy(update={"body": body})
-        return loaded
-
-    def context(
-        self,
-        project: Path,
-        plan: str,
-        name: str,
-        *,
-        summary: str | None = None,
-        body: str = "",
-    ) -> LoadedDocument[ContextMetadata]:
-        service = open_project(project).contexts
-        loaded = service.create(plan, name, CreateInput(summary=summary))
-        if body:
-            service.document_store.write(
-                service.get_path(plan, name),
-                ParsedDocument(metadata=loaded.record.metadata, body=body),
-            )
-            return loaded.model_copy(update={"body": body})
-        return loaded
-
-    def doc(
-        self,
-        project: Path,
-        name: str,
-        *,
-        summary: str | None = None,
-        body: str = "",
-    ) -> LoadedDocument[DocMetadata]:
-        service = open_project(project).docs
-        loaded = service.create(name, CreateInput(summary=summary))
-        if body:
-            service.document_store.write(
-                service.get_path(name), ParsedDocument(metadata=loaded.record.metadata, body=body)
-            )
-            return loaded.model_copy(update={"body": body})
-        return loaded
+def _write_body(store: DocumentStore, path: PurePosixPath, metadata: Metadata, body: str) -> None:
+    store.write(path, ParsedDocument(metadata=metadata, body=body))
 
 
-seed = Seed()
+def seed_plan(
+    project: Path,
+    name: str,
+    *,
+    status: PlanStatus = "draft",
+    summary: str | None = None,
+    body: str = "",
+) -> LoadedPlan:
+    service = open_project(project).plans
+    loaded = service.create(name, StatusCreateInput[PlanStatus](status=status, summary=summary))
+    if body:
+        _write_body(service.document_store, loaded.record.path, loaded.record.metadata, body)
+        loaded = loaded.model_copy(update={"body": body})
+    return loaded
+
+
+def seed_task(  # noqa: PLR0913 -- helper mirrors the document options
+    project: Path,
+    plan: str,
+    name: str,
+    *,
+    status: TaskStatus = "todo",
+    summary: str | None = None,
+    body: str = "",
+) -> LoadedDocument[TaskMetadata]:
+    service = open_project(project).tasks
+    batch = service.create_many(
+        plan, [name], StatusCreateInput[TaskStatus](status=status, summary=summary)
+    )
+    loaded = LoadedDocument(record=batch.created[0], body="")
+    if body:
+        _write_body(service.document_store, loaded.record.path, loaded.record.metadata, body)
+        loaded = loaded.model_copy(update={"body": body})
+    return loaded
+
+
+def seed_context(
+    project: Path,
+    plan: str,
+    name: str,
+    *,
+    summary: str | None = None,
+    body: str = "",
+) -> LoadedDocument[ContextMetadata]:
+    service = open_project(project).contexts
+    batch = service.create_many(plan, [name], CreateInput(summary=summary))
+    loaded = LoadedDocument(record=batch.created[0], body="")
+    if body:
+        _write_body(service.document_store, loaded.record.path, loaded.record.metadata, body)
+        loaded = loaded.model_copy(update={"body": body})
+    return loaded
+
+
+def seed_doc(
+    project: Path,
+    name: str,
+    *,
+    summary: str | None = None,
+    body: str = "",
+) -> LoadedDocument[DocMetadata]:
+    service = open_project(project).docs
+    batch = service.create_many([name], CreateInput(summary=summary))
+    loaded = LoadedDocument(record=batch.created[0], body="")
+    if body:
+        _write_body(service.document_store, loaded.record.path, loaded.record.metadata, body)
+        loaded = loaded.model_copy(update={"body": body})
+    return loaded
 
 
 class CLI:
@@ -185,13 +172,16 @@ class CLI:
         self,
         args: list[str],
         *,
+        code: str,
         dependencies: Dependencies | None = None,
         expect: int = 1,
     ) -> ErrorResult:
         result = self.run(args, dependencies=dependencies)
         assert result.exit_code == expect, result.output + result.stderr
         assert result.stdout == ""
-        return ErrorResult.model_validate_json(result.stderr)
+        error = ErrorResult.model_validate_json(result.stderr)
+        assert error.code == code, error
+        return error
 
 
 cli = CLI()

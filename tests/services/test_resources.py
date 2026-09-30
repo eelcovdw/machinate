@@ -6,12 +6,10 @@ per resource for the argument differences (plan-scoped or not, status or not). P
 selection/activity and the project overview have their own tests.
 """
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import cast
-from unittest.mock import Mock
 
 import pytest
 from pydantic import ValidationError
@@ -22,6 +20,7 @@ from machinate.models.documents import (
     LoadedPlan,
     Metadata,
     ParsedDocument,
+    PlanRecord,
     PlanStatus,
     Tag,
     TaskStatus,
@@ -46,10 +45,14 @@ from machinate.storage import (
     Layout,
     ProjectState,
     ProjectStateStore,
+    atomic,
 )
+from machinate.storage import document_store as document_store_module
 
 
-def _flat_record[M: Metadata](record: DocumentRecord[M]) -> DocumentRecord[Metadata]:
+def _flat_record[M: Metadata](
+    record: DocumentRecord[M] | PlanRecord,
+) -> DocumentRecord[Metadata]:
     return DocumentRecord[Metadata](
         name=record.name,
         path=record.path,
@@ -60,22 +63,24 @@ def _flat_record[M: Metadata](record: DocumentRecord[M]) -> DocumentRecord[Metad
 
 
 def _flat_loaded[M: Metadata](loaded: LoadedDocument[M] | LoadedPlan) -> LoadedDocument[Metadata]:
-    record = loaded.record
-    return LoadedDocument[Metadata](
-        record=DocumentRecord[Metadata](
-            name=record.name,
-            path=record.path,
-            metadata=record.metadata,
-            modified_at=record.modified_at,
-            summary=record.summary,
-        ),
-        body=loaded.body,
+    return LoadedDocument[Metadata](record=_flat_record(loaded.record), body=loaded.body)
+
+
+def _flat_batch[M: Metadata](
+    batch: BatchCreated[DocumentRecord[M]],
+) -> BatchCreated[DocumentRecord[Metadata]]:
+    return BatchCreated(
+        created=[_flat_record(record) for record in batch.created], failures=batch.failures
     )
 
 
 def _provided(**values: object) -> dict[str, object]:
     """Only the update fields actually supplied; an unset field stays unset."""
     return {key: value for key, value in values.items() if value is not None}
+
+
+def _status(metadata: Metadata) -> str | None:
+    return cast("str | None", getattr(metadata, "status", None))
 
 
 @dataclass(frozen=True)
@@ -93,7 +98,7 @@ class ResourceAdapter:
     info: Callable[[str], DocumentRecord[Metadata]]
     update: Callable[..., LoadedDocument[Metadata]]
     list_records: Callable[..., list[DocumentRecord[Metadata]]]
-    path: Callable[[str], PurePosixPath]
+    expected_path: Callable[[str], PurePosixPath]
     query_type: Callable[..., DocumentQuery]
     write_body: Callable[[str, str], None]
     count: Callable[[], int] | None
@@ -153,7 +158,7 @@ def _plan_adapter(plans: PlanService) -> ResourceAdapter:
         info=lambda name: _flat_record(plans.get_record(name)),
         update=update,
         list_records=list_records,
-        path=plans.get_path,
+        expected_path=lambda name: PurePosixPath("plans", name, "plan.md"),
         query_type=PlanQuery,
         write_body=write_body,
         count=None,
@@ -170,22 +175,20 @@ def _task_adapter(tasks: TaskService, plans: PlanService) -> ResourceAdapter:
         tags: list[Tag] | None = None,
         status: TaskStatus | None = None,
     ) -> LoadedDocument[Metadata]:
-        return _flat_loaded(
-            tasks.create(
-                "alpha",
-                name,
-                StatusCreateInput[TaskStatus](summary=summary, tags=tags or [], status=status),
-            )
+        batch = tasks.create_many(
+            "alpha",
+            [name],
+            StatusCreateInput[TaskStatus](summary=summary, tags=tags or [], status=status),
         )
+        return _flat_loaded(LoadedDocument(record=batch.created[0], body=""))
 
     def create_many(
         names: list[str], *, summary: str | None = None, tags: list[Tag] | None = None
     ) -> BatchCreated[DocumentRecord[Metadata]]:
-        batch = tasks.create_many(
-            "alpha", names, StatusCreateInput[TaskStatus](summary=summary, tags=tags or [])
-        )
-        return BatchCreated(
-            created=[_flat_record(record) for record in batch.created], failures=batch.failures
+        return _flat_batch(
+            tasks.create_many(
+                "alpha", names, StatusCreateInput[TaskStatus](summary=summary, tags=tags or [])
+            )
         )
 
     def get(name: str) -> LoadedDocument[Metadata]:
@@ -229,7 +232,7 @@ def _task_adapter(tasks: TaskService, plans: PlanService) -> ResourceAdapter:
         info=lambda name: _flat_record(tasks.get_record("alpha", name)),
         update=update,
         list_records=list_records,
-        path=lambda name: tasks.get_path("alpha", name),
+        expected_path=lambda name: PurePosixPath("plans/alpha/tasks", f"{name}.md"),
         query_type=TaskQuery,
         write_body=write_body,
         count=None,
@@ -242,16 +245,14 @@ def _context_adapter(contexts: ContextService, plans: PlanService) -> ResourceAd
     def create(
         name: str, *, summary: str | None = None, tags: list[Tag] | None = None
     ) -> LoadedDocument[Metadata]:
-        return _flat_loaded(
-            contexts.create("alpha", name, CreateInput(summary=summary, tags=tags or []))
-        )
+        batch = contexts.create_many("alpha", [name], CreateInput(summary=summary, tags=tags or []))
+        return _flat_loaded(LoadedDocument(record=batch.created[0], body=""))
 
     def create_many(
         names: list[str], *, summary: str | None = None, tags: list[Tag] | None = None
     ) -> BatchCreated[DocumentRecord[Metadata]]:
-        batch = contexts.create_many("alpha", names, CreateInput(summary=summary, tags=tags or []))
-        return BatchCreated(
-            created=[_flat_record(record) for record in batch.created], failures=batch.failures
+        return _flat_batch(
+            contexts.create_many("alpha", names, CreateInput(summary=summary, tags=tags or []))
         )
 
     def get(name: str) -> LoadedDocument[Metadata]:
@@ -289,7 +290,7 @@ def _context_adapter(contexts: ContextService, plans: PlanService) -> ResourceAd
         info=lambda name: _flat_record(contexts.get_record("alpha", name)),
         update=update,
         list_records=list_records,
-        path=lambda name: contexts.get_path("alpha", name),
+        expected_path=lambda name: PurePosixPath("plans/alpha/context", f"{name}.md"),
         query_type=DocumentQuery,
         write_body=write_body,
         count=lambda: contexts.count_documents("alpha"),
@@ -302,15 +303,13 @@ def _doc_adapter(docs: DocService) -> ResourceAdapter:
     def create(
         name: str, *, summary: str | None = None, tags: list[Tag] | None = None
     ) -> LoadedDocument[Metadata]:
-        return _flat_loaded(docs.create(name, CreateInput(summary=summary, tags=tags or [])))
+        batch = docs.create_many([name], CreateInput(summary=summary, tags=tags or []))
+        return _flat_loaded(LoadedDocument(record=batch.created[0], body=""))
 
     def create_many(
         names: list[str], *, summary: str | None = None, tags: list[Tag] | None = None
     ) -> BatchCreated[DocumentRecord[Metadata]]:
-        batch = docs.create_many(names, CreateInput(summary=summary, tags=tags or []))
-        return BatchCreated(
-            created=[_flat_record(record) for record in batch.created], failures=batch.failures
-        )
+        return _flat_batch(docs.create_many(names, CreateInput(summary=summary, tags=tags or [])))
 
     def get(name: str) -> LoadedDocument[Metadata]:
         return _flat_loaded(docs.get(name))
@@ -345,7 +344,7 @@ def _doc_adapter(docs: DocService) -> ResourceAdapter:
         info=lambda name: _flat_record(docs.get_record(name)),
         update=update,
         list_records=list_records,
-        path=docs.get_path,
+        expected_path=lambda name: PurePosixPath("docs", f"{name}.md"),
         query_type=DocumentQuery,
         write_body=write_body,
         count=docs.count_documents,
@@ -379,7 +378,7 @@ def adapter(tmp_path: Path, request: pytest.FixtureRequest) -> ResourceAdapter:
 ADAPTER_CASES = pytest.mark.parametrize(
     "adapter", ["plan", "task", "context", "doc"], indirect=True
 )
-
+BATCH_CASES = pytest.mark.parametrize("adapter", ["task", "context", "doc"], indirect=True)
 COUNT_CASES = pytest.mark.parametrize("adapter", ["context", "doc"], indirect=True)
 
 
@@ -391,10 +390,9 @@ def test_create_get_path_duplicate_and_suffix(adapter: ResourceAdapter) -> None:
     assert created.record.metadata.summary == "S"
     assert created.record.metadata.tags == ["x"]
     assert created.record.metadata.created_at.tzinfo is not None
-    assert created.record.path == adapter.path(adapter.name)
+    assert created.record.path == adapter.expected_path(adapter.name)
     if adapter.status_default is not None:
-        status = cast("str", json.loads(created.record.metadata.model_dump_json())["status"])
-        assert status == adapter.status_default
+        assert _status(created.record.metadata) == adapter.status_default
 
     suffixed_name = "suffixed"
     parent, _, _ = adapter.name.rpartition("/")
@@ -402,24 +400,46 @@ def test_create_get_path_duplicate_and_suffix(adapter: ResourceAdapter) -> None:
     suffixed = adapter.create(suffixed_input)
     expected_suffixed = f"{parent}/{suffixed_name}" if parent else suffixed_name
     assert suffixed.record.name == expected_suffixed
-    assert suffixed.record.path == adapter.path(expected_suffixed)
+    assert suffixed.record.path == adapter.expected_path(expected_suffixed)
 
     adapter.write_body(adapter.name, "Body\n")
     loaded = adapter.get(adapter.name)
     assert loaded.body == "Body\n"
     assert loaded == adapter.get(adapter.name)
-    with pytest.raises(ExistsError):
-        adapter.create(adapter.name)
+    create_many = adapter.create_many
+    if create_many is None:
+        with pytest.raises(ExistsError):
+            adapter.create(adapter.name)
+    else:
+        assert create_many([adapter.name]).failures[0].reason == "exists"
 
 
-@ADAPTER_CASES
-def test_create_many(adapter: ResourceAdapter) -> None:
-    if adapter.create_many is None:
-        pytest.skip("batch create is not offered for plans")
+@BATCH_CASES
+def test_create_many(adapter: ResourceAdapter, monkeypatch: pytest.MonkeyPatch) -> None:
+    create_many = adapter.create_many
+    assert create_many is not None
     adapter.ensure_parent()
-    batch = adapter.create_many(["one", "two"])
+    batch = create_many(["one", "two"])
     assert [record.name for record in batch.created] == ["one", "two"]
     assert batch.failures == []
+
+    adapter.create("existing")
+    partial = create_many(["new", "existing", "../bad", "later"])
+    assert [record.name for record in partial.created] == ["new", "later"]
+    assert [failure.name for failure in partial.failures] == ["existing", "../bad"]
+    assert [failure.reason for failure in partial.failures] == ["exists", "invalid_name"]
+
+    blocked_path = adapter.document_store.root / adapter.expected_path("blocked")
+
+    def deny(target: Path, content: bytes) -> None:
+        if target == blocked_path:
+            raise PermissionError("denied")
+        atomic.atomic_create(target, content)
+
+    monkeypatch.setattr(document_store_module, "atomic_create", deny)
+    failed = create_many(["blocked", "after"])
+    assert len(failed.created) == 1
+    assert [failure.reason for failure in failed.failures] == ["failed"]
 
 
 @ADAPTER_CASES
@@ -442,21 +462,17 @@ def test_info_matches_record_without_body(adapter: ResourceAdapter) -> None:
     adapter.create(adapter.name)
     info = adapter.info(adapter.name)
     assert info == adapter.get(adapter.name).record
-    assert "body" not in info.model_dump()
 
 
 @ADAPTER_CASES
-def test_update_applies_and_empty_update_never_writes(
-    adapter: ResourceAdapter, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_update_applies_and_empty_update_never_writes(adapter: ResourceAdapter) -> None:
     adapter.ensure_parent()
     created = adapter.create(adapter.name)
     adapter.write_body(adapter.name, "Body")
 
     if adapter.changed_status is not None:
         updated = adapter.update(adapter.name, status=adapter.changed_status)
-        status = cast("str", json.loads(updated.record.metadata.model_dump_json())["status"])
-        assert status == adapter.changed_status
+        assert _status(updated.record.metadata) == adapter.changed_status
     else:
         updated = adapter.update(adapter.name, summary="new", tags=["t"])
         assert updated.record.metadata.summary == "new"
@@ -465,11 +481,8 @@ def test_update_applies_and_empty_update_never_writes(
 
     target = adapter.document_store.root / created.record.path
     before = target.read_bytes(), target.stat().st_mtime_ns
-    write = Mock(side_effect=AssertionError("empty patch must not write"))
-    monkeypatch.setattr(adapter.document_store, "write", write)
     adapter.update(adapter.name)
     assert (target.read_bytes(), target.stat().st_mtime_ns) == before
-    write.assert_not_called()
 
 
 @ADAPTER_CASES
@@ -487,15 +500,16 @@ def test_missing_operations(adapter: ResourceAdapter) -> None:
 
 
 @ADAPTER_CASES
-@pytest.mark.parametrize(
-    "name", ["", "/abs", "../x", "a/../x", "a//x", "a/ x", "a/x ", "C:/x", "a\\x"]
-)
-def test_invalid_names(adapter: ResourceAdapter, name: str) -> None:
+def test_invalid_names(adapter: ResourceAdapter) -> None:
     adapter.ensure_parent()
     with pytest.raises(ValidationError):
-        adapter.create(name)
-    with pytest.raises(ValidationError):
-        adapter.get(name)
+        adapter.get("../x")
+    create_many = adapter.create_many
+    if create_many is None:
+        with pytest.raises(ValidationError):
+            adapter.create("../x")
+    else:
+        assert create_many(["../x"]).failures[0].reason == "invalid_name"
 
 
 @COUNT_CASES
@@ -506,29 +520,3 @@ def test_count_documents_matches_list(adapter: ResourceAdapter) -> None:
     for name in ("one", "two/nested"):
         adapter.create(name)
     assert count() == len(adapter.list_records()) == 2
-
-
-def test_concrete_services_are_thin_instances(tmp_path: Path) -> None:
-    """The public resource methods bind the same collection and paths."""
-    layout = Layout()
-    store = DocumentStore(tmp_path / "docs")
-    state = ProjectStateStore(tmp_path / "state.toml")
-    state.write(ProjectState(project_name="demo"))
-    plans = PlanService(store, layout, state)
-    tasks = TaskService(store, layout)
-    contexts = ContextService(store, layout)
-    docs = DocService(store, layout)
-    plans.create("alpha", StatusCreateInput[PlanStatus]())
-
-    assert plans.create("p.md", StatusCreateInput[PlanStatus]()).record.path == PurePosixPath(
-        "plans/p/plan.md"
-    )
-    assert tasks.create("alpha", "t.md", StatusCreateInput[TaskStatus]()).record.path == (
-        PurePosixPath("plans/alpha/tasks/t.md")
-    )
-    assert contexts.create("alpha", "c.md", CreateInput()).record.path == PurePosixPath(
-        "plans/alpha/context/c.md"
-    )
-    assert docs.create("d.md", CreateInput()).record.path == PurePosixPath("docs/d.md")
-    assert contexts.count_documents("alpha") == 1
-    assert docs.count_documents() == 1

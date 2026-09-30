@@ -66,12 +66,6 @@ def test_init_missing_project_directory(tmp_path: Path, kind: str) -> None:
     target = tmp_path / "missing"
     if kind == "file":
         target.write_text("not a directory")
-    error = cli.error(["init", "-P", str(target), "--format", "json"])
+    error = cli.error(["init", "-P", str(target), "--format", "json"], code="project")
     assert error.command == "init"
     assert not target.is_dir()
-
-
-def test_init_text_smoke(target: Path) -> None:
-    result = cli.run(["init", "-P", str(target), "--format", "text"])
-    assert result.exit_code == 0
-    assert target.name in result.stdout

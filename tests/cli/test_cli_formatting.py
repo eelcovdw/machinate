@@ -5,15 +5,14 @@ from pathlib import Path
 from typing import override
 
 import pytest
-from harness import DEFAULT_DEPENDENCIES, seed
+from harness import DEFAULT_DEPENDENCIES, seed_plan
 from typer.testing import CliRunner
 
 from machinate.cli import formatting
 from machinate.cli.cli import build_cli
-from machinate.cli.formatting import status_style
 from machinate.cli.models import ErrorResult
 from machinate.cli.project_setup import open_project
-from machinate.models.documents import PlanStatus, TaskStatus
+from machinate.models.documents import PlanStatus
 from machinate.models.operations import StatusUpdate
 
 runner = CliRunner()
@@ -29,16 +28,8 @@ class _Tty(io.StringIO):
 
 @pytest.fixture
 def auth_project(project: Path) -> Path:
-    seed.plan(project, "auth", summary="Authentication", body="# Auth\n\nDetails")
+    seed_plan(project, "auth", summary="Authentication", body="# Auth\n\nDetails")
     return project
-
-
-def test_status_style_covers_known_states() -> None:
-    assert status_style("active") == "green"
-    assert status_style("done") == "blue"
-    assert status_style("todo") == "yellow"
-    assert status_style("in-progress") == "cyan"
-    assert status_style("nonsense") == ""
 
 
 def test_no_color_env_disables_styling(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -61,17 +52,8 @@ def test_no_color_when_not_a_terminal(auth_project: Path, monkeypatch: pytest.Mo
     assert "auth" in result.stdout
 
 
-def test_color_when_terminal(auth_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(formatting, "_is_color_enabled", lambda: True)
-    monkeypatch.chdir(auth_project)
-    result = runner.invoke(app, ["plan", "show", "-p", "auth"], color=True)
-    assert result.exit_code == 0, result.output
-    assert "\x1b[" in result.stdout
-    assert "auth" in ANSI.sub("", result.stdout)
-
-
 def test_plan_list_groups_by_status(auth_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    seed.plan(auth_project, "billing", status="active", summary="Billing")
+    seed_plan(auth_project, "billing", status="active", summary="Billing")
     monkeypatch.chdir(auth_project)
     result = runner.invoke(app, ["plan", "list"])
     assert result.exit_code == 0, result.output
@@ -85,7 +67,7 @@ def test_plan_list_groups_by_status(auth_project: Path, monkeypatch: pytest.Monk
 def test_plan_list_no_group_by_keeps_sort_order(
     auth_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seed.plan(auth_project, "billing", summary="Billing")
+    seed_plan(auth_project, "billing", summary="Billing")
     application = open_project(auth_project)
     application.plans.update("auth", StatusUpdate[PlanStatus](status="active"))
     monkeypatch.chdir(auth_project)
@@ -98,75 +80,25 @@ def test_plan_list_no_group_by_keeps_sort_order(
     assert "active" in out
 
 
-def test_task_list_groups_by_status(auth_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("t1", "t2"):
-        seed.task(auth_project, "auth", name)
-    application = open_project(auth_project)
-    application.tasks.update("auth", "t2", StatusUpdate[TaskStatus](status="in-progress"))
-    monkeypatch.chdir(auth_project)
-    result = runner.invoke(app, ["task", "list", "-p", "auth"])
-    assert result.exit_code == 0, result.output
-    out = result.stdout
-    assert "todo (1)" in out
-    assert "in-progress (1)" in out
-    assert "done (0)" not in out
-
-
-def test_task_list_no_group_by_keeps_sort_order(
-    auth_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    for name in ("t1", "t2"):
-        seed.task(auth_project, "auth", name)
-    application = open_project(auth_project)
-    application.tasks.update("auth", "t2", StatusUpdate[TaskStatus](status="in-progress"))
-    monkeypatch.chdir(auth_project)
-    result = runner.invoke(app, ["task", "list", "-p", "auth", "--no-group"])
-    assert result.exit_code == 0, result.output
-    out = result.stdout
-    assert "todo (1)" not in out
-    assert out.index("t1") < out.index("t2")
-    assert "todo" in out
-    assert "in-progress" in out
-
-
-def test_display_width_follows_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(sys, "stdout", _Tty())
-    monkeypatch.setenv("COLUMNS", "200")
-    monkeypatch.setenv("LINES", "50")
-    assert formatting._display_width() == 200
-
-
-def test_display_width_defaults_when_not_a_terminal() -> None:
-    assert formatting._display_width() == 120
-
-
-def test_shorten_prefers_sentence_boundary() -> None:
-    assert formatting._shorten("First sentence. Second sentence is much longer.", 20) == (
-        "First sentence."
-    )
-
-
-def test_shorten_falls_back_to_word_boundary() -> None:
-    assert formatting._shorten("one two three four five six", 15) == "one two three…"
-
-
-def test_shorten_ignores_distant_sentence_boundary() -> None:
-    assert formatting._shorten("Hi. This is a longer sentence here.", 20) == "Hi. This is a longer…"
-
-
-def test_shorten_without_spaces_cuts_hard() -> None:
-    assert formatting._shorten("abcdefghijklmnop", 8) == "abcdefgh…"
-
-
-def test_shorten_leaves_short_text_untouched() -> None:
-    assert formatting._shorten("already short", 50) == "already short"
+@pytest.mark.parametrize(
+    ("text", "limit", "expected"),
+    [
+        ("First sentence. Second sentence is much longer.", 20, "First sentence."),
+        ("one two three four five six", 15, "one two three…"),
+        ("Hi. This is a longer sentence here.", 20, "Hi. This is a longer…"),
+        ("abcdefghijklmnop", 8, "abcdefgh…"),
+        ("already short", 50, "already short"),
+    ],
+)
+def test_shorten(text: str, limit: int, expected: str) -> None:
+    assert formatting._shorten(text, limit) == expected
 
 
 def test_plan_list_truncates_long_summary(
     auth_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     long_body = "This is a deliberately long summary sentence used to verify truncation. " * 3
-    seed.plan(auth_project, "long", body=long_body)
+    seed_plan(auth_project, "long", body=long_body)
     monkeypatch.chdir(auth_project)
 
     text = runner.invoke(app, ["plan", "list"])

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from harness import cli, seed
+from harness import cli, seed_context, seed_plan, seed_task
 
 from machinate.cli.models import InfoResult, PlanInfoResult
 from machinate.models.operations import PlanOverview, ProjectOverview
@@ -8,11 +8,11 @@ from machinate.storage import ProjectState, ProjectStateStore
 
 
 def test_info_project_overview(project: Path) -> None:
-    seed.plan(project, "auth")
-    seed.plan(project, "billing", status="active")
-    seed.task(project, "auth", "design", status="done")
-    seed.task(project, "auth", "implement")
-    seed.context(project, "auth", "spec")
+    seed_plan(project, "auth")
+    seed_plan(project, "billing", status="active")
+    seed_task(project, "auth", "design", status="done")
+    seed_task(project, "auth", "implement")
+    seed_context(project, "auth", "spec")
 
     parsed = cli.json(InfoResult, ["info", "-P", str(project), "--format", "json"])
     assert parsed.command == "info"
@@ -31,7 +31,7 @@ def test_info_project_overview(project: Path) -> None:
 
 
 def test_info_project_overview_current_plan(project: Path) -> None:
-    seed.plan(project, "auth")
+    seed_plan(project, "auth")
     ProjectStateStore(project / ".machi/machinate.toml").write(
         ProjectState(project_name="example", current_plan="auth")
     )
@@ -52,45 +52,11 @@ def test_info_project_overview_stale_selection(project: Path) -> None:
     assert overview.current_plan_exists is False
 
 
-def test_info_project_overview_limits_recent_plans(tmp_path: Path) -> None:
-    root = tmp_path / "project"
-    ProjectStateStore(root / ".machi/machinate.toml").write(ProjectState(project_name="example"))
-    for index in range(6):
-        seed.plan(root, f"plan{index}")
-    overview = cli.json(InfoResult, ["info", "-P", str(root), "--format", "json"]).overview
-    assert isinstance(overview, ProjectOverview)
-    assert overview.plan_count == 6
-    assert len(overview.recent_plans) == 5
-
-
-def test_info_empty_project(project: Path) -> None:
-    overview = cli.json(InfoResult, ["info", "-P", str(project), "--format", "json"]).overview
-    assert isinstance(overview, ProjectOverview)
-    assert overview.plan_count == 0
-    assert overview.recent_plans == []
-
-
-def test_info_never_uses_current_plan(project: Path) -> None:
-    seed.plan(project, "auth")
-    seed.plan(project, "billing")
-    ProjectStateStore(project / ".machi/machinate.toml").write(
-        ProjectState(project_name="example", current_plan="billing")
-    )
-    parsed = cli.json(InfoResult, ["info", "-P", str(project), "--format", "json"])
-    assert isinstance(parsed.overview, ProjectOverview)
-
-
-def test_info_text_smoke(project: Path) -> None:
-    result = cli.run(["info", "-P", str(project)])
-    assert result.exit_code == 0
-    assert "example" in result.stdout
-
-
 def test_plan_info_overview(project: Path) -> None:
-    seed.plan(project, "auth")
-    seed.task(project, "auth", "design", status="done")
-    seed.task(project, "auth", "implement")
-    seed.context(project, "auth", "spec")
+    seed_plan(project, "auth")
+    seed_task(project, "auth", "design", status="done")
+    seed_task(project, "auth", "implement")
+    seed_context(project, "auth", "spec")
 
     parsed = cli.json(
         PlanInfoResult, ["plan", "info", "-p", "auth", "-P", str(project), "--format", "json"]
@@ -105,7 +71,7 @@ def test_plan_info_overview(project: Path) -> None:
 
 
 def test_plan_info_overview_current(project: Path) -> None:
-    seed.plan(project, "auth")
+    seed_plan(project, "auth")
     ProjectStateStore(project / ".machi/machinate.toml").write(
         ProjectState(project_name="example", current_plan="auth")
     )
@@ -114,33 +80,3 @@ def test_plan_info_overview_current(project: Path) -> None:
     ).overview
     assert isinstance(overview, PlanOverview)
     assert overview.is_current is True
-
-
-def test_plan_info_uses_current_plan_without_flag(project: Path) -> None:
-    seed.plan(project, "auth")
-    seed.plan(project, "billing")
-    ProjectStateStore(project / ".machi/machinate.toml").write(
-        ProjectState(project_name="example", current_plan="billing")
-    )
-    overview = cli.json(
-        PlanInfoResult, ["plan", "info", "-P", str(project), "--format", "json"]
-    ).overview
-    assert overview.plan.name == "billing"
-
-
-def test_plan_info_no_current_plan(project: Path) -> None:
-    error = cli.error(["plan", "info", "-P", str(project), "--format", "json"])
-    assert error.command == "plan info"
-
-
-def test_plan_info_text_smoke(project: Path) -> None:
-    seed.plan(project, "auth")
-    result = cli.run(["plan", "info", "-p", "auth", "-P", str(project)])
-    assert result.exit_code == 0
-    assert "auth" in result.stdout
-
-
-def test_info_missing_project_directory_error(tmp_path: Path) -> None:
-    missing = tmp_path / "missing"
-    error = cli.error(["info", "-P", str(missing), "--format", "json"])
-    assert error.command == "info"

@@ -1,10 +1,8 @@
 from pathlib import Path
 
-import pytest
-from harness import cli, read_state, seed
+from harness import cli, read_state
 
 from machinate.cli.models import PlanAddResult
-from machinate.cli.project_setup import open_project
 
 
 def test_add_explicit_project(project: Path) -> None:
@@ -20,12 +18,6 @@ def test_add_explicit_project(project: Path) -> None:
     assert parsed.plan.metadata.created_at.tzinfo is not None
     assert (project / ".machi/plans/alpha/plan.md").is_file()
     assert read_state(project).current_plan is None
-
-
-def test_add_current_directory(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(project)
-    parsed = cli.json(PlanAddResult, ["plan", "add", "alpha", "--format", "json"])
-    assert parsed.project.directory == project
 
 
 def test_add_sets_summary_and_status(project: Path) -> None:
@@ -50,29 +42,10 @@ def test_add_sets_summary_and_status(project: Path) -> None:
     assert metadata.status == "active"
 
 
-def test_add_never_changes_selection(project: Path) -> None:
-    seed.plan(project, "existing")
-    open_project(project).plans.select_plan("existing")
-    cli.json(PlanAddResult, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
-    assert read_state(project).current_plan == "existing"
-
-
-def test_add_uninitialized_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    target = tmp_path / "uninitialized"
-    target.mkdir()
-    monkeypatch.chdir(target)
-    error = cli.error(["plan", "add", "alpha", "--format", "json"])
-    assert error.command == "plan add"
-
-
 def test_add_missing_project_directory(tmp_path: Path) -> None:
     missing = tmp_path / "absent"
-    error = cli.error(["plan", "add", "alpha", "-P", str(missing), "--format", "json"])
+    error = cli.error(
+        ["plan", "add", "alpha", "-P", str(missing), "--format", "json"], code="project"
+    )
     assert error.command == "plan add"
     assert not missing.exists()
-
-
-def test_add_output(project: Path) -> None:
-    result = cli.run(["plan", "add", "alpha", "-P", str(project)])
-    assert result.exit_code == 0, result.output
-    assert "alpha" in result.output

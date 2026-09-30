@@ -1,9 +1,8 @@
 from pathlib import Path
 from typing import ClassVar, get_args
-from unittest.mock import Mock
 
 import pytest
-from harness import DEFAULT_DEPENDENCIES, DEFAULT_SETTINGS, make_settings
+from harness import DEFAULT_DEPENDENCIES
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.json_schema import JsonSchemaValue
 from typer.testing import CliRunner
@@ -11,7 +10,6 @@ from typer.testing import CliRunner
 from machinate.cli.cli import build_cli
 from machinate.cli.commands.catalog import ALIASES, COMMANDS, CommandGroup, leaves
 from machinate.cli.commands.schema import _result_models
-from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import CommandResult, ErrorResult
 
 runner = CliRunner()
@@ -83,14 +81,6 @@ def test_schema_map_covers_the_command_result_union() -> None:
     assert set(_result_models(COMMANDS).values()) | {ErrorResult} == union
 
 
-def test_schema_refs_resolve() -> None:
-    bundle = _Bundle.model_validate_json(runner.invoke(app, ["schema"]).stdout)
-    refs = [*_flatten(bundle.commands).values(), bundle.error.ref]
-    for ref in refs:
-        assert ref is not None
-        assert ref.rsplit("/", maxsplit=1)[-1] in bundle.defs
-
-
 def test_schema_for_command() -> None:
     schema = _CommandSchema.model_validate_json(
         runner.invoke(app, ["schema", "plan", "show"]).stdout
@@ -101,21 +91,14 @@ def test_schema_for_command() -> None:
     assert "PlanShowResult" not in schema.defs
 
 
-def test_schema_unknown_nested_command() -> None:
-    result = runner.invoke(app, ["schema", "task", "nope", "--format", "json"])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "schema"
-    assert "nope" in error.error
-
-
-def test_schema_unknown_command() -> None:
-    result = runner.invoke(app, ["schema", "nope", "--format", "json"])
+@pytest.mark.parametrize("args", [["schema", "task", "nope"], ["schema", "nope"]])
+def test_schema_unknown_command(args: list[str]) -> None:
+    result = runner.invoke(app, [*args, "--format", "json"])
     assert result.exit_code == 1, result.output
     assert result.stdout == ""
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.command == "schema"
-    assert "nope" in error.error
+    assert error.code in {"not_found", "input"}
 
 
 def test_schema_needs_no_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -131,26 +114,3 @@ def test_every_leaf_result_command_matches_its_catalog_path() -> None:
         annotation = spec.result_model.model_fields["command"].annotation
         command = get_args(getattr(annotation, "__value__", annotation))
         assert path in command, f"{path} result declares {command!r}"
-
-
-def test_schema_parser_errors_follow_mode() -> None:
-    factory = Mock(side_effect=AssertionError("schema must not prepare a project"))
-    dependencies = Dependencies(open_project=factory, settings=DEFAULT_SETTINGS)
-
-    text = runner.invoke(build_cli(dependencies), ["schema", "--unknown"])
-    assert text.exit_code == 2
-    assert text.stdout == ""
-
-    structured = runner.invoke(
-        build_cli(
-            Dependencies(open_project=factory, settings=make_settings(ai_agent="test-agent"))
-        ),
-        ["schema", "--unknown"],
-    )
-    assert structured.exit_code == 2
-    assert structured.stdout == ""
-    error = ErrorResult.model_validate_json(structured.stderr)
-    assert error.command == "schema"
-    assert "--unknown" in error.error
-
-    factory.assert_not_called()

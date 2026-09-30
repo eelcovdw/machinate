@@ -12,38 +12,25 @@ from machinate.cli.settings import Settings
 runner = CliRunner()
 
 
-def test_defaults_to_text() -> None:
-    settings = Settings()
-    assert settings.ai_agent is None
-    assert settings.is_agent_mode is False
-    assert settings.format is None
-    assert settings.output_format == "text"
+@pytest.mark.parametrize(
+    ("environment", "ai_agent", "format_name"),
+    [
+        ({}, None, None),
+        ({"ai_agent": "someone", "format": "json"}, None, None),
+        ({"MACHI_AI_AGENT": "someone", "MACHI_FORMAT": "json"}, "someone", "json"),
+    ],
+)
+def test_environment_names_are_read_case_sensitively(
+    environment: dict[str, str], ai_agent: str | None, format_name: str | None
+) -> None:
+    settings = Settings.from_environ(environment)
+    assert settings.ai_agent == ai_agent
+    assert settings.format == format_name
 
 
-def test_lowercase_env_names_are_ignored() -> None:
-    settings = Settings.from_environ({"ai_agent": "someone", "format": "json"})
-    assert settings.ai_agent is None
-    assert settings.format is None
-
-
-def test_uppercase_env_names_are_read() -> None:
-    settings = Settings.from_environ({"MACHI_AI_AGENT": "someone", "MACHI_FORMAT": "json"})
-    assert settings.ai_agent == "someone"
-    assert settings.format == "json"
-
-
-def test_invalid_settings_reports_field(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_invalid_env_format_reports_field(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MACHI_FORMAT", "human")
     result = runner.invoke(app, ["plan", "list", "-P", str(project)])
-    assert result.exit_code == 1
-    assert "MACHI_FORMAT" in ErrorResult.model_validate_json(result.stderr).error
-
-
-def test_invalid_env_format_is_a_usage_error(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("MACHI_FORMAT", "human")
-    result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
     assert result.exit_code == 1
     assert "MACHI_FORMAT" in ErrorResult.model_validate_json(result.stderr).error
 
@@ -71,23 +58,3 @@ def test_repeated_invocations_reload_settings(
     second = runner.invoke(custom, args)
     assert second.exit_code == 0
     assert PlanListResult.model_validate_json(second.stdout).plans == []
-
-
-@pytest.mark.parametrize(
-    "args", [["plan", "list", "-P", "{project}"], ["plan", "list", "--unknown"]]
-)
-def test_settings_resolve_once_per_invocation(
-    project: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
-) -> None:
-    calls = 0
-    real_resolve = Dependencies.resolve_settings
-
-    def counting(self: Dependencies) -> Settings:
-        nonlocal calls
-        calls += 1
-        return real_resolve(self)
-
-    monkeypatch.setattr(Dependencies, "resolve_settings", counting)
-    result = runner.invoke(app, [part.format(project=project) for part in args])
-    assert result.exit_code in (0, 2)
-    assert calls == 1

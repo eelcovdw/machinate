@@ -1,7 +1,6 @@
 """Plan documents: top-level, status-bearing, with selection and activity."""
 
 from datetime import UTC, datetime
-from pathlib import PurePosixPath
 from typing import override
 
 from pydantic import validate_call
@@ -78,10 +77,6 @@ class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):
     @validate_call
     def get_record(self, name: Name) -> PlanRecord:
         return self._plan_record(self._info(None, name))
-
-    @validate_call
-    def get_path(self, name: Name) -> PurePosixPath:
-        return self._path(None, name)
 
     @validate_call
     def locate(self, name: Name) -> LocatedPath:

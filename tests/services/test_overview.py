@@ -50,7 +50,7 @@ def test_get_plan_overview_counts_and_ignores_malformed(tmp_path: Path) -> None:
                 body="",
             ),
         )
-    overview.contexts.create("alpha", "nested/note", CreateInput())
+    overview.contexts.create_many("alpha", ["nested/note"], CreateInput())
     info = overview.get_plan_overview("alpha")
     assert info.tasks_by_status == {"todo": 2, "in-progress": 1, "done": 1}
     assert info.context_count == 1
@@ -67,9 +67,9 @@ def test_get_project_overview_counts_plans_tasks_contexts_and_docs(tmp_path: Pat
     overview = _overview(tmp_path)
     overview.plans.create("alpha", StatusCreateInput[PlanStatus]())
     overview.plans.create("beta", StatusCreateInput[PlanStatus](status="active"))
-    overview.tasks.create("alpha", "one", StatusCreateInput[TaskStatus](status="done"))
-    overview.contexts.create("alpha", "note", CreateInput())
-    overview.docs.create("guide", CreateInput())
+    overview.tasks.create_many("alpha", ["one"], StatusCreateInput[TaskStatus](status="done"))
+    overview.contexts.create_many("alpha", ["note"], CreateInput())
+    overview.docs.create_many(["guide"], CreateInput())
 
     project = overview.get_project_overview()
     assert project.plan_count == 2
@@ -80,3 +80,12 @@ def test_get_project_overview_counts_plans_tasks_contexts_and_docs(tmp_path: Pat
     assert project.current_plan is None
     assert project.current_plan_exists is None
     assert [plan.name for plan in project.recent_plans] == ["alpha", "beta"]
+
+
+def test_recent_plans_are_limited(tmp_path: Path) -> None:
+    overview = _overview(tmp_path)
+    for index in range(6):
+        overview.plans.create(f"plan{index}", StatusCreateInput[PlanStatus]())
+    project = overview.get_project_overview()
+    assert project.plan_count == 6
+    assert len(project.recent_plans) == 5

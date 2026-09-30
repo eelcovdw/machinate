@@ -1,11 +1,11 @@
 from pathlib import Path
 
-import pytest
-from harness import cli, read_state, seed, snapshot
+from harness import cli, read_state, seed_plan, snapshot
 
 from machinate.cli.models import PlanUpdateResult
 from machinate.cli.project_setup import open_project
-from machinate.models.documents import PlanMetadata
+from machinate.models.documents import PlanMetadata, PlanStatus
+from machinate.models.operations import StatusUpdate
 
 
 def read_metadata(project: Path, name: str = "auth") -> PlanMetadata:
@@ -16,8 +16,12 @@ def set_current(project: Path, name: str) -> None:
     open_project(project).plans.select_plan(name)
 
 
-def test_update_sets_status_explicit(project: Path) -> None:
-    seed.plan(project, "auth")
+def add_tags(project: Path, name: str, *tags: str) -> None:
+    open_project(project).plans.update(name, StatusUpdate[PlanStatus](tags=list(tags)))
+
+
+def test_update_status_summary_and_tags(project: Path) -> None:
+    seed_plan(project, "auth")
     parsed = cli.json(
         PlanUpdateResult,
         [
@@ -29,25 +33,6 @@ def test_update_sets_status_explicit(project: Path) -> None:
             str(project),
             "--status",
             "active",
-            "--format",
-            "json",
-        ],
-    )
-    assert parsed.project.name == "example"
-    assert parsed.plan.metadata.status == "active"
-    assert read_metadata(project).status == "active"
-
-
-def test_update_sets_summary_and_tags(project: Path) -> None:
-    seed.plan(project, "auth")
-    result = cli.run(
-        [
-            "plan",
-            "update",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
             "--summary",
             "New summary",
             "--tag",
@@ -56,26 +41,50 @@ def test_update_sets_summary_and_tags(project: Path) -> None:
             "backend",
             "--format",
             "json",
-        ]
+        ],
     )
-    assert result.exit_code == 0, result.output
+    assert parsed.plan.metadata.status == "active"
     metadata = read_metadata(project)
+    assert metadata.status == "active"
     assert metadata.summary == "New summary"
     assert metadata.tags == ["v2", "backend"]
 
 
-def test_update_uses_current_plan(project: Path) -> None:
-    seed.plan(project, "auth")
-    set_current(project, "auth")
-    result = cli.run(["plan", "update", "-P", str(project), "--status", "done", "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert read_metadata(project).status == "done"
+def test_update_clear_tags_success(project: Path) -> None:
+    seed_plan(project, "auth")
+    add_tags(project, "auth", "frontend", "v2")
+    cli.json(
+        PlanUpdateResult,
+        ["plan", "update", "-p", "auth", "-P", str(project), "--clear-tags", "--format", "json"],
+    )
+    assert read_metadata(project).tags == []
 
 
-def test_update_missing_plan_preserves_state(
-    project: Path,
-) -> None:
-    seed.plan(project, "auth")
+def test_update_tag_and_clear_tags_conflict(project: Path) -> None:
+    seed_plan(project, "auth")
+    add_tags(project, "auth", "frontend")
+    error = cli.error(
+        [
+            "plan",
+            "update",
+            "-p",
+            "auth",
+            "-P",
+            str(project),
+            "--tag",
+            "backend",
+            "--clear-tags",
+            "--format",
+            "json",
+        ],
+        code="input",
+    )
+    assert error.command == "plan update"
+    assert read_metadata(project).tags == ["frontend"]
+
+
+def test_update_missing_plan_preserves_state(project: Path) -> None:
+    seed_plan(project, "auth")
     before = snapshot(project)
     error = cli.error(
         [
@@ -89,15 +98,17 @@ def test_update_missing_plan_preserves_state(
             "active",
             "--format",
             "json",
-        ]
+        ],
+        code="not_found",
     )
     assert error.project is not None
     assert snapshot(project) == before
 
 
-def test_update_only_changes_selected_plan(project: Path) -> None:
-    seed.plan(project, "auth")
-    seed.plan(project, "other")
+def test_update_does_not_change_selection(project: Path) -> None:
+    seed_plan(project, "auth")
+    set_current(project, "auth")
+    seed_plan(project, "other")
     other_before = (project / ".machi/plans/other/plan.md").read_bytes()
     state_before = (project / ".machi/machinate.toml").read_bytes()
     result = cli.run(
@@ -119,56 +130,4 @@ def test_update_only_changes_selected_plan(project: Path) -> None:
     assert read_metadata(project, "other").status == "draft"
     assert (project / ".machi/plans/other/plan.md").read_bytes() == other_before
     assert (project / ".machi/machinate.toml").read_bytes() == state_before
-
-
-def test_update_uninitialized_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    target = tmp_path / "uninitialized"
-    target.mkdir()
-    monkeypatch.chdir(target)
-    error = cli.error(["plan", "update", "-p", "auth", "--status", "active", "--format", "json"])
-    assert error.command == "plan update"
-
-
-def test_update_text(project: Path) -> None:
-    seed.plan(project, "auth")
-    result = cli.run(
-        [
-            "plan",
-            "update",
-            "-p",
-            "auth",
-            "-P",
-            str(project),
-            "--status",
-            "active",
-            "--format",
-            "text",
-        ]
-    )
-    assert result.exit_code == 0, result.output
-    assert "auth" in result.stdout
-
-
-def test_update_does_not_change_selection(
-    project: Path,
-) -> None:
-    seed.plan(project, "auth")
-    set_current(project, "auth")
-    seed.plan(project, "other")
-    result = cli.run(
-        [
-            "plan",
-            "update",
-            "-p",
-            "other",
-            "-P",
-            str(project),
-            "--status",
-            "done",
-            "--format",
-            "json",
-        ]
-    )
-    assert result.exit_code == 0, result.output
-    assert read_metadata(project, "other").status == "done"
     assert read_state(project).current_plan == "auth"

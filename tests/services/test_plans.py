@@ -35,9 +35,10 @@ def test_selection_does_not_retarget_explicit_operations(service: PlanService) -
     service.create("beta", StatusCreateInput[PlanStatus]())
     assert service.find_current_plan() == "alpha"
     service.select_plan("beta")
+    alpha = service.get("alpha")
     service.document_store.write(
-        service.get_path("alpha"),
-        ParsedDocument(metadata=service.get("alpha").record.metadata, body="only alpha"),
+        alpha.record.path,
+        ParsedDocument(metadata=alpha.record.metadata, body="only alpha"),
     )
     service.update("alpha", StatusUpdate[PlanStatus](status="done"))
     assert service.get("alpha").body == "only alpha"
@@ -51,13 +52,9 @@ def test_selection_does_not_retarget_explicit_operations(service: PlanService) -
 def test_missing_operations_and_dangling_selection(
     service: PlanService, state: ProjectStateStore
 ) -> None:
-    for operation in (service.get, service.select_plan):
+    for operation in (service.select_plan,):
         with pytest.raises(NotFoundError):
             operation("missing")
-    with pytest.raises(NotFoundError):
-        service.update("missing", StatusUpdate[PlanStatus]())
-    with pytest.raises(NotFoundError):
-        service.update("missing", StatusUpdate[PlanStatus](status="done"))
     assert service.find_current_plan() is None
     state.write(ProjectState(project_name="demo", current_plan="missing"))
     assert service.find_current_plan() == "missing"

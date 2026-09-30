@@ -44,7 +44,8 @@ def test_lone_label_line_is_kept() -> None:
     assert derive_summary("Intro.\n\nTODO: fix the race in write.") == "Intro."
 
 
-def test_summary_is_not_persisted(tmp_path: Path) -> None:
+def test_stored_summary_wins_over_derived(tmp_path: Path) -> None:
+    """A stored summary is persisted and preferred; an unset one stays out of the file."""
     store = DocumentStore(tmp_path)
     store.create(
         "note.md",
@@ -53,21 +54,18 @@ def test_summary_is_not_persisted(tmp_path: Path) -> None:
         ),
     )
     assert "summary" not in (tmp_path / "note.md").read_text()
-    assert store.read("note.md", ContextMetadata).determine_summary() == "Hello"
+    document = store.read("note.md", ContextMetadata)
+    assert document.determine_summary() == "Hello"
 
-
-def test_stored_summary_wins(tmp_path: Path) -> None:
-    (tmp_path / "note.md").write_text(
+    (tmp_path / "stored.md").write_text(
         "---\ncreated_at: 2026-01-01T00:00:00Z\nsummary: Curated\n---\nBody paragraph.\n"
     )
-    document = DocumentStore(tmp_path).read("note.md", ContextMetadata)
+    document = store.read("stored.md", ContextMetadata)
     assert document.metadata.summary == "Curated"
+    assert document.determine_summary() == "Curated"
 
-
-def test_stored_summary_survives_rewrite(tmp_path: Path) -> None:
-    store = DocumentStore(tmp_path)
     store.create(
-        "note.md",
+        "authored.md",
         ParsedDocument(
             metadata=ContextMetadata(
                 created_at=datetime(2026, 1, 1, tzinfo=UTC), summary="Curated"
@@ -75,5 +73,5 @@ def test_stored_summary_survives_rewrite(tmp_path: Path) -> None:
             body="Body paragraph.",
         ),
     )
-    assert "summary: Curated" in (tmp_path / "note.md").read_text()
-    assert store.read("note.md", ContextMetadata).metadata.summary == "Curated"
+    assert "summary: Curated" in (tmp_path / "authored.md").read_text()
+    assert store.read("authored.md", ContextMetadata).metadata.summary == "Curated"

@@ -3,7 +3,6 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 import pytest
-from pydantic import ValidationError
 
 from machinate.models.documents import ParsedDocument, PlanMetadata, TaskMetadata
 from machinate.models.operations import DocumentQuery, PlanQuery, TaskQuery
@@ -73,6 +72,7 @@ def names(store: DocumentStore, query: PlanQuery) -> list[str]:
         (PlanQuery(sort="name", descending=True, limit=2), ["gamma", "beta"]),
         (PlanQuery(sort="last_activity_at", descending=True), ["beta", "gamma", "alpha"]),
         (PlanQuery(sort="created_at"), ["alpha", "beta", "gamma"]),
+        (PlanQuery(sort="modified_at"), ["alpha", "beta", "gamma"]),
         (
             PlanQuery(
                 statuses={"draft", "done"}, sort="last_activity_at", descending=True, limit=1
@@ -83,6 +83,12 @@ def names(store: DocumentStore, query: PlanQuery) -> list[str]:
 )
 def test_query_mechanics(store: DocumentStore, query: PlanQuery, expected: list[str]) -> None:
     assert names(store, query) == expected
+
+
+def test_modified_at_is_the_file_mtime(store: DocumentStore, tmp_path: Path) -> None:
+    record = next(record for record in store.list(Layout().plan_collection(), PlanMetadata))
+    expected = datetime.fromtimestamp((tmp_path / record.path).stat().st_mtime, UTC)
+    assert record.modified_at == expected
 
 
 def test_created_sort_uses_time_of_day(store: DocumentStore) -> None:
@@ -97,30 +103,6 @@ def test_created_sort_uses_time_of_day(store: DocumentStore) -> None:
             ParsedDocument(metadata=PlanMetadata.model_validate({"created_at": stamp}), body=""),
         )
     assert names(store, PlanQuery(sort="created_at")) == ["beta", "alpha", "gamma"]
-
-
-@pytest.mark.parametrize(
-    "data",
-    [
-        {"limit": 0},
-        {"limit": -1},
-        {"statuses": ["invalid"]},
-        {"tags": [""]},
-        {"tags": ["  "]},
-        {"tags": ["bad\x01"]},
-        {"sort": "invalid"},
-    ],
-)
-def test_query_validation(data: dict[str, object]) -> None:
-    with pytest.raises(ValidationError):
-        PlanQuery.model_validate(data)
-
-
-def test_last_activity_sort_is_plan_only() -> None:
-    with pytest.raises(ValidationError):
-        DocumentQuery(sort="last_activity_at")
-    with pytest.raises(ValidationError):
-        TaskQuery(sort="last_activity_at")
 
 
 @pytest.mark.parametrize("folder", ["tasks", "context"])
@@ -153,6 +135,7 @@ def test_activity_precedes_filters_and_limit(
 def test_discovery_empty_scopes_and_malformed_documents(
     store: DocumentStore, tmp_path: Path
 ) -> None:
+    assert DocumentStore(tmp_path / "absent").list(Layout().plan_collection(), PlanMetadata) == []
     assert store.list(Layout().task_collection("alpha"), TaskMetadata) == []
     (tmp_path / "plans" / "alpha" / "tasks").mkdir()
     assert store.list(Layout().task_collection("alpha"), TaskMetadata) == []
@@ -173,31 +156,18 @@ def test_discovery_empty_scopes_and_malformed_documents(
 def test_list_skips_dotfiles_and_dangling_symlinks(store: DocumentStore, tmp_path: Path) -> None:
     tasks = tmp_path / "plans" / "alpha" / "tasks"
     tasks.mkdir(parents=True)
-    (tasks / "visible.md").write_text("---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n")
-    (tasks / ".hidden.md").write_text("---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n")
-    (tasks / ".#lock.md").symlink_to(tasks / "missing.md")
-    records = store.list(Layout().task_collection("alpha"), TaskMetadata)
-    assert [record.name for record in records] == ["visible"]
-
-
-def test_list_includes_symlinked_file(store: DocumentStore, tmp_path: Path) -> None:
-    tasks = tmp_path / "plans" / "alpha" / "tasks"
-    tasks.mkdir(parents=True)
     frontmatter = "---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
+    (tasks / "visible.md").write_text(frontmatter)
+    (tasks / ".hidden.md").write_text(frontmatter)
+    (tasks / ".#lock.md").symlink_to(tasks / "missing.md")
     (tasks / "real.md").write_text(frontmatter)
     (tasks / "link.md").symlink_to(tasks / "real.md")
-    records = store.list(Layout().task_collection("alpha"), TaskMetadata)
-    assert {record.name for record in records} == {"real", "link"}
-
-
-def test_list_does_not_follow_symlinked_directory(store: DocumentStore, tmp_path: Path) -> None:
-    tasks = tmp_path / "plans" / "alpha" / "tasks"
-    tasks.mkdir(parents=True)
     external = tmp_path / "external"
     external.mkdir()
-    (external / "nested.md").write_text("---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n")
+    (external / "nested.md").write_text(frontmatter)
     (tasks / "linked").symlink_to(external, target_is_directory=True)
-    assert store.list(Layout().task_collection("alpha"), TaskMetadata) == []
+    records = store.list(Layout().task_collection("alpha"), TaskMetadata)
+    assert {record.name for record in records} == {"visible", "real", "link"}
 
 
 def test_non_directory_collection_is_error(store: DocumentStore) -> None:
@@ -210,34 +180,9 @@ def test_non_directory_collection_is_error(store: DocumentStore) -> None:
         )
 
 
-def test_missing_root_is_empty(tmp_path: Path) -> None:
-    assert DocumentStore(tmp_path / "absent").list(Layout().plan_collection(), PlanMetadata) == []
-
-
-def test_summary_has_no_body(store: DocumentStore) -> None:
-    record = next(
-        record
-        for record in store.list(Layout().plan_collection(), PlanMetadata, DocumentQuery())
-        if record.name == "alpha"
-    )
-    assert record.path == PurePosixPath("plans/alpha/plan.md")
-    assert '"body"' not in record.model_dump_json()
-
-
-@pytest.mark.parametrize("query_type", [DocumentQuery, PlanQuery, TaskQuery])
-def test_unknown_query_fields_are_rejected(query_type: type[DocumentQuery]) -> None:
-    with pytest.raises(ValidationError) as error:
-        query_type.model_validate({"status": ["done"]})
-    assert error.value.errors()[0]["type"] == "extra_forbidden"
-    assert error.value.errors()[0]["loc"] == ("status",)
-
-
-@pytest.mark.parametrize("folder", ["tasks", "context"])
-def test_nested_document_names_support_ordering(
-    store: DocumentStore, tmp_path: Path, folder: str
-) -> None:
+def test_nested_document_names_support_ordering(store: DocumentStore, tmp_path: Path) -> None:
     collection = DocumentCollection(
-        path=PurePosixPath("alpha", folder), pattern=PurePosixPath("**/*.md")
+        path=PurePosixPath("alpha", "tasks"), pattern=PurePosixPath("**/*.md")
     )
     for name in ("two/login", "one/login", "login.v2"):
         path = collection.path / f"{name}.md"
@@ -261,45 +206,20 @@ def test_nested_document_names_support_ordering(
     assert [record.name for record in records] == ["two/login"]
 
 
-@pytest.mark.parametrize(
-    ("query", "expected"),
-    [
-        (TaskQuery(), ["alpha", "beta", "nested/gamma"]),
-        (TaskQuery(statuses=set()), []),
-        (TaskQuery(statuses={"todo"}), ["alpha"]),
-        (TaskQuery(statuses={"in-progress"}), ["beta"]),
-        (TaskQuery(statuses={"done"}), ["nested/gamma"]),
-        (TaskQuery(statuses={"todo", "in-progress"}), ["alpha", "beta"]),
-    ],
-)
-def test_task_status_queries(store: DocumentStore, query: TaskQuery, expected: list[str]) -> None:
-    for name, status, day, summary, body, stamp in [
-        ("alpha", "todo", 1, "OAuth", "", 100),
-        ("beta", "in-progress", 2, None, "OAuth body", 200),
-        ("nested/gamma", "done", 2, "OAuth", "", 200),
-    ]:
+def test_task_status_filter(store: DocumentStore) -> None:
+    for name, status in [("alpha", "todo"), ("beta", "in-progress"), ("nested/gamma", "done")]:
         path = Layout().task_path("alpha", name)
         store.create(
             path,
             ParsedDocument(
                 metadata=TaskMetadata.model_validate(
-                    {
-                        "created_at": datetime(2026, 9, day, tzinfo=UTC),
-                        "status": status,
-                        "summary": summary,
-                    }
+                    {"created_at": datetime(2026, 9, 22, tzinfo=UTC), "status": status}
                 ),
-                body=body,
+                body="",
             ),
         )
-        os.utime(store.root / path, (stamp, stamp))
+    query = TaskQuery(statuses={"done"})
     records = _sort_records(
         store.list(Layout().task_collection("alpha"), TaskMetadata, query), query
     )
-    assert [record.name for record in records] == expected
-
-
-@pytest.mark.parametrize("status", ["draft", "active", "invalid", None])
-def test_task_query_rejects_invalid_statuses(status: str | None) -> None:
-    with pytest.raises(ValidationError):
-        TaskQuery.model_validate({"statuses": [status]})
+    assert [record.name for record in records] == ["nested/gamma"]

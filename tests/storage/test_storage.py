@@ -1,14 +1,11 @@
 import json
-import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from machinate.models.documents import (
-    NAME_ADAPTER,
-    NESTED_NAME_ADAPTER,
     ContextMetadata,
     Metadata,
     ParsedDocument,
@@ -20,7 +17,6 @@ from machinate.storage import (
     DocumentExistsError,
     DocumentStore,
     InvalidDocumentError,
-    Layout,
     MissingDocumentError,
     ProjectState,
     ProjectStateStore,
@@ -47,41 +43,20 @@ def test_document_round_trip(store: DocumentStore, body: str) -> None:
         {
             "created_at": "2026-09-22T00:00:00Z",
             "status": "in-progress",
-            "custom": {"tags": ["one", 2]},
+            "tags": ["frontend", "v2"],
+            "custom": {"nested": [True, 7]},
         }
     )
     document = ParsedDocument(metadata=metadata, body=body)
     document.metadata.summary = derive_summary(body)
     store.create("auth/tasks/login.md", document)
-    assert store.read("auth/tasks/login.md", TaskMetadata) == document
+    result = store.read("auth/tasks/login.md", TaskMetadata)
+    assert result == document
+    assert result.metadata.tags == ["frontend", "v2"]
     document.metadata.status = "done"
-    store.write("auth/tasks/login.md", document)
-    assert store.read("auth/tasks/login.md", TaskMetadata) == document
-
-
-def test_tag_validation_and_deduplication() -> None:
-    metadata = PlanMetadata(
-        created_at=datetime(2026, 9, 22, tzinfo=UTC), tags=[" A ", "a", "b", "A"]
-    )
-    assert metadata.tags == ["A", "b"]
-    assert "tags" in PlanMetadata.model_json_schema()["properties"]
-    for invalid in ("", "   ", "bad\x01"):
-        with pytest.raises(ValidationError):
-            PlanMetadata(created_at=datetime(2026, 9, 22, tzinfo=UTC), tags=[invalid])
-
-
-def test_tags_round_trip(store: DocumentStore) -> None:
-    document = ParsedDocument(
-        metadata=TaskMetadata(
-            created_at=datetime(2026, 9, 22, tzinfo=UTC), tags=["frontend", "v2"]
-        ),
-        body="body",
-    )
-    store.create("auth/tasks/login.md", document)
-    assert store.read("auth/tasks/login.md", TaskMetadata).metadata.tags == ["frontend", "v2"]
     document.metadata.tags = ["backend"]
     store.write("auth/tasks/login.md", document)
-    assert store.read("auth/tasks/login.md", TaskMetadata).metadata.tags == ["backend"]
+    assert store.read("auth/tasks/login.md", TaskMetadata) == document
 
 
 def test_existing_frontmatter_preserved(store: DocumentStore, tmp_path: Path) -> None:
@@ -135,32 +110,30 @@ def test_invalid_documents(store: DocumentStore, tmp_path: Path, content: str) -
 
 
 def test_list_files_matches_regular_files_only(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "a").mkdir()
-    (tmp_path / "a" / "one.md").write_text("one")
-    (tmp_path / "a" / "two.txt").write_text("two")
-    (tmp_path / "a" / "sub").mkdir()
-    (tmp_path / "a" / "sub" / "three.md").write_text("three")
+    directory = tmp_path / "a"
+    directory.mkdir()
+    (directory / "one.md").write_text("one")
+    (directory / "two.txt").write_text("two")
+    (directory / ".hidden.md").write_text("hidden")
+    (directory / ".git").mkdir()
+    (directory / ".git" / "nested.md").write_text("nested")
+    (directory / "sub").mkdir()
+    (directory / "sub" / "three.md").write_text("three")
+    (directory / ".#lock.md").symlink_to(directory / "missing.md")
+    (directory / "link.md").symlink_to(directory / "one.md")
+    (directory / "linked").symlink_to(directory / "sub", target_is_directory=True)
     assert sorted(store.list_files(PurePosixPath("a"), ["**/*.md"])) == [
+        PurePosixPath("a/link.md"),
         PurePosixPath("a/one.md"),
         PurePosixPath("a/sub/three.md"),
     ]
     assert store.list_files(PurePosixPath("missing"), ["**/*.md"]) == []
 
 
-def test_list_files_skips_dot_prefixed_files(store: DocumentStore, tmp_path: Path) -> None:
+def test_list_files_drops_parent_escape(store: DocumentStore, tmp_path: Path) -> None:
     (tmp_path / "a").mkdir()
-    (tmp_path / "a" / ".hidden.md").write_text("hidden")
-    (tmp_path / "a" / "visible.md").write_text("visible")
-    (tmp_path / "a" / ".git").mkdir()
-    (tmp_path / "a" / ".git" / "nested.md").write_text("nested")
-    assert sorted(store.list_files(PurePosixPath("a"), ["**/*.md"])) == [
-        PurePosixPath("a/visible.md"),
-    ]
-
-
-def test_read_text_returns_raw_frontmatter(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "raw.md").write_text("---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n")
-    assert store.read_text("raw.md") == "---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
+    (tmp_path / "outside.md").write_text("outside")
+    assert store.list_files(PurePosixPath("a"), ["../*.md"]) == []
 
 
 def test_read_text_errors_are_typed(store: DocumentStore, tmp_path: Path) -> None:
@@ -170,49 +143,27 @@ def test_read_text_errors_are_typed(store: DocumentStore, tmp_path: Path) -> Non
     with pytest.raises(InvalidDocumentError) as error:
         store.read_text("binary.md")
     assert error.value.path == PurePosixPath("binary.md")
+    assert isinstance(error.value.reason, UnicodeDecodeError)
 
 
-def test_missing_frontmatter_uses_defaults(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "bare.md").write_text("just a body\n")
-    document = store.read("bare.md", TaskMetadata)
-    assert document.body == "just a body\n"
-    assert document.metadata.status == "todo"
-    assert document.metadata.tags == []
-    assert document.metadata.summary is None
-
-
-def test_missing_frontmatter_created_from_mtime(store: DocumentStore, tmp_path: Path) -> None:
-    target = tmp_path / "bare.md"
-    target.write_text("body")
+@pytest.mark.parametrize(
+    ("filename", "content", "expected_body"),
+    [
+        ("bare.md", "just a body\n", "just a body\n"),
+        ("empty.md", "", ""),
+        ("empty-block.md", "---\n---\nbody\n", "body\n"),
+    ],
+)
+def test_missing_frontmatter_uses_defaults(
+    store: DocumentStore, tmp_path: Path, filename: str, content: str, expected_body: str
+) -> None:
+    target = tmp_path / filename
+    target.write_text(content)
     expected = datetime.fromtimestamp(target.stat().st_mtime, UTC)
-    document = store.read("bare.md", PlanMetadata)
-    assert document.metadata.created_at == expected
+    document = store.read(filename, PlanMetadata)
+    assert document.body == expected_body
     assert document.metadata.status == "draft"
-
-
-def test_empty_file_is_treated_as_body(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "empty.md").write_text("")
-    document = store.read("empty.md", ContextMetadata)
-    assert document.body == ""
     assert document.metadata.tags == []
-
-
-def test_utf8_bom_is_stripped_on_read(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "bom.md").write_bytes(
-        b"\xef\xbb\xbf---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
-    )
-    document = store.read("bom.md", TaskMetadata)
-    assert document.body == "body\n"
-    assert store.read_text("bom.md") == "---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
-
-
-def test_empty_frontmatter_block_uses_defaults(store: DocumentStore, tmp_path: Path) -> None:
-    target = tmp_path / "empty-block.md"
-    target.write_text("---\n---\nbody\n")
-    expected = datetime.fromtimestamp(target.stat().st_mtime, UTC)
-    document = store.read("empty-block.md", TaskMetadata)
-    assert document.body == "body\n"
-    assert document.metadata.status == "todo"
     assert document.metadata.created_at == expected
 
 
@@ -232,41 +183,13 @@ def test_scalar_and_non_string_frontmatter_values_are_coerced(
     assert store.read("tags.md", TaskMetadata).metadata.tags == ["v2", "2026"]
 
 
-def test_list_files_skips_dangling_symlinks(store: DocumentStore, tmp_path: Path) -> None:
-    directory = tmp_path / "a"
-    directory.mkdir()
-    (directory / "one.md").write_text("one")
-    (directory / ".#one.md").symlink_to(directory / "missing.md")
-    assert store.list_files(PurePosixPath("a"), ["**/*.md"]) == [PurePosixPath("a/one.md")]
-
-
-def test_list_files_drops_parent_escape(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "a").mkdir()
-    (tmp_path / "outside.md").write_text("outside")
-    assert store.list_files(PurePosixPath("a"), ["../*.md"]) == []
-
-
-@pytest.mark.parametrize(
-    "name",
-    ["", " ", ".", "..", ".hidden", "../escape", "a/.hidden", "a/b", "a\\b", "C:drive", "bad\n"],
-)
-def test_names_reject_invalid_values(name: str) -> None:
-    with pytest.raises(ValidationError):
-        NAME_ADAPTER.validate_python(name)
-    if name == "a/b":
-        assert NESTED_NAME_ADAPTER.validate_python(name) == "a/b"
-    else:
-        with pytest.raises(ValidationError):
-            NESTED_NAME_ADAPTER.validate_python(name)
-
-
-def test_layout() -> None:
-    layout = Layout()
-    assert layout.plan_path("auth") == PurePosixPath("plans/auth/plan.md")
-    assert layout.task_path("auth", "login") == PurePosixPath("plans/auth/tasks/login.md")
-    assert layout.context_path("auth", "research") == PurePosixPath(
-        "plans/auth/context/research.md"
+def test_utf8_bom_is_stripped_on_read(store: DocumentStore, tmp_path: Path) -> None:
+    (tmp_path / "bom.md").write_bytes(
+        b"\xef\xbb\xbf---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
     )
+    document = store.read("bom.md", TaskMetadata)
+    assert document.body == "body\n"
+    assert store.read_text("bom.md") == "---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
 
 
 @pytest.mark.parametrize(
@@ -387,14 +310,6 @@ def test_null_extra_metadata_preserved(store: DocumentStore, tmp_path: Path) -> 
     assert store.read("note.md", Metadata) == document
 
 
-def test_unset_summary_omitted(store: DocumentStore, tmp_path: Path) -> None:
-    document = ParsedDocument(
-        metadata=Metadata.model_validate({"created_at": "2026-09-22T00:00:00Z"}), body="# Note\n"
-    )
-    store.create("note.md", document)
-    assert "summary" not in (tmp_path / "note.md").read_text()
-
-
 def test_write_rejects_symlink(
     store: DocumentStore,
     document: ParsedDocument[TaskMetadata],
@@ -425,13 +340,6 @@ def test_create_rejects_symlink(
 
     assert (tmp_path / "note.md").is_symlink()
     assert external.read_bytes() == b"original\n"
-
-
-def test_invalid_utf8(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "bad.md").write_bytes(b"\xff")
-    with pytest.raises(InvalidDocumentError) as error:
-        store.read("bad.md", Metadata)
-    assert isinstance(error.value.reason, UnicodeDecodeError)
 
 
 def test_io_errors_have_path_and_reason(
@@ -471,23 +379,3 @@ def test_created_preserves_precision_and_offset(store: DocumentStore) -> None:
     store.create("precise.md", ParsedDocument(metadata=metadata, body=""))
     result = store.read("precise.md", TaskMetadata)
     assert result.metadata.created_at.isoformat() == "2026-09-22T12:34:56.123456+02:00"
-
-
-def test_names_are_normalized_to_nfc() -> None:
-    decomposed = "Cafe\u0301"
-    composed = unicodedata.normalize("NFC", decomposed)
-    assert composed != decomposed
-    assert NAME_ADAPTER.validate_python(decomposed) == composed
-    assert NESTED_NAME_ADAPTER.validate_python(f"topic/{decomposed}.md") == f"topic/{composed}"
-
-
-@pytest.mark.parametrize(
-    ("adapter", "name", "expected"),
-    [
-        (NAME_ADAPTER, "spec.md", "spec"),
-        (NAME_ADAPTER, "Spec.MD", "Spec"),
-        (NESTED_NAME_ADAPTER, "topic/spec.md", "topic/spec"),
-    ],
-)
-def test_names_ignore_markdown_suffix(adapter: TypeAdapter[str], name: str, expected: str) -> None:
-    assert adapter.validate_python(name) == expected

@@ -1,7 +1,6 @@
 """Context documents: plan-scoped, no status, nested names."""
 
 from datetime import UTC, datetime
-from pathlib import PurePosixPath
 from typing import override
 
 from pydantic import validate_call
@@ -46,12 +45,6 @@ class ContextService(DocumentService[ContextMetadata]):
         )
 
     @validate_call
-    def create(
-        self, plan: Name, name: NestedName, create: CreateInput
-    ) -> LoadedDocument[ContextMetadata]:
-        return self._create(plan, name, create)
-
-    @validate_call
     def create_many(
         self, plan: Name, names: list[str], create: CreateInput
     ) -> BatchCreated[DocumentRecord[ContextMetadata]]:
@@ -64,10 +57,6 @@ class ContextService(DocumentService[ContextMetadata]):
     @validate_call
     def get_record(self, plan: Name, name: NestedName) -> DocumentRecord[ContextMetadata]:
         return self._info(plan, name)
-
-    @validate_call
-    def get_path(self, plan: Name, name: NestedName) -> PurePosixPath:
-        return self._path(plan, name)
 
     @validate_call
     def locate(self, plan: Name, name: NestedName | None = None) -> LocatedPath:
