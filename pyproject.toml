@@ -1,25 +1,37 @@
 [project]
 name = "machinate"
 version = "0.1.0"
-description = "Add your description here"
+description = "File-based project planning CLI for coding agents."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Eelco van der Wel", email = "eelcovdw@gmail.com" }
 ]
 requires-python = ">=3.14"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Documentation",
+]
 dependencies = [
+    # Direct click use: cli.py subclasses Group/Command and catches NoArgsIsHelpError.
     "click>=8.3.1,<9",
     "pydantic>=2.12.5",
-    "pydantic-settings>=2.12.0",
     "rich>=14.3.2",
+    # Pinned because the round-trip/composer API moved across ruamel 0.18.x.
     "ruamel-yaml>=0.18.16,<0.19",
-    "tantivy>=0.26.2",
+    # Tantivy 0.x: parse_query keyword arguments changed in older minors; tested through 0.26.
+    "tantivy>=0.26.2,<0.27",
     "tomli-w>=1.2.0",
-    "tomlkit>=0.13.3,<0.15",
     # Typer 0.26+ vendors Click
     "typer>=0.23.1,<0.26",
-    "wcmatch>=11.0.1",
 ]
+
+[project.urls]
+Repository = "https://github.com/eelcovdw/machinate"
+Issues = "https://github.com/eelcovdw/machinate/issues"
 
 [project.scripts]
 machinate = "machinate.cli.cli:app"
@@ -43,14 +55,8 @@ line-length = 100
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "G004",   # f-string in comment
     "COM812", # missing-trailing-comma
     "CPY001", # Missing copyright notice at top of file
-    "D100",   # Missing docstring in public module
-    "D104",   # Missing docstring in public package
-    "D203",   # blank line required before class docstring
-    "D211",   # no-blank-line-before-class
-    "D213",   # multi-line-summary-second-line
     "EM101",  # raw-string-in-exception
     "FIX002", # line-contains-todo
     "ISC001", # Conflicts with formatter ruff
@@ -61,12 +67,15 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"src/machinate/cli/commands/*.py" = [
+    "PLR0913", # Explicit typer signatures; one parameter per CLI option
+]
 "src/machinate/cli/**/*.py" = [
     "FBT",     # Boolean positional args are fine for typer CLI flags
     "PLC0415", # Imports are deferred inside functions to keep CLI startup fast
 ]
 "src/machinate/storage/document_store.py" = [
-    "PLC0415", # YAML/glob imports deferred so listing plans avoids ruamel/wcmatch
+    "PLC0415", # ruamel.yaml is imported lazily so listing plans avoids it
 ]
 "tests/*.py" = [
     "INP001",  # implicit namespace package
@@ -88,4 +97,14 @@ reportUnusedCallResult = false
 root = "tests"
 reportPrivateUsage = false
 
+[[tool.basedpyright.executionEnvironments]]
+# The eval runner reads argparse Namespace and pi JSON, so values are untyped.
+root = "evals"
+reportAny = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportImplicitStringConcatenation = false
+
 [tool.pytest.ini_options]
+filterwarnings = ["error"]
+pythonpath = ["tests"]

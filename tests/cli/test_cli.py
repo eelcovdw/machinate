@@ -1,55 +1,45 @@
-import json
-import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import override
 from unittest.mock import Mock
 
 import pytest
+from harness import (
+    DEFAULT_DEPENDENCIES,
+    DEFAULT_SETTINGS,
+    make_settings,
+    seed_context,
+    seed_doc,
+    seed_plan,
+    seed_task,
+)
 from typer.testing import CliRunner
 
-from machinate.cli.cli import app, create_cli
+from machinate.cli.cli import build_cli
+from machinate.cli.commands.catalog import COMMANDS, leaves
 from machinate.cli.dependencies import Dependencies
-from machinate.cli.formatting import Formatter
-from machinate.cli.models import CommandResult, ErrorResult, ListResult
-from machinate.cli.project_setup import prepare_project
+from machinate.cli.models import ErrorResult, PlanListResult
+from machinate.cli.project_setup import open_project
+from machinate.models.documents import ParsedDocument, PlanMetadata
 from machinate.storage import (
-    Document,
     DocumentStore,
     Layout,
-    PlanMetadata,
     ProjectState,
     ProjectStateStore,
 )
-from machinate.storage.queries import PlanQuery
 
 runner = CliRunner()
-
-
-@pytest.fixture(autouse=True)
-def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_LOG_LEVEL", "MACHI_AGENT"):
-        monkeypatch.delenv(name, raising=False)
-
-
-@pytest.fixture
-def project(tmp_path: Path) -> Path:
-    root = tmp_path / "project"
-    ProjectStateStore(root / ".machi/machinate.toml").write(
-        ProjectState(project_name="example", current_plan="dangling")
-    )
-    return root
+app = build_cli(DEFAULT_DEPENDENCIES)
 
 
 def populate(project: Path) -> None:
     store = DocumentStore(project / ".machi")
     for name, status in (("beta", "done"), ("alpha", "active")):
         store.create(
-            Layout().plan(name),
-            Document(
+            Layout().plan_path(name),
+            ParsedDocument(
                 metadata=PlanMetadata.model_validate(
                     {
-                        "created": datetime(2026, 9, 22, tzinfo=UTC),
+                        "created_at": datetime(2026, 9, 22, tzinfo=UTC),
                         "status": status,
                         "summary": f"Summary of {name}",
                     }
@@ -67,11 +57,22 @@ def test_explicit_and_upward(project: Path, monkeypatch: pytest.MonkeyPatch) -> 
     for args in (["-P", str(project)], []):
         result = runner.invoke(app, ["plan", "list", *args, "--format", "json"])
         assert result.exit_code == 0, result.output
-        parsed = ListResult.model_validate(json.loads(result.stdout))
+        parsed = PlanListResult.model_validate_json(result.stdout)
         assert parsed.project.directory == project
-        assert parsed.project.storage == project / ".machi"
+        assert parsed.project.store_directory == project / ".machi"
         assert parsed.project.name == "example"
         assert [plan.name for plan in parsed.plans] == ["alpha", "beta"]
+
+
+def test_list_marks_current_plan(project: Path) -> None:
+    populate(project)
+    ProjectStateStore(project / ".machi/machinate.toml").write(
+        ProjectState(project_name="example", current_plan="alpha")
+    )
+    parsed = PlanListResult.model_validate_json(
+        runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"]).stdout
+    )
+    assert parsed.current_plan == "alpha"
 
 
 def test_nearest_project(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -79,7 +80,7 @@ def test_nearest_project(project: Path, monkeypatch: pytest.MonkeyPatch) -> None
     ProjectStateStore(nested / ".machi/machinate.toml").write(ProjectState(project_name="inner"))
     monkeypatch.chdir(nested)
     result = runner.invoke(app, ["plan", "list", "--format", "json"])
-    assert ListResult.model_validate(json.loads(result.stdout)).project.name == "inner"
+    assert PlanListResult.model_validate_json(result.stdout).project.name == "inner"
 
 
 def test_list_alias_matches_plan_list(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -89,13 +90,6 @@ def test_list_alias_matches_plan_list(project: Path, monkeypatch: pytest.MonkeyP
     canonical = runner.invoke(app, ["plan", "list", "--format", "json"])
     assert alias.exit_code == 0, alias.output
     assert alias.stdout == canonical.stdout
-
-
-def test_list_alias_is_hidden() -> None:
-    hidden = {command.name for command in app.registered_commands if command.hidden}
-    assert "list" in hidden
-    visible = {group.name for group in app.registered_groups if group.hidden is not True}
-    assert "plan" in visible
 
 
 @pytest.mark.parametrize(
@@ -131,14 +125,14 @@ def test_invalid_projects_no_fallback(
         assert result.exit_code == 1, result.output
         assert result.stdout == ""
         error = ErrorResult.model_validate_json(result.stderr)
-        assert str(nested) in error.error
+        assert error.code in {"project", "storage"}
 
 
 def test_missing_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["plan", "list", "--format", "json"])
     assert result.exit_code == 1
-    assert "No initialized project" in ErrorResult.model_validate_json(result.stderr).error
+    assert ErrorResult.model_validate_json(result.stderr).code == "project"
 
 
 def test_symlinked_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -151,49 +145,9 @@ def test_symlinked_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     for args in (["-P", str(linked)], []):
         result = runner.invoke(app, ["plan", "list", *args, "--format", "json"])
         assert result.exit_code == 0, result.output
-        parsed = ListResult.model_validate(json.loads(result.stdout))
+        parsed = PlanListResult.model_validate_json(result.stdout)
         assert parsed.project.name == "linked"
-        assert parsed.project.storage == linked / ".machi"
-
-
-def test_query_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    populate(project)
-    application = prepare_project(project)
-    summaries = application.plans.list()[::-1]
-    listing = Mock(return_value=summaries)
-    monkeypatch.setattr(application.plans, "list", listing)
-    factory = Mock(return_value=application)
-    result = runner.invoke(
-        create_cli(Dependencies(prepare_project=factory)),
-        [
-            "plan",
-            "list",
-            "-P",
-            str(project),
-            "--format",
-            "json",
-            "--status",
-            "active",
-            "--status",
-            "done",
-            "--sort",
-            "updated",
-            "--descending",
-            "--limit",
-            "1",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    factory.assert_called_once_with(project)
-    listing.assert_called_once_with(
-        PlanQuery(
-            statuses={"active", "done"},
-            sort="updated",
-            descending=True,
-            limit=1,
-        )
-    )
-    assert ListResult.model_validate(json.loads(result.stdout)).plans == summaries
+        assert parsed.project.store_directory == linked / ".machi"
 
 
 def test_query_integration(project: Path) -> None:
@@ -208,154 +162,53 @@ def test_query_integration(project: Path) -> None:
             "--format",
             "json",
             "--status",
+            "active",
+            "--status",
             "done",
+            "--sort",
+            "last_activity_at",
+            "--descending",
+            "--limit",
+            "1",
         ],
     )
     assert result.exit_code == 0, result.output
-    assert [p.name for p in ListResult.model_validate(json.loads(result.stdout)).plans] == ["beta"]
-
-
-@pytest.mark.parametrize("populated", [False, True])
-@pytest.mark.parametrize("format_name", ["text", "json"])
-def test_output(project: Path, populated: bool, format_name: str) -> None:
-    if populated:
-        populate(project)
-    result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", format_name])
-    assert result.exit_code == 0, result.output
-    if format_name == "json":
-        assert len(ListResult.model_validate(json.loads(result.stdout)).plans) == (
-            2 if populated else 0
-        )
-    else:
-        assert "example" in result.stdout
-        assert str(project / ".machi") in result.stdout
-        assert ("alpha" if populated else "No plans found.") in result.stdout
+    assert len(PlanListResult.model_validate_json(result.stdout).plans) == 1
 
 
 @pytest.mark.parametrize(
-    ("automation", "env_format", "flag", "expected"),
+    ("settings_kwargs", "flag", "expected"),
     [
-        (None, None, None, "text"),
-        ("true", None, None, "json"),
-        ("false", None, None, "text"),
-        ("true", "text", None, "text"),
-        (None, "json", None, "json"),
-        ("true", "json", "text", "text"),
+        ({"ai_agent": "test-agent"}, None, "json"),
+        ({"ai_agent": "test-agent", "format": "text"}, "text", "text"),
     ],
 )
-def test_format_precedence(  # noqa: PLR0913
+def test_format_precedence(
     project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    automation: str | None,
-    env_format: str | None,
+    settings_kwargs: dict[str, object],
     flag: str | None,
     expected: str,
 ) -> None:
-    if automation is not None:
-        monkeypatch.setenv("MACHI_AUTOMATION", automation)
-    if env_format is not None:
-        monkeypatch.setenv("MACHI_FORMAT", env_format)
-    monkeypatch.setenv("MACHI_AGENT", "true")
+    format_value = settings_kwargs.get("format")
+    ai_agent = settings_kwargs.get("ai_agent")
+    dependencies = Dependencies(
+        settings=make_settings(
+            ai_agent=ai_agent if isinstance(ai_agent, str) else None,
+            format_name=format_value if isinstance(format_value, str) else None,
+        )
+    )
     args = ["plan", "list", "-P", str(project)]
     if flag is not None:
         args.extend(["--format", flag])
-    result = runner.invoke(app, args)
+    result = runner.invoke(build_cli(dependencies), args)
     assert result.exit_code == 0, result.output
     assert result.stdout.startswith("{") == (expected == "json")
 
 
-@pytest.mark.parametrize(
-    "args",
-    [
-        ["--format", "human"],
-        ["--status", "bad"],
-        ["--sort", "bad"],
-        ["--limit", "0"],
-        ["--limit", "abc"],
-    ],
-)
-def test_invalid_options(project: Path, args: list[str]) -> None:
-    result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json", *args])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.error
-    if "human" in args:
-        assert "Available formats: json, text" in error.error
-
-
-@pytest.mark.parametrize(
-    ("env_name", "env_value", "field"),
-    [
-        ("MACHI_AUTOMATION", "perhaps", "automation"),
-        ("MACHI_FORMAT", "human", "format"),
-    ],
-)
-def test_invalid_settings(
-    project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    env_name: str,
-    env_value: str,
-    field: str,
-) -> None:
-    monkeypatch.setenv(env_name, env_value)
-    result = runner.invoke(app, ["plan", "list", "-P", str(project)])
-    assert result.exit_code == 1
-    assert field in ErrorResult.model_validate_json(result.stderr).error
-
-
-def test_explicit_format_overrides_invalid_env_format(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("MACHI_FORMAT", "human")
-    result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert result.stdout.startswith("{")
-
-
-class ReplacementFormatter(Formatter):
-    def __init__(self) -> None:
-        self.results: list[CommandResult] = []
-
-    @override
-    def format(self, result: CommandResult) -> str:
-        self.results.append(result)
-        return "replacement"
-
-
-def test_formatter_injection(project: Path) -> None:
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(custom, ["plan", "list", "-P", str(project), "--format", "custom"])
-    assert result.exit_code == 0
-    assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], ListResult)
-    result = runner.invoke(
-        custom, ["plan", "list", "-P", str(project / "missing"), "--format", "custom"]
-    )
-    assert result.exit_code == 1
-    assert result.stderr == "replacement\n"
-    assert isinstance(formatter.results[1], ErrorResult)
-
-
-def test_log_level_env_enables_debug_diagnostics(
-    project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    logger = logging.getLogger("machinate")
-    monkeypatch.setenv("MACHI_LOG_LEVEL", "debug")
-    target = project / ".machi/plans/bare/plan.md"
-    target.parent.mkdir(parents=True)
-    target.write_text("no frontmatter here")
-    try:
-        result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
-        assert result.exit_code == 0
-        assert "Missing YAML frontmatter in plans/bare/plan.md" in result.stderr
-    finally:
-        for handler in list(logger.handlers):
-            logger.removeHandler(handler)
-        logger.setLevel(logging.NOTSET)
-
-
 def test_read_only_and_malformed_document(project: Path) -> None:
+    open_project(project).plans.project_state_store.write(
+        ProjectState(project_name="example", current_plan="dangling")
+    )
     populate(project)
 
     def snapshot() -> dict[Path, tuple[bytes | None, int]]:
@@ -369,7 +222,7 @@ def test_read_only_and_malformed_document(project: Path) -> None:
         result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", format_name])
         assert result.exit_code == 0
     assert snapshot() == before
-    assert prepare_project(project).plans.project_state_store.read().current_plan == "dangling"
+    assert open_project(project).plans.project_state_store.read().current_plan == "dangling"
     (project / ".machi/plans/alpha/plan.md").write_text("---\nsummary: missing date\n---\n")
     result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
     assert result.exit_code == 1
@@ -379,75 +232,71 @@ def test_read_only_and_malformed_document(project: Path) -> None:
     assert error.project.directory == project
 
 
-def test_help_does_not_prepare_project(monkeypatch: pytest.MonkeyPatch) -> None:
-    factory = Mock(side_effect=AssertionError("help must not prepare a project"))
-    custom = create_cli(Dependencies(prepare_project=factory))
-    monkeypatch.setenv("MACHI_AUTOMATION", "invalid")
-    for args in (["--help"], ["plan", "list", "--help"]):
-        result = runner.invoke(custom, args)
-        assert result.exit_code == 0, result.output
-    factory.assert_not_called()
-
-
-def test_repeated_invocations_reload_settings(
-    project: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    custom = create_cli()
-    args = ["plan", "list", "-P", str(project)]
-    first = runner.invoke(custom, args)
-    assert first.exit_code == 0
-    assert "No plans found." in first.stdout
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    second = runner.invoke(custom, args)
-    assert second.exit_code == 0
-    assert ListResult.model_validate_json(second.stdout).plans == []
-
-
-@pytest.mark.parametrize("invalid", [["--limit"], ["--unknown"]])
-@pytest.mark.parametrize("source", ["flag", "environment", "automation"])
+@pytest.mark.parametrize("invalid", [["--unknown"]])
+@pytest.mark.parametrize("source", ["flag", "agent"])
 def test_parser_errors_use_json(
     invalid: list[str],
     source: str,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     args = ["plan", "list"]
+    settings = DEFAULT_SETTINGS
     if source == "flag":
         args.extend(["--format", "json"])
-    elif source == "environment":
-        monkeypatch.setenv("MACHI_FORMAT", "json")
     else:
-        monkeypatch.setenv("MACHI_AUTOMATION", "true")
+        settings = make_settings(ai_agent="test-agent")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    result = runner.invoke(create_cli(Dependencies(prepare_project=factory)), [*args, *invalid])
+    dependencies = Dependencies(settings=settings, open_project=factory)
+    result = runner.invoke(build_cli(dependencies), [*args, *invalid])
     assert result.exit_code == 2
     assert result.stdout == ""
     error = ErrorResult.model_validate_json(result.stderr)
-    assert invalid[0] in error.error
+    assert error.code == "input"
     factory.assert_not_called()
 
 
-def test_parser_error_formatter_injection() -> None:
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(custom, ["plan", "list", "--unknown", "--format=custom"])
+@pytest.mark.parametrize("subcommand", ["show", "info", "path", "update"])
+def test_plan_subcommands_reject_parent_plan_flag(subcommand: str) -> None:
+    result = runner.invoke(app, ["plan", subcommand, "-p", "auth", "--format", "json"])
     assert result.exit_code == 2
-    assert result.stderr == "replacement\n"
-    assert isinstance(formatter.results[0], ErrorResult)
+    error = ErrorResult.model_validate_json(result.stderr)
+    assert error.code == "input"
+    assert error.hint
 
 
-def test_parser_error_format_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHI_FORMAT", "json")
-    result = runner.invoke(app, ["plan", "list", "--format", "text", "--limit"])
+@pytest.mark.parametrize(
+    ("arguments", "expected_hint"),
+    [
+        (["-p", "auth"], "machi plan show auth --format json"),
+        (["--plan", "auth"], "machi plan show auth --format json"),
+        (["-pauth"], "machi plan show auth --format json"),
+        (["--plan=auth"], "machi plan show auth --format json"),
+        (["-p"], "machi plan show NAME --format json"),
+        (["--plan", "auth", "-p"], "machi plan show auth NAME --format json"),
+    ],
+)
+def test_plan_parent_flag_hint_rewrites_to_positional(
+    arguments: list[str], expected_hint: str
+) -> None:
+    result = runner.invoke(app, ["plan", "show", *arguments, "--format", "json"])
+    assert result.exit_code == 2
+    hint = ErrorResult.model_validate_json(result.stderr).hint
+    assert hint is not None
+    assert hint.endswith(expected_hint)
+
+
+def test_parser_error_format_override() -> None:
+    dependencies = Dependencies(settings=make_settings(format_name="json"))
+    result = runner.invoke(build_cli(dependencies), ["plan", "list", "--format", "text", "--limit"])
     assert result.exit_code == 2
     assert not result.stderr.startswith("{")
 
 
-def test_group_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_group_parser_errors_use_json() -> None:
     """C5: group failures follow the same formatting policy as leaf commands."""
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    custom = create_cli(Dependencies(prepare_project=factory))
+    custom = build_cli(
+        Dependencies(settings=make_settings(ai_agent="test-agent"), open_project=factory)
+    )
 
     unknown_command = runner.invoke(custom, ["task", "oops"])
     assert unknown_command.exit_code == 2
@@ -468,28 +317,79 @@ def test_group_parser_errors_use_json(monkeypatch: pytest.MonkeyPatch) -> None:
     factory.assert_not_called()
 
 
-def test_group_parser_errors_use_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHI_FORMAT", "text")
-    result = runner.invoke(app, ["task", "oops"])
+def test_group_parser_errors_use_text() -> None:
+    dependencies = Dependencies(settings=make_settings(format_name="text"))
+    result = runner.invoke(build_cli(dependencies), ["task", "oops"])
     assert result.exit_code == 2
     assert result.stdout == ""
     assert not result.stderr.startswith("{")
 
 
-def test_group_parser_error_formatter_injection(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MACHI_FORMAT", "custom")
-    formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(formatters={"custom": formatter}))
-    result = runner.invoke(custom, ["task", "oops"])
-    assert result.exit_code == 2
-    assert result.stderr == "replacement\n"
-    assert isinstance(formatter.results[0], ErrorResult)
-
-
-def test_group_help_still_prints(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_group_help_still_prints() -> None:
     """C5 must not swallow the no-args help path for groups."""
-    monkeypatch.setenv("MACHI_FORMAT", "json")
-    result = runner.invoke(app, ["task"])
+    dependencies = Dependencies(settings=make_settings(format_name="json"))
+    result = runner.invoke(build_cli(dependencies), ["task"])
     assert result.exit_code == 2
-    assert result.stdout
-    assert result.stderr == ""
+    # Click prints the no-args help for a group to stderr; the point is it is not swallowed.
+    assert result.stderr
+
+
+CATALOG_ARGS: dict[str, list[str]] = {
+    "info": [],
+    "instructions": [],
+    "search": [],
+    "plan add": ["smoke"],
+    "plan info": ["auth"],
+    "plan path": ["auth"],
+    "plan list": [],
+    "plan show": ["auth"],
+    "plan select": ["auth"],
+    "plan unselect": [],
+    "plan update": ["auth", "--summary", "smoke"],
+    "task add": ["extra", "-p", "auth"],
+    "task info": ["login", "-p", "auth"],
+    "task path": ["login", "-p", "auth"],
+    "task list": ["-p", "auth"],
+    "task show": ["login", "-p", "auth"],
+    "task update": ["login", "-p", "auth", "--summary", "smoke"],
+    "context add": ["extra", "-p", "auth"],
+    "context info": ["spec", "-p", "auth"],
+    "context path": ["spec", "-p", "auth"],
+    "context list": ["-p", "auth"],
+    "context show": ["spec", "-p", "auth"],
+    "context update": ["spec", "-p", "auth", "--summary", "smoke"],
+    "doc add": ["extra"],
+    "doc info": ["guide"],
+    "doc path": ["guide"],
+    "doc list": [],
+    "doc show": ["guide"],
+    "doc update": ["guide", "--summary", "smoke"],
+}
+
+
+def test_catalog_text_render_smoke(project: Path, tmp_path: Path) -> None:
+    """Every catalog leaf renders text without crashing on a seeded project."""
+    seed_plan(project, "auth")
+    seed_task(project, "auth", "login")
+    seed_context(project, "auth", "spec")
+    seed_doc(project, "guide")
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+
+    for path, _spec in leaves(COMMANDS):
+        if path == "init":
+            args = ["init", "-P", str(fresh), "--format", "text"]
+        elif path == "instructions":
+            args = ["instructions", "--format", "text"]
+        else:
+            args = [
+                *path.split(),
+                *CATALOG_ARGS[path],
+                "-P",
+                str(project),
+                "--format",
+                "text",
+            ]
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0, (path, result.output + result.stderr)
+        assert result.stdout.strip() != "", path

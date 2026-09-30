@@ -3,6 +3,8 @@ import sys
 from importlib.metadata import entry_points
 from pathlib import Path
 
+from harness import filtered_environment
+
 
 def test_console_scripts_point_at_app() -> None:
     scripts = {entry.name: entry.value for entry in entry_points(group="console_scripts")}
@@ -18,5 +20,6 @@ def test_console_script_smoke() -> None:
         capture_output=True,
         text=True,
         check=False,
+        env=filtered_environment(),
     )
     assert result.returncode == 0, result.stderr

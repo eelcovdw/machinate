@@ -1,234 +1,98 @@
-import json
-from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
-from typer.testing import CliRunner
+from harness import cli, seed_context, seed_doc, seed_plan, seed_task
 
-from machinate.cli.cli import app, create_cli
-from machinate.cli.dependencies import Dependencies
-from machinate.cli.models import ErrorResult, PathResult
-from machinate.cli.project_setup import prepare_project
-from machinate.storage import (
-    ContextMetadata,
-    PlanMetadata,
-    ProjectState,
-    ProjectStateStore,
-    TaskMetadata,
-)
-
-runner = CliRunner()
+from machinate.cli.models import PathResult
 
 
-@pytest.fixture(autouse=True)
-def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("MACHI_FORMAT", "MACHI_AUTOMATION", "MACHI_AGENT"):
-        monkeypatch.delenv(name, raising=False)
+def seed(project: Path, resource: str, name: str) -> None:
+    if resource == "task":
+        seed_task(project, "auth", name)
+    elif resource == "context":
+        seed_context(project, "auth", name)
+    else:
+        seed_doc(project, name)
 
 
-@pytest.fixture
-def project(tmp_path: Path) -> Path:
-    root = tmp_path / "project"
-    ProjectStateStore(root / ".machi/machinate.toml").write(ProjectState(project_name="example"))
-    prepare_project(root).plans.create(
-        "auth", PlanMetadata(created=datetime(2026, 1, 1, tzinfo=UTC))
-    )
-    return root
+def document_args(resource: str, name: str) -> list[str]:
+    if resource == "doc":
+        return ["doc", "path", name]
+    return [resource, "path", name, "-p", "auth"]
 
 
-def read_state(project: Path) -> ProjectState:
-    return prepare_project(project).plans.project_state_store.read()
-
-
-def seed_task(project: Path, name: str) -> None:
-    prepare_project(project).tasks.create(
-        "auth", name, TaskMetadata(created=datetime(2026, 1, 1, tzinfo=UTC))
-    )
-
-
-def seed_context(project: Path, name: str) -> None:
-    prepare_project(project).contexts.create(
-        "auth", name, ContextMetadata(created=datetime(2026, 1, 1, tzinfo=UTC))
-    )
+def directory_args(resource: str) -> list[str]:
+    if resource == "doc":
+        return ["doc", "path"]
+    return [resource, "path", "-p", "auth"]
 
 
 def test_plan_path_explicit(project: Path) -> None:
-    result = runner.invoke(
-        app, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 0, result.output
-    parsed = PathResult.model_validate(json.loads(result.stdout))
+    seed_plan(project, "auth")
+    parsed = cli.json(PathResult, ["plan", "path", "auth", "-P", str(project), "--format", "json"])
     assert parsed.command == "plan path"
     assert parsed.project.name == "example"
-    assert parsed.project.storage == project / ".machi"
-    assert parsed.plan == "auth"
-    assert parsed.path == project / ".machi/plans/auth/plan.md"
+    assert parsed.project.store_directory == project / ".machi"
+    assert parsed.plan_name == "auth"
+    assert parsed.absolute_path == project / ".machi/plans/auth/plan.md"
     assert parsed.kind == "plan"
-    assert parsed.exists is True
-    assert read_state(project).current_plan is None
+    assert parsed.exists is None
 
 
-def test_plan_path_text_is_bare_path(project: Path) -> None:
-    result = runner.invoke(app, ["plan", "path", "-p", "auth", "-P", str(project)])
-    assert result.exit_code == 0, result.output
-    assert result.stdout == f"{project / '.machi/plans/auth/plan.md'}\n"
-
-
-def test_plan_path_current_plan(project: Path) -> None:
-    prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(app, ["plan", "path", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert PathResult.model_validate(json.loads(result.stdout)).plan == "auth"
-
-
-def test_plan_path_does_not_change_selection(project: Path) -> None:
-    prepare_project(project).plans.set_current("auth")
-    result = runner.invoke(
-        app, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"]
+@pytest.mark.parametrize(
+    ("resource", "name", "kind", "relative"),
+    [
+        ("task", "login", "task", ".machi/plans/auth/tasks/login.md"),
+        ("context", "spec", "context", ".machi/plans/auth/context/spec.md"),
+        ("doc", "guide", "doc", ".machi/docs/guide.md"),
+    ],
+)
+def test_document_paths(project: Path, resource: str, name: str, kind: str, relative: str) -> None:
+    seed_plan(project, "auth")
+    seed(project, resource, name)
+    parsed = cli.json(
+        PathResult, [*document_args(resource, name), "-P", str(project), "--format", "json"]
     )
-    assert result.exit_code == 0, result.output
-    assert read_state(project).current_plan == "auth"
+    assert parsed.kind == kind
+    assert parsed.absolute_path == project / relative
+    assert parsed.exists is None
 
 
-def test_plan_path_automation_requires_plan(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    prepare_project(project).plans.set_current("auth")
-    monkeypatch.setenv("MACHI_AUTOMATION", "true")
-    result = runner.invoke(app, ["plan", "path", "-P", str(project)])
-    assert result.exit_code == 1, result.output
-    error = ErrorResult.model_validate_json(result.stderr)
-    assert error.command == "plan path"
-    assert "Automation mode requires an explicit plan" in error.error
-
-
-def test_plan_path_no_current_plan(project: Path) -> None:
-    result = runner.invoke(app, ["plan", "path", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 1, result.output
-    assert "No current plan is selected" in ErrorResult.model_validate_json(result.stderr).error
-
-
-def test_task_path_document(project: Path) -> None:
-    seed_task(project, "login")
-    result = runner.invoke(
-        app, ["task", "path", "login", "-p", "auth", "-P", str(project), "--format", "json"]
+@pytest.mark.parametrize(
+    ("resource", "kind", "relative", "name"),
+    [
+        ("task", "task_directory", ".machi/plans/auth/tasks", "login"),
+        ("context", "context_directory", ".machi/plans/auth/context", "spec"),
+        ("doc", "doc_directory", ".machi/docs", "guide"),
+    ],
+)
+def test_directory_paths(project: Path, resource: str, kind: str, relative: str, name: str) -> None:
+    seed_plan(project, "auth")
+    parsed = cli.json(
+        PathResult, [*directory_args(resource), "-P", str(project), "--format", "json"]
     )
-    assert result.exit_code == 0, result.output
-    parsed = PathResult.model_validate(json.loads(result.stdout))
-    assert parsed.command == "task path"
-    assert parsed.kind == "task"
-    assert parsed.path == project / ".machi/plans/auth/tasks/login.md"
-    assert parsed.exists is True
-
-
-def test_task_path_directory_absent(project: Path) -> None:
-    result = runner.invoke(
-        app, ["task", "path", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 0, result.output
-    parsed = PathResult.model_validate(json.loads(result.stdout))
-    assert parsed.kind == "tasks_directory"
-    assert parsed.path == project / ".machi/plans/auth/tasks"
+    assert parsed.kind == kind
+    assert parsed.absolute_path == project / relative
     assert parsed.exists is False
-
-
-def test_task_path_directory_exists(project: Path) -> None:
-    seed_task(project, "login")
-    result = runner.invoke(
-        app, ["task", "path", "-p", "auth", "-P", str(project), "--format", "json"]
+    assert not (project / relative).exists()
+    seed(project, resource, name)
+    parsed = cli.json(
+        PathResult, [*directory_args(resource), "-P", str(project), "--format", "json"]
     )
-    assert result.exit_code == 0, result.output
-    parsed = PathResult.model_validate(json.loads(result.stdout))
-    assert parsed.kind == "tasks_directory"
     assert parsed.exists is True
-
-
-def test_task_path_directory_never_creates(project: Path) -> None:
-    result = runner.invoke(
-        app, ["task", "path", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 0, result.output
-    assert not (project / ".machi/plans/auth/tasks").exists()
-
-
-def test_context_path_document(project: Path) -> None:
-    seed_context(project, "spec")
-    result = runner.invoke(
-        app, ["context", "path", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 0, result.output
-    parsed = PathResult.model_validate(json.loads(result.stdout))
-    assert parsed.command == "context path"
-    assert parsed.kind == "context"
-    assert parsed.path == project / ".machi/plans/auth/context/spec.md"
-    assert parsed.exists is True
-
-
-def test_context_path_directory_absent(project: Path) -> None:
-    result = runner.invoke(
-        app, ["context", "path", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 0, result.output
-    parsed = PathResult.model_validate(json.loads(result.stdout))
-    assert parsed.kind == "context_directory"
-    assert parsed.path == project / ".machi/plans/auth/context"
-    assert parsed.exists is False
-
-
-def test_context_path_directory_exists(project: Path) -> None:
-    seed_context(project, "spec")
-    result = runner.invoke(
-        app, ["context", "path", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 0, result.output
-    assert PathResult.model_validate(json.loads(result.stdout)).exists is True
-
-
-def test_path_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    application = prepare_project(project)
-    factory = Mock(return_value=application)
-    path = Mock(wraps=application.plans.path)
-    monkeypatch.setattr(application.plans, "path", path)
-    result = runner.invoke(
-        create_cli(Dependencies(prepare_project=factory)),
-        ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"],
-    )
-    assert result.exit_code == 0, result.output
-    factory.assert_called_once_with(project)
-    path.assert_called_once_with("auth")
 
 
 def test_plan_path_ignores_malformed_contents(project: Path) -> None:
+    seed_plan(project, "auth")
     (project / ".machi/plans/auth/plan.md").write_text("---\nnot: [valid\n---\nbody\n")
-    result = runner.invoke(
-        app, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"]
+    parsed = cli.json(PathResult, ["plan", "path", "auth", "-P", str(project), "--format", "json"])
+    assert parsed.absolute_path == project / ".machi/plans/auth/plan.md"
+    assert parsed.exists is None
+
+
+def test_path_missing_plan_reports_not_found(project: Path) -> None:
+    error = cli.error(
+        ["task", "path", "-p", "nope", "-P", str(project), "--format", "json"],
+        code="not_found",
     )
-    assert result.exit_code == 0, result.output
-    parsed = PathResult.model_validate(json.loads(result.stdout))
-    assert parsed.path == project / ".machi/plans/auth/plan.md"
-    assert parsed.exists is True
-
-
-def test_task_path_ignores_malformed_contents(project: Path) -> None:
-    seed_task(project, "login")
-    target = project / ".machi/plans/auth/tasks/login.md"
-    target.write_text("---\nnot: [valid\n---\nbody\n")
-    result = runner.invoke(
-        app, ["task", "path", "login", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 0, result.output
-    parsed = PathResult.model_validate(json.loads(result.stdout))
-    assert parsed.path == target
-    assert parsed.exists is True
-
-
-def test_context_path_ignores_malformed_contents(project: Path) -> None:
-    seed_context(project, "spec")
-    target = project / ".machi/plans/auth/context/spec.md"
-    target.write_text("---\nnot: [valid\n---\nbody\n")
-    result = runner.invoke(
-        app, ["context", "path", "spec", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
-    assert result.exit_code == 0, result.output
-    parsed = PathResult.model_validate(json.loads(result.stdout))
-    assert parsed.path == target
-    assert parsed.exists is True
+    assert error.command == "task path"

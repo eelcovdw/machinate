@@ -1,4 +1,3 @@
-from contextlib import suppress
 from typing import cast, override
 
 import click
@@ -6,24 +5,17 @@ import typer
 from pydantic import ValidationError
 from typer.core import TyperCommand, TyperGroup
 
-from .commands.catalog import ALIASES, COMMANDS, CommandSpec
+from .commands.catalog import ALIASES, COMMANDS, CommandEntry, CommandGroup
 from .commands.schema import schema_command
 from .dependencies import Dependencies, get_dependencies
-from .errors import describe_error
-from .execution import resolve_formatter
-from .formatting import Formatter, UnknownFormatError
-from .help import plain_help_sections
+from .errors import EXIT_USAGE, ErrorDetail, describe_error
+from .execution import command_label, resolve_formatter
+from .formatting import JsonFormatter
 from .models import ErrorResult
-from .settings import Settings
 
 
 class Command(TyperCommand):
     """Render leaf-command parsing failures through the configured formatter."""
-
-    @override
-    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
-        with plain_help_sections():
-            super().format_help(ctx, formatter)
 
     @override
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
@@ -32,16 +24,11 @@ class Command(TyperCommand):
             return super().parse_args(ctx, args)
         except click.UsageError as exc:
             _report_usage_error(ctx, exc, original_args)
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
 
 
 class Group(TyperGroup):
     """Render group parsing failures through the configured formatter."""
-
-    @override
-    def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
-        with plain_help_sections():
-            super().format_help(ctx, formatter)
 
     @override
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
@@ -52,7 +39,7 @@ class Group(TyperGroup):
             raise
         except click.UsageError as exc:
             _report_usage_error(ctx, exc, original_args)
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
 
     @override
     def invoke(self, ctx: click.Context) -> object:
@@ -63,7 +50,57 @@ class Group(TyperGroup):
         except click.UsageError as exc:
             # Unknown subcommands and other resolution failures reach here.
             _report_usage_error(ctx, exc, None)
-            raise typer.Exit(2) from exc
+            raise typer.Exit(EXIT_USAGE) from exc
+
+
+PLAN_NAME_SUBCOMMANDS = frozenset({"show", "info", "path", "update"})
+PLAN_NAME_PLACEHOLDER = "NAME"
+
+
+def _has_plan_flag(arguments: list[str]) -> bool:
+    return any(
+        argument in {"-p", "--plan"}
+        or argument.startswith("--plan=")
+        or (argument.startswith("-p") and len(argument) > len("-p"))
+        for argument in arguments
+    )
+
+
+def _rewrite_plan_arguments(arguments: list[str]) -> list[str]:
+    """Replace the parent -p/--plan option with a positional plan name."""
+    rewritten: list[str] = []
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in {"-p", "--plan"}:
+            following = arguments[index + 1] if index + 1 < len(arguments) else None
+            if following is None or following.startswith("-"):
+                rewritten.append(PLAN_NAME_PLACEHOLDER)
+                index += 1
+            else:
+                rewritten.append(following)
+                index += 2
+            continue
+        if argument.startswith("--plan="):
+            rewritten.append(argument.partition("=")[2] or PLAN_NAME_PLACEHOLDER)
+        elif argument.startswith("-p") and len(argument) > len("-p"):
+            rewritten.append(argument[2:])
+        else:
+            rewritten.append(argument)
+        index += 1
+    return rewritten
+
+
+def _plan_targeting_hint(ctx: click.Context, original_args: list[str] | None) -> str | None:
+    """Suggest the positional NAME form when a plan subcommand gets -p/--plan."""
+    if original_args is None or ctx.info_name not in PLAN_NAME_SUBCOMMANDS:
+        return None
+    parent = ctx.parent
+    if parent is None or parent.info_name != "plan" or not _has_plan_flag(original_args):
+        return None
+    rewritten = _rewrite_plan_arguments(original_args)
+    command = " ".join(["machi", parent.info_name, ctx.info_name, *rewritten])
+    return f"pass the plan name directly: {command}"
 
 
 def _report_usage_error(
@@ -72,8 +109,10 @@ def _report_usage_error(
     original_args: list[str] | None,
 ) -> None:
     """Format a usage failure using the flag, settings, or default formatter."""
-    message = exc.format_message()
-    formatter = Formatter()  # Structured fallback if settings/format selection fails.
+    detail = ErrorDetail(
+        "input", exc.format_message(), hint=_plan_targeting_hint(ctx, original_args)
+    )
+    formatter = JsonFormatter()  # Structured fallback if settings/format selection fails.
     override_name: object = None
     if original_args is not None:
         # Recover parsed options without invoking callbacks or normal help.
@@ -88,87 +127,46 @@ def _report_usage_error(
             override_name = recovered.params.get("output_format")
     try:
         override = override_name if isinstance(override_name, str) else None
-        _, formatter = resolve_formatter(override, get_dependencies(ctx))
-    except (ValidationError, UnknownFormatError) as formatting_error:
-        message = describe_error(formatting_error)
+        formatter = resolve_formatter(override, get_dependencies(ctx).resolve_settings())
+    except ValidationError as formatting_error:
+        detail = describe_error(formatting_error)
     typer.echo(
-        formatter.format(ErrorResult(command=_command_label(ctx), error=message)),
+        formatter.format(
+            ErrorResult(
+                command=command_label(ctx),
+                error=detail.message,
+                code=detail.code,
+                hint=detail.hint,
+            )
+        ),
         err=True,
     )
 
 
-def _command_label(ctx: click.Context) -> str:
-    """Build the space-separated command path for structured errors."""
-    names: list[str] = []
-    current = ctx
-    while current.parent is not None:
-        if current.info_name:
-            names.append(current.info_name)
-        current = current.parent
-    return " ".join(reversed(names)) or "machi"
-
-
-def configure_logging(settings: Settings) -> None:
-    """Route Machinate logs to stderr when MACHI_LOG_LEVEL is set."""
-    if settings.log_level is None:
-        return
-    # Imported lazily: logging is only needed when diagnostics are actually enabled.
-    import logging
-    from typing import TextIO
-
-    class _DiagnosticHandler(logging.StreamHandler[TextIO]):
-        """stderr handler for opt-in diagnostics; the subclass prevents duplicates."""
-
-    logger = logging.getLogger("machinate")
-    for handler in list(logger.handlers):
-        if isinstance(handler, _DiagnosticHandler):
-            logger.removeHandler(handler)
-    handler = _DiagnosticHandler()
-    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
-    logger.addHandler(handler)
-    logger.setLevel(settings.log_level)
-
-
-def root() -> None:
-    """Work with Machinate projects."""
-    # Invalid settings are reported by the command handler through its formatter.
-    with suppress(ValidationError):
-        configure_logging(Settings())
-
-
-_ROOT_EPILOG = """\
-Examples: `machi plan select auth` sets the current plan; `machi plan show -p auth`
-shows it, with shared options after the leaf command; `machi task add notes` adds to the
-current plan; `machi task path notes` prints the file to edit. Task and context names may
-contain "/" and omit the appended ".md"; edit bodies through their path command and an editor.
-"""
-
-
-def _register(parent: typer.Typer, spec: CommandSpec) -> None:
-    if spec.children:
-        group = typer.Typer(no_args_is_help=True, cls=Group)
+def _register(parent: typer.Typer, spec: CommandEntry) -> None:
+    if isinstance(spec, CommandGroup):
+        group = typer.Typer(no_args_is_help=True, cls=Group, rich_markup_mode=None)
         for child in spec.children:
             _register(group, child)
         parent.add_typer(group, name=spec.name, help=spec.help)
-    elif spec.handler is not None:
+    else:
         parent.command(spec.name, cls=Command)(spec.handler)
 
 
-def create_cli(dependencies: Dependencies | None = None) -> typer.Typer:
+def build_cli(dependencies: Dependencies | None = None) -> typer.Typer:
     cli = typer.Typer(
         no_args_is_help=True,
         cls=Group,
-        epilog=_ROOT_EPILOG,
+        rich_markup_mode=None,
+        help="Work with Machinate projects.",
         context_settings={"obj": dependencies if dependencies is not None else Dependencies()},
     )
-    cli.callback()(root)
     for spec in COMMANDS:
         _register(cli, spec)
     for alias in ALIASES:
-        if alias.handler is not None:
-            cli.command(alias.name, cls=Command, hidden=True)(alias.handler)
+        cli.command(alias.name, cls=Command, hidden=True)(alias.handler)
     cli.command("schema", cls=Command)(schema_command)
     return cli
 
 
-app = create_cli()
+app = build_cli()

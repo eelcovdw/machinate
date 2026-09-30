@@ -1,99 +1,75 @@
-from pathlib import PurePosixPath
+"""Project-wide doc documents: not plan-scoped, no status, nested names."""
+
+from datetime import UTC, datetime
+from typing import override
 
 from pydantic import validate_call
 
-from machinate.models.batch import BatchCreateError
-from machinate.models.doc import Doc, DocUpdate
-from machinate.services.batch import create_documents
-from machinate.storage import (
+from machinate.models.documents import (
     DocMetadata,
-    Document,
-    DocumentQuery,
     DocumentRecord,
-    DocumentStore,
-    Layout,
+    LoadedDocument,
+    NestedName,
 )
-from machinate.storage.models import DocName, DocNameInput
+from machinate.models.operations import (
+    BatchCreated,
+    CreateInput,
+    DocumentQuery,
+    DocumentUpdate,
+)
+from machinate.services.document import Collection, DocumentService, LocatedPath
+from machinate.storage.document_store import DocumentStore
+from machinate.storage.layout import Layout
 
 
-class DocService:
+class DocService(DocumentService[DocMetadata]):
     def __init__(self, document_store: DocumentStore, layout: Layout) -> None:
-        self.document_store: DocumentStore = document_store
-        self.layout: Layout = layout
+        super().__init__(
+            document_store,
+            layout,
+            Collection(
+                kind="doc",
+                metadata_type=DocMetadata,
+                collection=lambda _plan: layout.doc_collection(),
+                path=lambda _plan, name: layout.doc_path(name),
+                requires_plan=False,
+                directory_kind="doc_directory",
+            ),
+        )
 
-    @validate_call
-    def create(self, name: DocName, metadata: DocMetadata, body: str = "") -> Doc:
-        return self._create(name, metadata, body)
-
-    def _create(self, name: DocName, metadata: DocMetadata, body: str = "") -> Doc:
-        """Write a doc without re-checking anything; docs are project-level."""
-        path = self.layout.doc(name)
-        document = Document(metadata=metadata, body=body)
-        self.document_store.create(path, document)
-        return self._doc(path, name, document)
-
-    @validate_call
-    def create_batch(
-        self, names: list[str], metadata: DocMetadata, body: str = ""
-    ) -> tuple[list[Doc], list[BatchCreateError]]:
-        """Create many docs, reporting per-name failures instead of aborting the batch."""
-        return create_documents(
-            names=names,
-            document_store=self.document_store,
-            validate_name=lambda name: DocNameInput(name=name).name,
-            path_for=self.layout.doc,
-            create=lambda name: self._create(name, metadata, body),
+    @override
+    def _build_metadata(self, create: CreateInput) -> DocMetadata:
+        return DocMetadata(
+            created_at=datetime.now(UTC), summary=create.summary or None, tags=create.tags
         )
 
     @validate_call
-    def get(self, name: DocName) -> Doc:
-        return self._get(name)
-
-    def _read(self, name: DocName) -> tuple[PurePosixPath, Document[DocMetadata]]:
-        path = self.layout.doc(name)
-        return path, self.document_store.read(path, DocMetadata)
-
-    def _doc(self, path: PurePosixPath, name: DocName, document: Document[DocMetadata]) -> Doc:
-        """Build a doc from an already-loaded document, statting the file once."""
-        return Doc(
-            name=name,
-            path=path,
-            document=document,
-            modified_at=self.document_store.metadata(path).modified,
-        )
-
-    def _get(self, name: DocName) -> Doc:
-        path, document = self._read(name)
-        return self._doc(path, name, document)
+    def create_many(
+        self, names: list[str], create: CreateInput
+    ) -> BatchCreated[DocumentRecord[DocMetadata]]:
+        return self._create_many(None, names, create)
 
     @validate_call
-    def info(self, name: DocName) -> DocumentRecord[DocMetadata]:
-        doc = self.get(name)
-        return DocumentRecord[DocMetadata].from_document(
-            doc.document,
-            name=doc.name,
-            path=doc.path,
-            last_activity_at=doc.modified_at,
-        )
-
-    def directory(self) -> PurePosixPath:
-        """Storage-relative docs directory."""
-        return self.layout.docs_collection().path
+    def get(self, name: NestedName) -> LoadedDocument[DocMetadata]:
+        return self._get(None, name)
 
     @validate_call
-    def path(self, name: DocName) -> PurePosixPath:
-        """Storage-relative doc path; validates the doc exists without parsing."""
-        target = self.layout.doc(name)
-        self.document_store.metadata(target)
-        return target
+    def get_record(self, name: NestedName) -> DocumentRecord[DocMetadata]:
+        return self._info(None, name)
 
     @validate_call
-    def update(self, name: DocName, changes: DocUpdate) -> Doc:
-        path, document = self._read(name)
-        if changes.apply_to(document):
-            self.document_store.write(path, document)
-        return self._doc(path, name, document)
+    def locate(self, name: NestedName | None = None) -> LocatedPath:
+        return self._locate(None, name)
 
     @validate_call
-    def list(self, query: DocumentQuery | None = None) -> list[DocumentRecord[DocMetadata]]:
-        return self.document_store.list(self.layout.docs_collection(), DocMetadata, query)
+    def update(self, name: NestedName, update: DocumentUpdate) -> LoadedDocument[DocMetadata]:
+        return self._update(None, name, update)
+
+    @validate_call
+    def list_records(self, query: DocumentQuery | None = None) -> list[DocumentRecord[DocMetadata]]:
+        return self._list(None, query)
+
+    @validate_call
+    def count_documents(self) -> int:
+        """Count docs by file discovery, without parsing them."""
+        return self._count(None)

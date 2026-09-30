@@ -1,13 +1,17 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from machinate.models.documents import NAME_ADAPTER
 from machinate.services.context import ContextService
 from machinate.services.doc import DocService
+from machinate.services.overview import OverviewService
 from machinate.services.plan import PlanService
 from machinate.services.search import SearchService
 from machinate.services.task import TaskService
-from machinate.storage import DocumentStore, Layout, ProjectState, ProjectStateStore
-from machinate.storage.models import NameInput
+from machinate.storage.document_store import DocumentStore
+from machinate.storage.layout import Layout
+from machinate.storage.models import ProjectState
+from machinate.storage.project_state_store import ProjectStateStore
 
 from .models import ProjectScope
 
@@ -17,24 +21,25 @@ class ProjectError(Exception):
 
 
 @dataclass
-class ProjectContext:
+class ProjectServices:
     project: ProjectScope
     plans: PlanService
     tasks: TaskService
     contexts: ContextService
     docs: DocService
+    overviews: OverviewService
     search: SearchService
 
 
-def select_project_directory(explicit: Path | None) -> Path:
+def discover_project_directory(explicit: Path | None) -> Path:
     start = (explicit if explicit is not None else Path.cwd()).absolute()
     candidates = (start,) if explicit is not None else (start, *start.parents)
     for directory in candidates:
-        storage = directory / ".machi"
-        if not storage.exists() and not storage.is_symlink():
+        store_directory = directory / ".machi"
+        if not store_directory.exists() and not store_directory.is_symlink():
             continue
-        if not storage.is_dir():
-            msg = f"{storage}: expected a directory"
+        if not store_directory.is_dir():
+            msg = f"{store_directory}: expected a directory"
             raise ProjectError(msg)
         return directory
     raise ProjectError(
@@ -54,32 +59,39 @@ def initialize_project(explicit: Path | None, project_name: str | None = None) -
     if not target.is_dir():
         msg = f"{target}: project directory does not exist"
         raise ProjectError(msg)
-    name = NameInput(name=project_name if project_name is not None else target.name).name
-    storage = target / ".machi"
-    if storage.exists() or storage.is_symlink():
-        if not storage.is_dir():
-            msg = f"{storage}: expected a directory"
+    name = NAME_ADAPTER.validate_python(project_name if project_name is not None else target.name)
+    store_directory = target / ".machi"
+    if store_directory.exists() or store_directory.is_symlink():
+        if not store_directory.is_dir():
+            msg = f"{store_directory}: expected a directory"
             raise ProjectError(msg)
-        if next(storage.iterdir(), None) is not None:
-            msg = f"{storage}: already initialized or nonempty; refusing to overwrite"
+        if next(store_directory.iterdir(), None) is not None:
+            msg = f"{store_directory}: already initialized or nonempty; refusing to overwrite"
             raise ProjectError(msg)
-    state_store = ProjectStateStore(storage / "machinate.toml")
+    state_store = ProjectStateStore(store_directory / "machinate.toml")
     state_store.write(ProjectState(project_name=name, current_plan=None))
-    return ProjectScope(name=name, directory=target, storage=storage)
+    return ProjectScope(name=name, directory=target, store_directory=store_directory)
 
 
-def prepare_project(explicit: Path | None = None) -> ProjectContext:
-    directory = select_project_directory(explicit)
-    storage = directory / ".machi"
-    state_store = ProjectStateStore(storage / "machinate.toml")
+def open_project(explicit: Path | None = None) -> ProjectServices:
+    directory = discover_project_directory(explicit)
+    store_directory = directory / ".machi"
+    state_store = ProjectStateStore(store_directory / "machinate.toml")
     state = state_store.read()
     layout = Layout()
-    document_store = DocumentStore(storage)
-    return ProjectContext(
-        project=ProjectScope(name=state.project_name, directory=directory, storage=storage),
-        plans=PlanService(document_store, layout, state_store),
-        tasks=TaskService(document_store, layout),
-        contexts=ContextService(document_store, layout),
-        docs=DocService(document_store, layout),
-        search=SearchService(document_store, layout),
+    document_store = DocumentStore(store_directory)
+    plans = PlanService(document_store, layout, state_store)
+    tasks = TaskService(document_store, layout)
+    contexts = ContextService(document_store, layout)
+    docs = DocService(document_store, layout)
+    return ProjectServices(
+        project=ProjectScope(
+            name=state.project_name, directory=directory, store_directory=store_directory
+        ),
+        plans=plans,
+        tasks=tasks,
+        contexts=contexts,
+        docs=docs,
+        overviews=OverviewService(plans, tasks, contexts, docs),
+        search=SearchService(document_store, layout, plans),
     )

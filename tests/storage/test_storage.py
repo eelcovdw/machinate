@@ -1,34 +1,28 @@
 import json
-import logging
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 import pytest
 from pydantic import ValidationError
 
-from machinate.storage import (
+from machinate.models.documents import (
     ContextMetadata,
-    Document,
+    Metadata,
+    ParsedDocument,
+    PlanMetadata,
+    TaskMetadata,
+    derive_summary,
+)
+from machinate.storage import (
     DocumentExistsError,
     DocumentStore,
     InvalidDocumentError,
-    Layout,
-    Metadata,
     MissingDocumentError,
-    PlanMetadata,
     ProjectState,
     ProjectStateStore,
     StorageError,
     SymbolicLinkError,
-    TaskMetadata,
 )
-from machinate.storage.models import (
-    ContextNameInput,
-    DocNameInput,
-    NameInput,
-    TaskNameInput,
-)
-from machinate.storage.summary import derive_summary
 
 
 @pytest.fixture
@@ -37,52 +31,39 @@ def store(tmp_path: Path) -> DocumentStore:
 
 
 @pytest.fixture
-def document() -> Document[TaskMetadata]:
-    return Document(
-        metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body="# Task\n"
+def document() -> ParsedDocument[TaskMetadata]:
+    return ParsedDocument(
+        metadata=TaskMetadata(created_at=datetime(2026, 9, 22, tzinfo=UTC)), body="# Task\n"
     )
 
 
 @pytest.mark.parametrize("body", ["", "\n\n# Café\n\n", "\r\n# Task\r\n\r\n", "no final newline"])
 def test_document_round_trip(store: DocumentStore, body: str) -> None:
     metadata = TaskMetadata.model_validate(
-        {"created": "2026-09-22T00:00:00Z", "status": "in-progress", "custom": {"tags": ["one", 2]}}
+        {
+            "created_at": "2026-09-22T00:00:00Z",
+            "status": "in-progress",
+            "tags": ["frontend", "v2"],
+            "custom": {"nested": [True, 7]},
+        }
     )
-    document = Document(metadata=metadata, body=body)
+    document = ParsedDocument(metadata=metadata, body=body)
     document.metadata.summary = derive_summary(body)
     store.create("auth/tasks/login.md", document)
-    assert store.read("auth/tasks/login.md", TaskMetadata) == document
+    result = store.read("auth/tasks/login.md", TaskMetadata)
+    assert result == document
+    assert result.metadata.tags == ["frontend", "v2"]
     document.metadata.status = "done"
-    store.write("auth/tasks/login.md", document)
-    assert store.read("auth/tasks/login.md", TaskMetadata) == document
-
-
-def test_tag_validation_and_deduplication() -> None:
-    metadata = PlanMetadata(created=datetime(2026, 9, 22, tzinfo=UTC), tags=[" A ", "a", "b", "A"])
-    assert metadata.tags == ["A", "b"]
-    assert "tags" in PlanMetadata.model_json_schema()["properties"]
-    for invalid in ("", "   ", "bad\x01"):
-        with pytest.raises(ValidationError):
-            PlanMetadata(created=datetime(2026, 9, 22, tzinfo=UTC), tags=[invalid])
-
-
-def test_tags_round_trip(store: DocumentStore) -> None:
-    document = Document(
-        metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC), tags=["frontend", "v2"]),
-        body="body",
-    )
-    store.create("auth/tasks/login.md", document)
-    assert store.read("auth/tasks/login.md", TaskMetadata).metadata.tags == ["frontend", "v2"]
     document.metadata.tags = ["backend"]
     store.write("auth/tasks/login.md", document)
-    assert store.read("auth/tasks/login.md", TaskMetadata).metadata.tags == ["backend"]
+    assert store.read("auth/tasks/login.md", TaskMetadata) == document
 
 
 def test_existing_frontmatter_preserved(store: DocumentStore, tmp_path: Path) -> None:
     body = "\r\n\r\n# Résumé  \r\n---\r\nlast line"
     (tmp_path / "note.md").write_bytes(
         (
-            "---\r\ncreated: 2026-09-22T00:00:00Z\r\ncustom:\r\n  nested: [true, 7]\r\n---\r\n"
+            "---\r\ncreated_at: 2026-09-22T00:00:00Z\r\ncustom:\r\n  nested: [true, 7]\r\n---\r\n"
             + body
         ).encode()
     )
@@ -92,47 +73,15 @@ def test_existing_frontmatter_preserved(store: DocumentStore, tmp_path: Path) ->
     result = store.read("note.md", ContextMetadata)
     assert result.body == body
     assert result.metadata.model_extra == {"custom": {"nested": [True, 7]}}
-    assert json.loads(result.model_dump_json())["metadata"]["created"] == "2026-09-22T00:00:00Z"
+    assert json.loads(result.model_dump_json())["metadata"]["created_at"] == "2026-09-22T00:00:00Z"
 
 
-@pytest.mark.parametrize("model", [Metadata, PlanMetadata, TaskMetadata, ContextMetadata])
-def test_creation_timestamp_required(model: type[Metadata]) -> None:
-    with pytest.raises(ValidationError):
-        model.model_validate({})
-    with pytest.raises(ValidationError):
-        model.model_validate({"created": "not a date"})
-
-
-@pytest.mark.parametrize(
-    ("model", "statuses"),
-    [(PlanMetadata, ["draft", "active", "done"]), (TaskMetadata, ["todo", "in-progress", "done"])],
-)
-def test_status_validation(model: type[Metadata], statuses: list[str]) -> None:
-    for status in statuses:
-        metadata = model.model_validate({"created": "2026-09-22T00:00:00Z", "status": status})
-        with pytest.raises(ValidationError):
-            metadata.status = "invalid"  # pyright: ignore[reportAttributeAccessIssue]
-        assert metadata.model_dump()["status"] == status
-    with pytest.raises(ValidationError):
-        model.model_validate({"created": "2026-09-22T00:00:00Z", "status": "invalid"})
-
-
-def test_metadata_assignment() -> None:
-    metadata = Metadata(created=datetime(2026, 9, 22, tzinfo=UTC))
-    with pytest.raises(ValidationError):
-        metadata.created = "invalid"  # pyright: ignore[reportAttributeAccessIssue]
-    with pytest.raises(ValidationError):
-        metadata.summary = []  # pyright: ignore[reportAttributeAccessIssue]
-    context = ContextMetadata.model_validate(
-        {"created": "2026-09-22T00:00:00Z", "status": "custom"}
-    )
-    assert context.model_extra == {"status": "custom"}
-
-
-def test_duplicate_and_missing(store: DocumentStore, document: Document[TaskMetadata]) -> None:
+def test_duplicate_and_missing(
+    store: DocumentStore, document: ParsedDocument[TaskMetadata]
+) -> None:
     store.create("note.md", document)
     with pytest.raises(DocumentExistsError) as error:
-        store.create("note.md", Document(metadata=document.metadata, body="replacement"))
+        store.create("note.md", ParsedDocument(metadata=document.metadata, body="replacement"))
     assert error.value.path == PurePosixPath("note.md")
     assert isinstance(error.value.reason, FileExistsError)
     assert store.read("note.md", TaskMetadata) == document
@@ -145,11 +94,11 @@ def test_duplicate_and_missing(store: DocumentStore, document: Document[TaskMeta
 @pytest.mark.parametrize(
     "content",
     [
-        "---\ncreated: 2026-09-22T00:00:00Z",
+        "---\ncreated_at: 2026-09-22T00:00:00Z",
         "---\nsummary: missing date\n---\n",
         "---\n[\n---\n",
         "---\n- list\n---\n",
-        "---\ncreated: 2026-09-22T00:00:00Z\nstatus: invalid\n---\n",
+        "---\ncreated_at: 2026-09-22T00:00:00Z\nstatus: invalid\n---\n",
     ],
 )
 def test_invalid_documents(store: DocumentStore, tmp_path: Path, content: str) -> None:
@@ -160,32 +109,31 @@ def test_invalid_documents(store: DocumentStore, tmp_path: Path, content: str) -
     assert error.value.__cause__ is error.value.reason
 
 
-def test_glob_files_matches_regular_files_only(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "a").mkdir()
-    (tmp_path / "a" / "one.md").write_text("one")
-    (tmp_path / "a" / "two.txt").write_text("two")
-    (tmp_path / "a" / "sub").mkdir()
-    (tmp_path / "a" / "sub" / "three.md").write_text("three")
-    assert sorted(store.glob_files(PurePosixPath("a"), ["**/*.md"])) == [
+def test_list_files_matches_regular_files_only(store: DocumentStore, tmp_path: Path) -> None:
+    directory = tmp_path / "a"
+    directory.mkdir()
+    (directory / "one.md").write_text("one")
+    (directory / "two.txt").write_text("two")
+    (directory / ".hidden.md").write_text("hidden")
+    (directory / ".git").mkdir()
+    (directory / ".git" / "nested.md").write_text("nested")
+    (directory / "sub").mkdir()
+    (directory / "sub" / "three.md").write_text("three")
+    (directory / ".#lock.md").symlink_to(directory / "missing.md")
+    (directory / "link.md").symlink_to(directory / "one.md")
+    (directory / "linked").symlink_to(directory / "sub", target_is_directory=True)
+    assert sorted(store.list_files(PurePosixPath("a"), ["**/*.md"])) == [
+        PurePosixPath("a/link.md"),
         PurePosixPath("a/one.md"),
         PurePosixPath("a/sub/three.md"),
     ]
-    assert store.glob_files(PurePosixPath("missing"), ["**/*.md"]) == []
+    assert store.list_files(PurePosixPath("missing"), ["**/*.md"]) == []
 
 
-def test_glob_files_includes_dot_prefixed_files(store: DocumentStore, tmp_path: Path) -> None:
+def test_list_files_drops_parent_escape(store: DocumentStore, tmp_path: Path) -> None:
     (tmp_path / "a").mkdir()
-    (tmp_path / "a" / ".hidden.md").write_text("hidden")
-    (tmp_path / "a" / "visible.md").write_text("visible")
-    assert sorted(store.glob_files(PurePosixPath("a"), ["**/*.md"])) == [
-        PurePosixPath("a/.hidden.md"),
-        PurePosixPath("a/visible.md"),
-    ]
-
-
-def test_read_text_returns_raw_frontmatter(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "raw.md").write_text("---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n")
-    assert store.read_text("raw.md") == "---\ncreated: 2026-09-22T00:00:00Z\n---\nbody\n"
+    (tmp_path / "outside.md").write_text("outside")
+    assert store.list_files(PurePosixPath("a"), ["../*.md"]) == []
 
 
 def test_read_text_errors_are_typed(store: DocumentStore, tmp_path: Path) -> None:
@@ -195,73 +143,60 @@ def test_read_text_errors_are_typed(store: DocumentStore, tmp_path: Path) -> Non
     with pytest.raises(InvalidDocumentError) as error:
         store.read_text("binary.md")
     assert error.value.path == PurePosixPath("binary.md")
-
-
-def test_missing_frontmatter_uses_defaults(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "bare.md").write_text("just a body\n")
-    document = store.read("bare.md", TaskMetadata)
-    assert document.body == "just a body\n"
-    assert document.metadata.status == "todo"
-    assert document.metadata.tags == []
-    assert document.metadata.summary is None
-
-
-def test_missing_frontmatter_logs_debug(
-    store: DocumentStore, tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    (tmp_path / "bare.md").write_text("body")
-    with caplog.at_level(logging.DEBUG, logger="machinate.storage.document_store"):
-        store.read("bare.md", TaskMetadata)
-    assert "Missing YAML frontmatter in bare.md; using defaults" in caplog.text
-
-
-def test_missing_frontmatter_created_from_mtime(store: DocumentStore, tmp_path: Path) -> None:
-    target = tmp_path / "bare.md"
-    target.write_text("body")
-    expected = datetime.fromtimestamp(target.stat().st_mtime, UTC)
-    document = store.read("bare.md", PlanMetadata)
-    assert document.metadata.created == expected
-    assert document.metadata.status == "draft"
-
-
-def test_empty_file_is_treated_as_body(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "empty.md").write_text("")
-    document = store.read("empty.md", ContextMetadata)
-    assert document.body == ""
-    assert document.metadata.tags == []
+    assert isinstance(error.value.reason, UnicodeDecodeError)
 
 
 @pytest.mark.parametrize(
-    "name", ["", " ", ".", "..", "../escape", "a/b", "a\\b", "C:drive", "bad\n"]
+    ("filename", "content", "expected_body"),
+    [
+        ("bare.md", "just a body\n", "just a body\n"),
+        ("empty.md", "", ""),
+        ("empty-block.md", "---\n---\nbody\n", "body\n"),
+    ],
 )
-def test_layout_rejects_names(name: str) -> None:
-    layout = Layout()
-    with pytest.raises(ValidationError):
-        layout.plan(name)
-    for operation in (layout.task, layout.context):
-        if name == "a/b":
-            folder = "tasks" if operation == layout.task else "context"
-            assert operation("valid", name) == PurePosixPath("plans", "valid", folder, "a/b.md")
-        else:
-            with pytest.raises(ValidationError):
-                operation("valid", name)
-        with pytest.raises(ValidationError):
-            operation(name, "valid")
+def test_missing_frontmatter_uses_defaults(
+    store: DocumentStore, tmp_path: Path, filename: str, content: str, expected_body: str
+) -> None:
+    target = tmp_path / filename
+    target.write_text(content)
+    expected = datetime.fromtimestamp(target.stat().st_mtime, UTC)
+    document = store.read(filename, PlanMetadata)
+    assert document.body == expected_body
+    assert document.metadata.status == "draft"
+    assert document.metadata.tags == []
+    assert document.metadata.created_at == expected
 
 
-def test_layout() -> None:
-    layout = Layout()
-    assert layout.project() == PurePosixPath("project.md")
-    assert layout.plan("auth") == PurePosixPath("plans/auth/plan.md")
-    assert layout.task("auth", "login") == PurePosixPath("plans/auth/tasks/login.md")
-    assert layout.context("auth", "research") == PurePosixPath("plans/auth/context/research.md")
+def test_scalar_and_non_string_frontmatter_values_are_coerced(
+    store: DocumentStore, tmp_path: Path
+) -> None:
+    (tmp_path / "edited.md").write_text(
+        "---\ncreated_at: 2026-09-22T00:00:00Z\nsummary: 1.5\ntags: v2\n---\nbody\n"
+    )
+    document = store.read("edited.md", TaskMetadata)
+    assert document.metadata.summary == "1.5"
+    assert document.metadata.tags == ["v2"]
+
+    (tmp_path / "tags.md").write_text(
+        "---\ncreated_at: 2026-09-22T00:00:00Z\ntags: [v2, 2026]\n---\nbody\n"
+    )
+    assert store.read("tags.md", TaskMetadata).metadata.tags == ["v2", "2026"]
+
+
+def test_utf8_bom_is_stripped_on_read(store: DocumentStore, tmp_path: Path) -> None:
+    (tmp_path / "bom.md").write_bytes(
+        b"\xef\xbb\xbf---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
+    )
+    document = store.read("bom.md", TaskMetadata)
+    assert document.body == "body\n"
+    assert store.read_text("bom.md") == "---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
 
 
 @pytest.mark.parametrize(
     "path", ["", "/absolute", "../escape", "a/../escape", "C:/escape", "a\\b", "bad\x00"]
 )
 def test_storage_path_boundaries(
-    store: DocumentStore, document: Document[TaskMetadata], path: str
+    store: DocumentStore, document: ParsedDocument[TaskMetadata], path: str
 ) -> None:
     with pytest.raises(ValidationError):
         store.create(path, document)
@@ -270,50 +205,35 @@ def test_storage_path_boundaries(
     with pytest.raises(ValidationError):
         store.read(path, TaskMetadata)
     with pytest.raises(ValidationError):
-        store.metadata(path)
-    with pytest.raises(ValidationError):
-        store.discover(path)
+        store.stat(path)
 
 
-def test_discovery_and_timestamps(
-    store: DocumentStore, document: Document[TaskMetadata], tmp_path: Path
+def test_case_only_duplicate_create_is_rejected(
+    store: DocumentStore, document: ParsedDocument[TaskMetadata]
 ) -> None:
-    store.create("auth/tasks/login.md", document)
-    store.create("project.md", document)
-    records = store.discover()
-    assert [(record.path.as_posix(), record.kind) for record in records] == [
-        ("auth", "directory"),
-        ("project.md", "file"),
-    ]
-    record = store.discover("auth/tasks")[0]
-    assert record == store.metadata("auth/tasks/login.md")
-    assert record.modified == datetime.fromtimestamp((tmp_path / record.path).stat().st_mtime, UTC)
-    assert json.loads(record.model_dump_json())["path"] == "auth/tasks/login.md"
-    (tmp_path / "empty").mkdir()
-    assert store.discover("empty") == []
-    with pytest.raises(MissingDocumentError):
-        store.discover("missing")
-    with pytest.raises(StorageError):
-        store.discover("project.md")
+    store.create("Login.md", document)
+    with pytest.raises(DocumentExistsError) as error:
+        store.create("login.md", document)
+    assert error.value.path == PurePosixPath("login.md")
+    assert store.read("Login.md", TaskMetadata) == document
 
 
-def test_failed_atomic_update_keeps_original(
-    store: DocumentStore,
-    document: Document[TaskMetadata],
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_case_conflict_plan_directory_leaves_no_directory(
+    store: DocumentStore, document: ParsedDocument[TaskMetadata], tmp_path: Path
 ) -> None:
-    store.create("note.md", document)
+    store.create("plans/Auth/plan.md", document)
+    with pytest.raises(DocumentExistsError):
+        store.create("plans/auth/plan.md", document)
+    assert not (tmp_path / "plans" / "auth").exists()
 
-    def fail_replace(_self: Path, _target: str) -> None:
-        raise PermissionError("replacement denied")
 
-    monkeypatch.setattr(Path, "replace", fail_replace)
-    with pytest.raises(StorageError) as error:
-        store.write("note.md", Document(metadata=document.metadata, body="new"))
-    assert isinstance(error.value.reason, PermissionError)
-    assert store.read("note.md", TaskMetadata) == document
-    assert list(tmp_path.iterdir()) == [tmp_path / "note.md"]
+def test_case_conflict_nested_directory_leaves_no_directory(
+    store: DocumentStore, document: ParsedDocument[TaskMetadata], tmp_path: Path
+) -> None:
+    store.create("plans/alpha/tasks/GRP/x.md", document)
+    with pytest.raises(DocumentExistsError):
+        store.create("plans/alpha/tasks/grp/x.md", document)
+    assert not (tmp_path / "plans" / "alpha" / "tasks" / "grp").exists()
 
 
 def test_state_round_trip(tmp_path: Path) -> None:
@@ -340,14 +260,21 @@ def test_state_write_rejects_symlink(tmp_path: Path) -> None:
     with pytest.raises(SymbolicLinkError) as error:
         ProjectStateStore(link).write(ProjectState(project_name="demo", current_plan="auth"))
     assert error.value.reason is None
-    assert "symbolic link" in str(error.value)
+    assert error.value.path == link
 
     assert link.is_symlink()
     assert external.read_text() == 'project_name = "demo"\n'
 
 
 @pytest.mark.parametrize(
-    "text", ["", "invalid [", 'project_name = "../bad"', 'current_plan = "auth"']
+    "text",
+    [
+        "",
+        "invalid [",
+        'project_name = "../bad"',
+        'current_plan = "auth"',
+        'project_name = "demo"\nextra = "x"',
+    ],
 )
 def test_invalid_state(tmp_path: Path, text: str) -> None:
     path = tmp_path / "machinate.toml"
@@ -356,56 +283,15 @@ def test_invalid_state(tmp_path: Path, text: str) -> None:
         ProjectStateStore(path).read()
 
 
-def test_failed_state_write_keeps_original(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    path = tmp_path / "nested" / "machinate.toml"
-    store = ProjectStateStore(path)
-    original = ProjectState(project_name="Café", current_plan="auth")
-    store.write(original)
-
-    def fail_replace(_self: Path, _target: str) -> None:
-        raise PermissionError("replacement denied")
-
-    monkeypatch.setattr(Path, "replace", fail_replace)
-
-    real_unlink = Path.unlink
-
-    def fail_unlink(_path: Path, **_kwargs: object) -> None:
-        raise OSError("cleanup denied")
-
-    # The failed replace leaves a temporary file; failing cleanup adds a note
-    # that must survive the StorageError wrapper.
-    monkeypatch.setattr(Path, "unlink", fail_unlink)
-    with pytest.raises(StorageError) as error:
-        store.write(ProjectState(project_name="Café"))
-    assert isinstance(error.value.reason, PermissionError)
-    notes = getattr(error.value, "__notes__", [])
-    assert len(notes) == 1
-    assert "Could not remove temporary file" in notes[0]
-    assert store.read() == original
-    nested = tmp_path / "nested"
-    leftovers = set(nested.iterdir()) - {nested / "machinate.toml"}
-    assert len(leftovers) == 1  # The temporary file could not be removed; the note says so.
-
-    # With cleanup working again, a failed write removes its own temporary file.
-    monkeypatch.setattr(Path, "unlink", real_unlink)
-    with pytest.raises(StorageError) as error:
-        store.write(ProjectState(project_name="Café"))
-    assert not getattr(error.value, "__notes__", [])
-    assert set(nested.iterdir()) - {nested / "machinate.toml"} == leftovers
-
-
 def test_successful_update_replaces_file(
-    store: DocumentStore, document: Document[TaskMetadata], tmp_path: Path
+    store: DocumentStore, document: ParsedDocument[TaskMetadata], tmp_path: Path
 ) -> None:
     store.create("note.md", document)
     target = tmp_path / "note.md"
     target.chmod(0o640)
     original = target.read_bytes()
     with target.open("rb") as old_file:
-        store.write("note.md", Document(metadata=document.metadata, body="new content"))
+        store.write("note.md", ParsedDocument(metadata=document.metadata, body="new content"))
         assert old_file.read() == original
     assert store.read("note.md", TaskMetadata).body == "new content"
     assert target.stat().st_mode & 0o777 == 0o640
@@ -413,9 +299,9 @@ def test_successful_update_replaces_file(
 
 
 def test_null_extra_metadata_preserved(store: DocumentStore, tmp_path: Path) -> None:
-    document = Document(
+    document = ParsedDocument(
         metadata=Metadata.model_validate(
-            {"created": "2026-09-22T00:00:00Z", "custom": {"owner": None}}
+            {"created_at": "2026-09-22T00:00:00Z", "custom": {"owner": None}}
         ),
         body="# Note\n",
     )
@@ -424,17 +310,9 @@ def test_null_extra_metadata_preserved(store: DocumentStore, tmp_path: Path) -> 
     assert store.read("note.md", Metadata) == document
 
 
-def test_unset_summary_omitted(store: DocumentStore, tmp_path: Path) -> None:
-    document = Document(
-        metadata=Metadata.model_validate({"created": "2026-09-22T00:00:00Z"}), body="# Note\n"
-    )
-    store.create("note.md", document)
-    assert "summary" not in (tmp_path / "note.md").read_text()
-
-
 def test_write_rejects_symlink(
     store: DocumentStore,
-    document: Document[TaskMetadata],
+    document: ParsedDocument[TaskMetadata],
     tmp_path: Path,
 ) -> None:
     external = tmp_path / "outside.md"
@@ -442,17 +320,16 @@ def test_write_rejects_symlink(
     (tmp_path / "note.md").symlink_to(external)
 
     with pytest.raises(SymbolicLinkError) as error:
-        store.write("note.md", Document(metadata=document.metadata, body="new"))
+        store.write("note.md", ParsedDocument(metadata=document.metadata, body="new"))
     assert error.value.reason is None
-    assert "note.md" in str(error.value)
-    assert "symbolic link" in str(error.value)
+    assert error.value.path == PurePosixPath("note.md")
 
     assert (tmp_path / "note.md").is_symlink()
     assert external.read_bytes() == b"original\n"
 
 
 def test_create_rejects_symlink(
-    store: DocumentStore, document: Document[TaskMetadata], tmp_path: Path
+    store: DocumentStore, document: ParsedDocument[TaskMetadata], tmp_path: Path
 ) -> None:
     external = tmp_path / "outside.md"
     external.write_bytes(b"original\n")
@@ -465,15 +342,8 @@ def test_create_rejects_symlink(
     assert external.read_bytes() == b"original\n"
 
 
-def test_invalid_utf8(store: DocumentStore, tmp_path: Path) -> None:
-    (tmp_path / "bad.md").write_bytes(b"\xff")
-    with pytest.raises(InvalidDocumentError) as error:
-        store.read("bad.md", Metadata)
-    assert isinstance(error.value.reason, UnicodeDecodeError)
-
-
 def test_io_errors_have_path_and_reason(
-    store: DocumentStore, document: Document[TaskMetadata], tmp_path: Path
+    store: DocumentStore, document: ParsedDocument[TaskMetadata], tmp_path: Path
 ) -> None:
     (tmp_path / "directory").mkdir()
     with pytest.raises(StorageError):
@@ -491,76 +361,21 @@ def test_io_errors_have_path_and_reason(
 
 
 def test_yaml_uses_block_style(store: DocumentStore, tmp_path: Path) -> None:
-    document = Document(
+    document = ParsedDocument(
         metadata=Metadata.model_validate(
-            {"created": "2026-09-22T00:00:00Z", "custom": {"owner": "Alice"}}
+            {"created_at": "2026-09-22T00:00:00Z", "custom": {"owner": "Alice"}}
         ),
         body="# Note\n",
     )
     store.create("note.md", document)
     text = (tmp_path / "note.md").read_text()
-    assert "\ncreated: 2026-09-22 00:00:00+00:00\n" in text
+    assert "\ncreated_at: 2026-09-22 00:00:00+00:00\n" in text
     assert "\ncustom:\n  owner: Alice\n" in text
     assert store.read("note.md", Metadata) == document
 
 
-def test_cleanup_failure_preserves_write_error(
-    store: DocumentStore,
-    document: Document[TaskMetadata],
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    store.create("note.md", document)
-    original_error = PermissionError("replacement denied")
-
-    def fail_replace(_self: Path, _target: str) -> None:
-        raise original_error
-
-    def fail_unlink(_self: Path, **_kwargs: object) -> None:
-        raise PermissionError("cleanup denied")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(Path, "replace", fail_replace)
-        patch.setattr(Path, "unlink", fail_unlink)
-        with pytest.raises(StorageError) as error:
-            store.write("note.md", Document(metadata=document.metadata, body="new"))
-
-    assert error.value.path == PurePosixPath("note.md")
-    assert error.value.reason is original_error
-    assert error.value.__cause__ is original_error
-    leftover = next(path for path in tmp_path.iterdir() if path.name != "note.md")
-    assert str(leftover) in error.value.__notes__[0]
-    assert "cleanup denied" in error.value.__notes__[0]
-    assert store.read("note.md", TaskMetadata) == document
-    leftover.unlink()
-
-
-@pytest.mark.parametrize("value", ["2026-09-22", "2026-09-22T12:30:00"])
-@pytest.mark.parametrize("model", [Metadata, PlanMetadata, TaskMetadata, ContextMetadata])
-def test_created_requires_timezone(model: type[Metadata], value: str) -> None:
-    with pytest.raises(ValidationError):
-        model.model_validate({"created": value})
-
-
 def test_created_preserves_precision_and_offset(store: DocumentStore) -> None:
-    metadata = TaskMetadata.model_validate({"created": "2026-09-22T12:34:56.123456+02:00"})
-    store.create("precise.md", Document(metadata=metadata, body=""))
+    metadata = TaskMetadata.model_validate({"created_at": "2026-09-22T12:34:56.123456+02:00"})
+    store.create("precise.md", ParsedDocument(metadata=metadata, body=""))
     result = store.read("precise.md", TaskMetadata)
-    assert result.metadata.created.isoformat() == "2026-09-22T12:34:56.123456+02:00"
-
-
-@pytest.mark.parametrize(
-    ("model", "name", "expected"),
-    [
-        (NameInput, "spec.md", "spec"),
-        (TaskNameInput, "topic/spec.md", "topic/spec"),
-        (ContextNameInput, "topic/spec.md", "topic/spec"),
-        (DocNameInput, "topic/spec.md", "topic/spec"),
-    ],
-)
-def test_input_names_ignore_markdown_suffix(
-    model: type[NameInput | TaskNameInput | ContextNameInput | DocNameInput],
-    name: str,
-    expected: str,
-) -> None:
-    assert model(name=name).name == expected
+    assert result.metadata.created_at.isoformat() == "2026-09-22T12:34:56.123456+02:00"

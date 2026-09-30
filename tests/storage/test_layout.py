@@ -2,7 +2,8 @@ from pathlib import PurePosixPath
 
 import pytest
 
-from machinate.storage import DocumentMembership, Layout
+from machinate.models.documents import DocumentIdentity
+from machinate.storage import Layout
 
 
 @pytest.mark.parametrize(
@@ -27,22 +28,22 @@ from machinate.storage import DocumentMembership, Layout
         ("plans/auth/plan.md/extra.md", ("unknown", None, None)),
     ],
 )
-def test_resolve(path: str, expected: tuple[str, str | None, str | None]) -> None:
-    membership = Layout().resolve(PurePosixPath(path))
-    assert (membership.kind, membership.plan, membership.name) == expected
+def test_identify(path: str, expected: tuple[str, str | None, str | None]) -> None:
+    membership = Layout().identify(PurePosixPath(path))
+    assert (membership.kind, membership.plan_name, membership.name) == expected
 
 
-def test_resolve_matches_forward_conventions() -> None:
+def test_identify_matches_forward_conventions() -> None:
     layout = Layout()
-    assert layout.resolve(layout.plan("auth")) == DocumentMembership(
-        kind="plan", plan="auth", name="auth"
+    assert layout.identify(layout.plan_path("auth")) == DocumentIdentity(
+        kind="plan", plan_name="auth", name="auth"
     )
-    assert layout.resolve(layout.task("auth", "abcd/efg/h")) == DocumentMembership(
-        kind="task", plan="auth", name="abcd/efg/h"
+    assert layout.identify(layout.task_path("auth", "abcd/efg/h")) == DocumentIdentity(
+        kind="task", plan_name="auth", name="abcd/efg/h"
     )
-    assert layout.resolve(layout.context("auth", "deep/nested/x")) == DocumentMembership(
-        kind="context", plan="auth", name="deep/nested/x"
+    assert layout.identify(layout.context_path("auth", "deep/nested/x")) == DocumentIdentity(
+        kind="context", plan_name="auth", name="deep/nested/x"
     )
-    assert layout.resolve(layout.doc("topic/spec")) == DocumentMembership(
+    assert layout.identify(layout.doc_path("topic/spec")) == DocumentIdentity(
         kind="doc", name="topic/spec"
     )

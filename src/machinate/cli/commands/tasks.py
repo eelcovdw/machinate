@@ -1,10 +1,8 @@
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from machinate.cli.commands.selection import PlanSelectionError, resolve_plan_name
+from machinate.cli.errors import EXIT_ERROR
 from machinate.cli.execution import execute
 from machinate.cli.models import (
     TaskAddResult,
@@ -13,225 +11,176 @@ from machinate.cli.models import (
     TaskShowResult,
     TaskUpdateResult,
 )
-from machinate.cli.update_changes import UpdateOptions, build_update
-from machinate.models.task import TaskUpdate
-from machinate.storage import TaskMetadata
-from machinate.storage.queries import TaskQuery
+from machinate.cli.options import (
+    CLEAR_TAGS,
+    DESCENDING,
+    GROUP,
+    LIMIT,
+    MATCH_TAGS,
+    OUTPUT_FORMAT,
+    PLAN,
+    PROJECT_DIR,
+    SORT,
+    SUMMARY,
+    TAGS,
+    TASK_STATUS,
+    TASK_STATUS_FILTER,
+    build_update,
+)
+from machinate.models.documents import TaskStatus
+from machinate.models.operations import StatusCreateInput, StatusUpdate, TaskQuery
 
 
-def task_changes(
-    summary: str | None,
-    status: str | None,
-    tags: list[str] | None,
-    clear_tags: bool = False,
-) -> TaskUpdate:
-    """Validate provided options and build a task update with only the changed fields."""
-    return build_update(
-        TaskUpdate,
-        UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
-        hint="--summary, --status, --tag, or --clear-tags",
-    )
-
-
-def task_add(  # noqa: PLR0913
-    context: typer.Context,
+def task_add_command(
+    ctx: typer.Context,
     names: Annotated[list[str], typer.Argument(help="Name(s) of the task(s) to create.")],
-    plan: Annotated[
-        str | None,
-        typer.Option("--plan", "-p", help="Plan to add tasks to; defaults to the current plan."),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option(
-            "--tag", help="Tag(s) to apply to every created task. Repeat for multiple tags."
-        ),
-    ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    plan: PLAN = None,
+    project_directory: PROJECT_DIR = None,
+    tags: TAGS = None,
+    summary: SUMMARY = None,
+    status: TASK_STATUS = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create one or more tasks in a plan."""
-    with execute(context, "task add", output_format, PlanSelectionError) as run:
-        project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
-        created, errors = project_context.tasks.create_batch(
-            plan_name, names, TaskMetadata(created=datetime.now(UTC), tags=tags or [])
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
+        batch = services.tasks.create_many(
+            plan_name,
+            names,
+            StatusCreateInput[TaskStatus](tags=tags or [], summary=summary, status=status),
         )
         result = TaskAddResult(
-            project=project_context.project, plan=plan_name, tasks=created, errors=errors
+            command="task add",
+            project=services.project,
+            plan_name=plan_name,
+            batch=batch,
         )
-        run.render(result)
-    if result.errors:
-        raise typer.Exit(1)  # Partial failure; the result still reports what was created.
+        run.emit(result)
+        if result.batch.failures:
+            raise typer.Exit(EXIT_ERROR)
 
 
-def task_list(  # noqa: PLR0913
-    context: typer.Context,
-    plan: Annotated[
-        str | None,
-        typer.Option(
-            "--plan", "-p", help="Plan whose tasks to list; defaults to the current plan."
-        ),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
-    ] = None,
-    statuses: Annotated[
-        list[str] | None,
-        typer.Option(
-            "--status",
-            help="Match any status: todo, in-progress, done. Repeat for multiple statuses.",
-        ),
-    ] = None,
-    sort: Annotated[str, typer.Option(help="Sort by name, created, or updated.")] = "name",
-    descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
-    group: Annotated[
-        bool,
-        typer.Option(
-            "--group/--no-group",
-            help="Group rows under status headers; use --no-group for a flat list.",
-        ),
-    ] = True,
-    limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
+def task_list_command(
+    ctx: typer.Context,
+    plan: PLAN = None,
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
+    tags: MATCH_TAGS = None,
+    statuses: TASK_STATUS_FILTER = None,
+    sort: SORT = "name",
+    descending: DESCENDING = False,
+    group: GROUP = True,
+    limit: LIMIT = None,
 ) -> None:
     """List tasks in a plan."""
-    with execute(context, "task list", output_format, PlanSelectionError) as run:
-        query = TaskQuery.model_validate(
-            {
-                "tags": tags,
-                "statuses": statuses,
-                "sort": sort,
-                "descending": descending,
-                "limit": limit,
-            }
+    with execute(ctx, output_format) as run:
+        query = TaskQuery(
+            tags=set(tags) if tags is not None else None,
+            statuses=set(statuses) if statuses is not None else None,
+            sort=sort,
+            descending=descending,
+            limit=limit,
         )
-        project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
         result = TaskListResult(
-            project=project_context.project,
-            plan=plan_name,
-            tasks=project_context.tasks.list(plan_name, query),
+            command="task list",
+            project=services.project,
+            plan_name=plan_name,
+            tasks=services.tasks.list_records(plan_name, query),
             group_by="status" if group else None,
         )
-        run.render(result)
+        run.emit(result)
 
 
-def task_show(
-    context: typer.Context,
+def task_show_command(
+    ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the task to show.")],
-    plan: Annotated[
-        str | None,
-        typer.Option(
-            "--plan", "-p", help="Plan containing the task; defaults to the current plan."
-        ),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    plan: PLAN = None,
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show task metadata and body."""
-    with execute(context, "task show", output_format, PlanSelectionError) as run:
-        project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
+        task = services.tasks.get(plan_name, name)
+        result = TaskShowResult(
+            command="task show",
+            project=services.project,
+            plan_name=plan_name,
+            task=task.record,
+            body=task.body,
         )
-        task = project_context.tasks.get(plan_name, name)
-        result = TaskShowResult(project=project_context.project, plan=plan_name, task=task)
-        run.render(result)
+        run.emit(result)
 
 
-def task_info(
-    context: typer.Context,
+def task_info_command(
+    ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the task to inspect.")],
-    plan: Annotated[
-        str | None,
-        typer.Option(
-            "--plan", "-p", help="Plan containing the task; defaults to the current plan."
-        ),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    plan: PLAN = None,
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show task metadata."""
-    with execute(context, "task info", output_format, PlanSelectionError) as run:
-        project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
+        task = services.tasks.get_record(plan_name, name)
+        result = TaskInfoResult(
+            command="task info", project=services.project, plan_name=plan_name, task=task
         )
-        task = project_context.tasks.info(plan_name, name)
-        result = TaskInfoResult(project=project_context.project, plan=plan_name, task=task)
-        run.render(result)
+        run.emit(result)
 
 
-def update_task(  # noqa: PLR0913
-    context: typer.Context,
+def task_update_command(
+    ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the task to update.")],
-    plan: Annotated[
-        str | None,
-        typer.Option(
-            "--plan", "-p", help="Plan containing the task; defaults to the current plan."
-        ),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    summary: Annotated[
-        str | None,
-        typer.Option("--summary", help="New summary; pass an empty string to clear it."),
-    ] = None,
-    status: Annotated[
-        str | None, typer.Option("--status", help="New status: todo, in-progress, or done.")
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Replace the task's tags. Repeat for multiple tags."),
-    ] = None,
-    clear_tags: Annotated[
-        bool,
-        typer.Option("--clear-tags", help="Remove all tags; mutually exclusive with --tag."),
-    ] = False,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    plan: PLAN = None,
+    project_directory: PROJECT_DIR = None,
+    summary: SUMMARY = None,
+    status: TASK_STATUS = None,
+    tags: TAGS = None,
+    clear_tags: CLEAR_TAGS = False,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change task status, summary, or tags."""
-    with execute(
-        context,
-        "task update",
-        output_format,
-        PlanSelectionError,
-    ) as run:
-        changes = task_changes(summary, status, tags, clear_tags)
-        project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
+    with execute(ctx, output_format) as run:
+        update = build_update(
+            StatusUpdate[TaskStatus],
+            summary=summary,
+            status=status,
+            tags=tags,
+            clear_tags=clear_tags,
+            hint="--summary, --status, --tag, or --clear-tags",
         )
-        updated = project_context.tasks.update(plan_name, name, changes)
-        result = TaskUpdateResult(project=project_context.project, plan=plan_name, task=updated)
-        run.render(result)
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
+        updated = services.tasks.update(plan_name, name, update)
+        result = TaskUpdateResult(
+            command="task update",
+            project=services.project,
+            plan_name=plan_name,
+            task=updated.record,
+            body=updated.body,
+        )
+        run.emit(result)
+
+
+def task_path_command(
+    ctx: typer.Context,
+    name: Annotated[
+        str | None,
+        typer.Argument(help="Task name; omit to print the plan's tasks directory."),
+    ] = None,
+    plan: PLAN = None,
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
+) -> None:
+    """Print the absolute path of a task document or the tasks directory."""
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
+        located = services.tasks.locate(plan_name, name)
+        run.render_path(command="task path", plan_name=plan_name, located=located)

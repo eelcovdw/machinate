@@ -3,21 +3,16 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
 import pytest
-from pydantic import ValidationError
 
+from machinate.models.documents import ParsedDocument, PlanMetadata, TaskMetadata
+from machinate.models.operations import DocumentQuery, PlanQuery, TaskQuery
+from machinate.services.document import _sort_records
 from machinate.storage import (
-    DateTimeRange,
-    Document,
     DocumentCollection,
-    DocumentQuery,
     DocumentStore,
     InvalidDocumentError,
     Layout,
-    PlanMetadata,
-    PlanQuery,
     StorageError,
-    TaskMetadata,
-    TaskQuery,
 )
 
 
@@ -29,13 +24,13 @@ def store(tmp_path: Path) -> DocumentStore:
         ("beta", 2, "draft", "Other\n\nOAuth body", 200, ["backend", "v2"]),
         ("gamma", 2, "done", "OAuth", 200, ["frontend", "v2"]),
     ]:
-        path = Layout().plan(name)
+        path = Layout().plan_path(name)
         store.create(
             path,
-            Document(
+            ParsedDocument(
                 metadata=PlanMetadata.model_validate(
                     {
-                        "created": datetime(2026, 9, day, tzinfo=UTC),
+                        "created_at": datetime(2026, 9, day, tzinfo=UTC),
                         "status": status,
                         "tags": tags,
                     }
@@ -48,40 +43,39 @@ def store(tmp_path: Path) -> DocumentStore:
 
 
 def names(store: DocumentStore, query: PlanQuery) -> list[str]:
-    return [record.name for record in store.list(Layout().plan_collection(), PlanMetadata, query)]
+    records = store.list(Layout().plan_collection(), PlanMetadata, query)
+    if query.sort == "last_activity_at":
+        ordered = sorted(records, key=lambda record: record.name)
+        ordered.sort(
+            key=lambda record: store.read_last_activity_at(
+                record.path,
+                Layout().task_collection(record.name),
+                Layout().context_collection(record.name),
+            ),
+            reverse=query.descending,
+        )
+        if query.limit is not None:
+            ordered = ordered[: query.limit]
+        return [record.name for record in ordered]
+    return [record.name for record in _sort_records(records, query)]
 
 
 @pytest.mark.parametrize(
     ("query", "expected"),
     [
         (PlanQuery(), ["alpha", "beta", "gamma"]),
-        (
-            PlanQuery(created_range=DateTimeRange(gte=datetime(2026, 9, 2, tzinfo=UTC))),
-            ["beta", "gamma"],
-        ),
-        (PlanQuery(created_range=DateTimeRange(lte=datetime(2026, 9, 1, tzinfo=UTC))), ["alpha"]),
         (PlanQuery(statuses=set()), []),
         (PlanQuery(statuses={"active", "done"}), ["alpha", "gamma"]),
         (PlanQuery(tags={"frontend"}), ["alpha", "gamma"]),
         (PlanQuery(tags={"frontend", "backend"}), ["alpha", "beta", "gamma"]),
         (PlanQuery(tags={"v2"}, statuses={"done"}), ["gamma"]),
-        (
-            PlanQuery(updated_range=DateTimeRange(gte=datetime.fromtimestamp(200, UTC))),
-            ["beta", "gamma"],
-        ),
         (PlanQuery(sort="name", descending=True, limit=2), ["gamma", "beta"]),
-        (PlanQuery(sort="updated", descending=True), ["beta", "gamma", "alpha"]),
-        (PlanQuery(sort="created"), ["alpha", "beta", "gamma"]),
+        (PlanQuery(sort="last_activity_at", descending=True), ["beta", "gamma", "alpha"]),
+        (PlanQuery(sort="created_at"), ["alpha", "beta", "gamma"]),
+        (PlanQuery(sort="modified_at"), ["alpha", "beta", "gamma"]),
         (
             PlanQuery(
-                statuses={"draft", "done"},
-                created_range=DateTimeRange(
-                    gte=datetime(2026, 9, 2, tzinfo=UTC), lte=datetime(2026, 9, 2, tzinfo=UTC)
-                ),
-                updated_range=DateTimeRange(gte=datetime.fromtimestamp(200, UTC)),
-                sort="updated",
-                descending=True,
-                limit=1,
+                statuses={"draft", "done"}, sort="last_activity_at", descending=True, limit=1
             ),
             ["beta"],
         ),
@@ -91,29 +85,28 @@ def test_query_mechanics(store: DocumentStore, query: PlanQuery, expected: list[
     assert names(store, query) == expected
 
 
-@pytest.mark.parametrize(
-    "data",
-    [
-        {"created_range": {"gte": "2026-09-02T00:00:00Z", "lte": "2026-09-01T00:00:00Z"}},
-        {"updated_range": {"gte": "2026-09-01T12:00:00"}},
-        {"created_range": {"gte": "invalid"}},
-        {"created_range": {"gt": "2026-09-01T00:00:00Z"}},
-        {"limit": 0},
-        {"limit": -1},
-        {"statuses": ["invalid"]},
-        {"tags": [""]},
-        {"tags": ["  "]},
-        {"tags": ["bad\x01"]},
-        {"sort": "invalid"},
-    ],
-)
-def test_query_validation(data: dict[str, object]) -> None:
-    with pytest.raises(ValidationError):
-        PlanQuery.model_validate(data)
+def test_modified_at_is_the_file_mtime(store: DocumentStore, tmp_path: Path) -> None:
+    record = next(record for record in store.list(Layout().plan_collection(), PlanMetadata))
+    expected = datetime.fromtimestamp((tmp_path / record.path).stat().st_mtime, UTC)
+    assert record.modified_at == expected
+
+
+def test_created_sort_uses_time_of_day(store: DocumentStore) -> None:
+    """Microsecond and offset differences order by instant, not the literal value."""
+    for name, stamp in [
+        ("alpha", "2026-09-22T12:00:00.123456Z"),
+        ("beta", "2026-09-22T13:00:00.123456+02:00"),
+        ("gamma", "2026-09-22T12:00:00.123457Z"),
+    ]:
+        store.write(
+            Layout().plan_path(name),
+            ParsedDocument(metadata=PlanMetadata.model_validate({"created_at": stamp}), body=""),
+        )
+    assert names(store, PlanQuery(sort="created_at")) == ["beta", "alpha", "gamma"]
 
 
 @pytest.mark.parametrize("folder", ["tasks", "context"])
-def test_activity_precedes_filters_sort_and_limit(
+def test_activity_precedes_filters_and_limit(
     store: DocumentStore, tmp_path: Path, folder: str
 ) -> None:
     child = tmp_path / "plans" / "alpha" / folder / "nested" / "bad.md"
@@ -126,25 +119,23 @@ def test_activity_precedes_filters_sort_and_limit(
     outside = tmp_path / "plans" / "alpha" / "unrelated.md"
     outside.write_text("also outside activity scopes")
     os.utime(outside, (900, 900))
-    query = PlanQuery(
-        updated_range=DateTimeRange(gte=datetime.fromtimestamp(300, UTC)),
-        sort="updated",
-        descending=True,
-        limit=1,
-    )
-    records = store.list(Layout().plan_collection(), PlanMetadata, query)
-    assert [record.name for record in records] == ["alpha"]
-    assert records[0].last_activity_at == datetime.fromtimestamp(300, UTC)
-    assert names(store, PlanQuery(sort="updated", descending=True, limit=1)) == ["alpha"]
-    assert (
-        names(store, PlanQuery(updated_range=DateTimeRange(gte=datetime.fromtimestamp(301, UTC))))
-        == []
-    )
+    query = PlanQuery(sort="last_activity_at", descending=True, limit=1)
+    collection = Layout().plan_collection()
+    records = store.list(collection, PlanMetadata, query)
+    assert {record.name for record in records} == {"alpha", "beta", "gamma"}
+    alpha = next(record for record in records if record.name == "alpha")
+    assert store.read_last_activity_at(
+        alpha.path,
+        Layout().task_collection("alpha"),
+        Layout().context_collection("alpha"),
+    ) == datetime.fromtimestamp(300, UTC)
+    assert names(store, query) == ["alpha"]
 
 
 def test_discovery_empty_scopes_and_malformed_documents(
     store: DocumentStore, tmp_path: Path
 ) -> None:
+    assert DocumentStore(tmp_path / "absent").list(Layout().plan_collection(), PlanMetadata) == []
     assert store.list(Layout().task_collection("alpha"), TaskMetadata) == []
     (tmp_path / "plans" / "alpha" / "tasks").mkdir()
     assert store.list(Layout().task_collection("alpha"), TaskMetadata) == []
@@ -162,6 +153,23 @@ def test_discovery_empty_scopes_and_malformed_documents(
         store.list(Layout().plan_collection(), PlanMetadata)
 
 
+def test_list_skips_dotfiles_and_dangling_symlinks(store: DocumentStore, tmp_path: Path) -> None:
+    tasks = tmp_path / "plans" / "alpha" / "tasks"
+    tasks.mkdir(parents=True)
+    frontmatter = "---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n"
+    (tasks / "visible.md").write_text(frontmatter)
+    (tasks / ".hidden.md").write_text(frontmatter)
+    (tasks / ".#lock.md").symlink_to(tasks / "missing.md")
+    (tasks / "real.md").write_text(frontmatter)
+    (tasks / "link.md").symlink_to(tasks / "real.md")
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "nested.md").write_text(frontmatter)
+    (tasks / "linked").symlink_to(external, target_is_directory=True)
+    records = store.list(Layout().task_collection("alpha"), TaskMetadata)
+    assert {record.name for record in records} == {"visible", "real", "link"}
+
+
 def test_non_directory_collection_is_error(store: DocumentStore) -> None:
     with pytest.raises(StorageError):
         store.list(
@@ -172,188 +180,46 @@ def test_non_directory_collection_is_error(store: DocumentStore) -> None:
         )
 
 
-def test_missing_root_is_empty(tmp_path: Path) -> None:
-    assert DocumentStore(tmp_path / "absent").list(Layout().plan_collection(), PlanMetadata) == []
-
-
-def test_summary_has_no_body(store: DocumentStore) -> None:
-    record = store.list(Layout().plan_collection(), PlanMetadata, DocumentQuery(limit=1))[0]
-    assert record.path == PurePosixPath("plans/alpha/plan.md")
-    assert '"body"' not in record.model_dump_json()
-
-
-@pytest.mark.parametrize("query_type", [DocumentQuery, PlanQuery, TaskQuery])
-def test_unknown_query_fields_are_rejected(query_type: type[DocumentQuery]) -> None:
-    with pytest.raises(ValidationError) as error:
-        query_type.model_validate({"status": ["done"]})
-    assert error.value.errors()[0]["type"] == "extra_forbidden"
-    assert error.value.errors()[0]["loc"] == ("status",)
-
-
-@pytest.mark.parametrize("folder", ["tasks", "context"])
-def test_nested_document_names_support_ordering(
-    store: DocumentStore, tmp_path: Path, folder: str
-) -> None:
+def test_nested_document_names_support_ordering(store: DocumentStore, tmp_path: Path) -> None:
     collection = DocumentCollection(
-        path=PurePosixPath("alpha", folder), pattern=PurePosixPath("**/*.md")
+        path=PurePosixPath("alpha", "tasks"), pattern=PurePosixPath("**/*.md")
     )
     for name in ("two/login", "one/login", "login.v2"):
         path = collection.path / f"{name}.md"
         store.create(
             path,
-            Document(metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body=""),
+            ParsedDocument(
+                metadata=TaskMetadata(created_at=datetime(2026, 9, 22, tzinfo=UTC)), body=""
+            ),
         )
         os.utime(tmp_path / path, (100, 100))
 
     for query in (
         DocumentQuery(),
-        DocumentQuery(sort="created", descending=True),
-        DocumentQuery(sort="updated", descending=True),
+        DocumentQuery(sort="created_at", descending=True),
     ):
-        records = store.list(collection, TaskMetadata, query)
+        records = _sort_records(store.list(collection, TaskMetadata, query), query)
         assert [record.name for record in records] == ["login.v2", "one/login", "two/login"]
 
-    records = store.list(collection, TaskMetadata, DocumentQuery(descending=True, limit=1))
+    query = DocumentQuery(descending=True, limit=1)
+    records = _sort_records(store.list(collection, TaskMetadata, query), query)
     assert [record.name for record in records] == ["two/login"]
 
 
-@pytest.mark.parametrize(
-    ("query", "expected"),
-    [
-        (TaskQuery(), ["alpha", "beta", "nested/gamma"]),
-        (TaskQuery(statuses=set()), []),
-        (TaskQuery(statuses={"todo"}), ["alpha"]),
-        (TaskQuery(statuses={"in-progress"}), ["beta"]),
-        (TaskQuery(statuses={"done"}), ["nested/gamma"]),
-        (TaskQuery(statuses={"todo", "in-progress"}), ["alpha", "beta"]),
-        (
-            TaskQuery(
-                statuses={"in-progress", "done"},
-                created_range=DateTimeRange(
-                    gte=datetime(2026, 9, 2, tzinfo=UTC), lte=datetime(2026, 9, 2, tzinfo=UTC)
-                ),
-                updated_range=DateTimeRange(gte=datetime.fromtimestamp(200, UTC)),
-                sort="updated",
-                descending=True,
-                limit=1,
-            ),
-            ["beta"],
-        ),
-    ],
-)
-def test_task_status_queries(store: DocumentStore, query: TaskQuery, expected: list[str]) -> None:
-    for name, status, day, summary, body, stamp in [
-        ("alpha", "todo", 1, "OAuth", "", 100),
-        ("beta", "in-progress", 2, None, "OAuth body", 200),
-        ("nested/gamma", "done", 2, "OAuth", "", 200),
-    ]:
-        path = Layout().task("alpha", name)
+def test_task_status_filter(store: DocumentStore) -> None:
+    for name, status in [("alpha", "todo"), ("beta", "in-progress"), ("nested/gamma", "done")]:
+        path = Layout().task_path("alpha", name)
         store.create(
             path,
-            Document(
+            ParsedDocument(
                 metadata=TaskMetadata.model_validate(
-                    {
-                        "created": datetime(2026, 9, day, tzinfo=UTC),
-                        "status": status,
-                        "summary": summary,
-                    }
+                    {"created_at": datetime(2026, 9, 22, tzinfo=UTC), "status": status}
                 ),
-                body=body,
+                body="",
             ),
         )
-        os.utime(store.root / path, (stamp, stamp))
-    records = store.list(Layout().task_collection("alpha"), TaskMetadata, query)
-    assert [record.name for record in records] == expected
-
-
-@pytest.mark.parametrize("status", ["draft", "active", "invalid", None])
-def test_task_query_rejects_invalid_statuses(status: str | None) -> None:
-    with pytest.raises(ValidationError):
-        TaskQuery.model_validate({"statuses": [status]})
-
-
-def test_date_range_json_round_trip() -> None:
-    query = TaskQuery.model_validate(
-        {"created_range": {"gte": "2026-09-01T00:00:00Z", "lte": "2026-09-02T00:00:00Z"}}
+    query = TaskQuery(statuses={"done"})
+    records = _sort_records(
+        store.list(Layout().task_collection("alpha"), TaskMetadata, query), query
     )
-    assert query.created_range == DateTimeRange(
-        gte=datetime(2026, 9, 1, tzinfo=UTC), lte=datetime(2026, 9, 2, tzinfo=UTC)
-    )
-    assert TaskQuery.model_validate_json(query.model_dump_json()) == query
-
-
-@pytest.mark.parametrize(
-    ("bounds", "expected"),
-    [
-        ({}, ["alpha", "beta", "gamma"]),
-        ({"lte": "1970-01-01T00:03:20Z"}, ["alpha", "beta", "gamma"]),
-        ({"lte": "1970-01-01T00:03:19Z"}, ["alpha"]),
-        ({"gte": "1970-01-01T00:03:20Z", "lte": "1970-01-01T00:03:20Z"}, ["beta", "gamma"]),
-        ({"gte": "1970-01-01T01:03:20+01:00", "lte": "1970-01-01T00:03:20Z"}, ["beta", "gamma"]),
-    ],
-)
-def test_updated_range(store: DocumentStore, bounds: dict[str, str], expected: list[str]) -> None:
-    query = PlanQuery.model_validate({"updated_range": bounds})
-    assert names(store, query) == expected
-    assert PlanQuery.model_validate_json(query.model_dump_json()) == query
-
-
-@pytest.mark.parametrize(
-    "bounds",
-    [
-        {"gte": "2026-09-01T12:00:00"},
-        {"lte": "2026-09-01T12:00:00"},
-        {"gte": "2026-09-02T12:00:00Z", "lte": "2026-09-01T12:00:00Z"},
-        {"lte": "invalid"},
-        {"lt": "2026-09-01T12:00:00Z"},
-    ],
-)
-def test_updated_range_validation(bounds: dict[str, str]) -> None:
-    with pytest.raises(ValidationError):
-        DateTimeRange.model_validate(bounds)
-
-
-def test_updated_upper_bound_uses_recursive_activity(store: DocumentStore) -> None:
-    path = Layout().task("alpha", "nested/task")
-    store.create(
-        path, Document(metadata=TaskMetadata(created=datetime(2026, 9, 22, tzinfo=UTC)), body="")
-    )
-    os.utime(store.root / path, (300, 300))
-    assert names(
-        store,
-        PlanQuery(
-            updated_range=DateTimeRange(lte=datetime.fromtimestamp(200, UTC)),
-            sort="updated",
-            descending=True,
-            limit=1,
-        ),
-    ) == ["beta"]
-
-
-@pytest.mark.parametrize("field", ["created_range", "updated_range"])
-@pytest.mark.parametrize("bound", ["gte", "lte"])
-def test_query_bounds_require_timestamps(field: str, bound: str) -> None:
-    with pytest.raises(ValidationError):
-        PlanQuery.model_validate({field: {bound: "2026-09-22"}})
-
-
-def test_created_filter_and_sort_use_time_of_day(store: DocumentStore) -> None:
-    for name, stamp in [
-        ("alpha", "2026-09-22T12:00:00.123456Z"),
-        ("beta", "2026-09-22T13:00:00.123456+02:00"),
-        ("gamma", "2026-09-22T12:00:00.123457Z"),
-    ]:
-        store.write(
-            Layout().plan(name),
-            Document(metadata=PlanMetadata.model_validate({"created": stamp}), body=""),
-        )
-    assert names(store, PlanQuery(sort="created")) == ["beta", "alpha", "gamma"]
-    query = PlanQuery.model_validate(
-        {
-            "created_range": {
-                "gte": "2026-09-22T14:00:00.123456+02:00",
-                "lte": "2026-09-22T12:00:00.123456Z",
-            }
-        }
-    )
-    assert names(store, query) == ["alpha"]
+    assert [record.name for record in records] == ["nested/gamma"]

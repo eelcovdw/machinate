@@ -1,275 +1,220 @@
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from machinate.cli.commands.selection import PlanSelectionError, resolve_plan_name, select_plan
 from machinate.cli.execution import execute
 from machinate.cli.models import (
-    AddResult,
-    InfoResult,
-    ListResult,
+    PlanAddResult,
     PlanInfoResult,
-    SelectResult,
-    ShowResult,
-    UnselectResult,
-    UpdateResult,
+    PlanListResult,
+    PlanSelectResult,
+    PlanShowResult,
+    PlanUnselectResult,
+    PlanUpdateResult,
 )
-from machinate.cli.update_changes import UpdateOptions, build_update
-from machinate.models.plan import PlanUpdate
-from machinate.storage import PlanMetadata
-from machinate.storage.queries import PlanQuery
+from machinate.cli.options import (
+    CLEAR_TAGS,
+    DESCENDING,
+    GROUP,
+    LIMIT,
+    MATCH_TAGS,
+    OUTPUT_FORMAT,
+    PLAN_SORT,
+    PLAN_STATUS,
+    PLAN_STATUS_FILTER,
+    PROJECT_DIR,
+    SUMMARY,
+    TAGS,
+    build_update,
+)
+from machinate.models.documents import PlanStatus
+from machinate.models.operations import PlanQuery, StatusCreateInput, StatusUpdate
+
+PLAN_ARG = Annotated[
+    str | None,
+    typer.Argument(help="Name of the plan; omit to use the current plan (human mode only)."),
+]
 
 
-def plan_changes(
-    summary: str | None,
-    status: str | None,
-    tags: list[str] | None,
-    clear_tags: bool = False,
-) -> PlanUpdate:
-    """Validate provided options and build a plan update with only the changed fields."""
-    return build_update(
-        PlanUpdate,
-        UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
-        hint="--summary, --status, --tag, or --clear-tags",
-    )
-
-
-def add_plan(  # noqa: PLR0913
-    context: typer.Context,
+def plan_add_command(
+    ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the plan to create.")],
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Tag(s) to apply. Repeat for multiple tags."),
-    ] = None,
-    summary: Annotated[str | None, typer.Option("--summary", help="Initial summary text.")] = None,
-    status: Annotated[
-        str | None, typer.Option("--status", help="Initial status: draft, active, or done.")
-    ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    project_directory: PROJECT_DIR = None,
+    tags: TAGS = None,
+    summary: SUMMARY = None,
+    status: PLAN_STATUS = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create a plan."""
-    with execute(context, "plan add", output_format) as run:
-        project_context = run.prepare(project)
-        metadata = PlanMetadata.model_validate(
-            {
-                "created": datetime.now(UTC),
-                "tags": tags or [],
-                "summary": summary,
-                "status": "draft" if status is None else status,
-            }
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        create = StatusCreateInput[PlanStatus](summary=summary, tags=tags or [], status=status)
+        plan = services.plans.create(name, create)
+        run.emit(
+            PlanAddResult(
+                command="plan add",
+                project=services.project,
+                plan=plan.record,
+            )
         )
-        plan = project_context.plans.create(name, metadata)
-        run.render(AddResult(project=project_context.project, plan=plan))
 
 
-def list_plans(  # noqa: PLR0913
-    context: typer.Context,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
-    ] = None,
-    statuses: Annotated[
-        list[str] | None,
-        typer.Option(
-            "--status",
-            help="Match any status: draft, active, done. Repeat for multiple statuses.",
-        ),
-    ] = None,
-    sort: Annotated[str, typer.Option(help="Sort by name, created, or updated.")] = "name",
-    descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
-    group: Annotated[
-        bool,
-        typer.Option(
-            "--group/--no-group",
-            help="Group rows under status headers; use --no-group for a flat list.",
-        ),
-    ] = True,
-    limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
+def plan_list_command(
+    ctx: typer.Context,
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
+    tags: MATCH_TAGS = None,
+    statuses: PLAN_STATUS_FILTER = None,
+    sort: PLAN_SORT = "name",
+    descending: DESCENDING = False,
+    group: GROUP = True,
+    limit: LIMIT = None,
 ) -> None:
     """List plans in the project."""
-    with execute(context, "plan list", output_format) as run:
-        query = PlanQuery.model_validate(
-            {
-                "tags": tags,
-                "statuses": statuses,
-                "sort": sort,
-                "descending": descending,
-                "limit": limit,
-            }
+    with execute(ctx, output_format) as run:
+        query = PlanQuery(
+            tags=set(tags) if tags is not None else None,
+            statuses=set(statuses) if statuses is not None else None,
+            sort=sort,
+            descending=descending,
+            limit=limit,
         )
-        project_context = run.prepare(project)
-        run.render(
-            ListResult(
-                project=project_context.project,
-                plans=project_context.plans.list(query),
+        services = run.open_project(project_directory)
+        run.emit(
+            PlanListResult(
+                command="plan list",
+                project=services.project,
+                plans=services.plans.list_records(query),
+                current_plan=services.plans.find_current_plan(),
                 group_by="status" if group else None,
             )
         )
 
 
-def info_command(
-    context: typer.Context,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
-) -> None:
-    """Show a project overview."""
-    with execute(context, "info", output_format) as run:
-        project_context = run.prepare(project)
-        run.render(
-            InfoResult(
-                project=project_context.project,
-                overview=project_context.plans.project_overview(),
-            )
-        )
-
-
 def plan_info_command(
-    context: typer.Context,
-    plan: Annotated[
-        str | None,
-        typer.Option("--plan", "-p", help="Plan to overview; otherwise the current plan."),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    ctx: typer.Context,
+    name: PLAN_ARG = None,
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show plan metadata and task progress."""
-    with execute(context, "plan info", output_format, PlanSelectionError) as run:
-        project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
-        )
-        run.render(
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, name, usage="plan NAME")
+        run.emit(
             PlanInfoResult(
-                project=project_context.project,
-                overview=project_context.plans.plan_overview(plan_name),
+                command="plan info",
+                project=services.project,
+                overview=services.overviews.get_plan_overview(plan_name),
             )
         )
 
 
-def select_current_plan(
-    context: typer.Context,
+def plan_select_command(
+    ctx: typer.Context,
     name: Annotated[
         str,
         typer.Argument(help="Name of the plan to select as the current plan."),
     ],
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Set the project's current plan; commands use it when -p is omitted."""
-    with execute(context, "plan select", output_format) as run:
-        project_context = run.prepare(project)
-        state = project_context.plans.set_current(name)
-        run.render(SelectResult(project=project_context.project, state=state))
+    with execute(ctx, output_format) as run:
+        run.require_human_session()
+        services = run.open_project(project_directory)
+        state = services.plans.select_plan(name)
+        run.emit(
+            PlanSelectResult(
+                command="plan select",
+                project=services.project,
+                current_plan=state.current_plan,
+            )
+        )
 
 
-def unselect_plan(
-    context: typer.Context,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+def plan_unselect_command(
+    ctx: typer.Context,
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Clear the current plan; does not change any plan's status."""
-    with execute(context, "plan unselect", output_format) as run:
-        project_context = run.prepare(project)
-        state = project_context.plans.clear_current()
-        run.render(UnselectResult(project=project_context.project, state=state))
+    with execute(ctx, output_format) as run:
+        run.require_human_session()
+        services = run.open_project(project_directory)
+        state = services.plans.unselect_plan()
+        run.emit(
+            PlanUnselectResult(
+                command="plan unselect",
+                project=services.project,
+                current_plan=state.current_plan,
+            )
+        )
 
 
-def update_plan(  # noqa: PLR0913
-    context: typer.Context,
-    plan: Annotated[
-        str | None,
-        typer.Option("--plan", "-p", help="Plan to update; otherwise the current plan."),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    summary: Annotated[
-        str | None,
-        typer.Option("--summary", help="New summary; pass an empty string to clear it."),
-    ] = None,
-    status: Annotated[
-        str | None, typer.Option("--status", help="New status: draft, active, or done.")
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Replace the plan's tags. Repeat for multiple tags."),
-    ] = None,
-    clear_tags: Annotated[
-        bool,
-        typer.Option("--clear-tags", help="Remove all tags; mutually exclusive with --tag."),
-    ] = False,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+def plan_update_command(
+    ctx: typer.Context,
+    name: PLAN_ARG = None,
+    project_directory: PROJECT_DIR = None,
+    summary: SUMMARY = None,
+    status: PLAN_STATUS = None,
+    tags: TAGS = None,
+    clear_tags: CLEAR_TAGS = False,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change plan status, summary, or tags."""
-    with execute(
-        context,
-        "plan update",
-        output_format,
-        PlanSelectionError,
-    ) as run:
-        changes = plan_changes(summary, status, tags, clear_tags)
-        project_context = run.prepare(project)
-        plan_name = resolve_plan_name(
-            project_context.plans, plan, automation=run.settings.automation
+    with execute(ctx, output_format) as run:
+        update = build_update(
+            StatusUpdate[PlanStatus],
+            summary=summary,
+            status=status,
+            tags=tags,
+            clear_tags=clear_tags,
+            hint="--summary, --status, --tag, or --clear-tags",
         )
-        updated = project_context.plans.update(plan_name, changes)
-        run.render(UpdateResult(project=project_context.project, plan=updated))
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, name, usage="plan NAME")
+        updated = services.plans.update(plan_name, update)
+        run.emit(
+            PlanUpdateResult(
+                command="plan update",
+                project=services.project,
+                plan=updated.record,
+                body=updated.body,
+            )
+        )
 
 
-def show_plan(
-    context: typer.Context,
-    plan: Annotated[
-        str | None,
-        typer.Option("--plan", "-p", help="Plan to show; otherwise the current plan."),
-    ] = None,
-    project: Annotated[
-        Path | None,
-        typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-    ] = None,
-    output_format: Annotated[
-        str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-    ] = None,
+def plan_path_command(
+    ctx: typer.Context,
+    name: PLAN_ARG = None,
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
+) -> None:
+    """Print the absolute editing path of a plan document."""
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, name, usage="plan NAME")
+        located = services.plans.locate(plan_name)
+        run.render_path(command="plan path", plan_name=plan_name, located=located)
+
+
+def plan_show_command(
+    ctx: typer.Context,
+    name: PLAN_ARG = None,
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show plan metadata and body."""
-    with execute(context, "plan show", output_format, PlanSelectionError) as run:
-        project_context = run.prepare(project)
-        selected = select_plan(project_context.plans, plan, automation=run.settings.automation)
-        run.render(ShowResult(project=project_context.project, plan=selected))
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, name, usage="plan NAME")
+        selected = services.plans.get(plan_name)
+        run.emit(
+            PlanShowResult(
+                command="plan show",
+                project=services.project,
+                plan=selected.record,
+                body=selected.body,
+            )
+        )

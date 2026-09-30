@@ -1,9 +1,8 @@
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import Annotated
 
 import typer
 
+from machinate.cli.errors import EXIT_ERROR
 from machinate.cli.execution import execute
 from machinate.cli.models import (
     DocAddResult,
@@ -11,174 +10,143 @@ from machinate.cli.models import (
     DocListResult,
     DocShowResult,
     DocUpdateResult,
-    PathResult,
 )
-from machinate.cli.update_changes import UpdateOptions, build_update
-from machinate.models.doc import DocUpdate
-from machinate.storage import DocMetadata
-from machinate.storage.queries import DocumentQuery
-
-_PROJECT = Annotated[
-    Path | None,
-    typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
-]
-_OUTPUT_FORMAT = Annotated[
-    str | None, typer.Option("--format", help="Formatter name (text or json by default).")
-]
-
-
-def doc_changes(
-    summary: str | None,
-    tags: list[str] | None,
-    clear_tags: bool = False,
-) -> DocUpdate:
-    """Validate provided options and build a doc update with only the changed fields."""
-    return build_update(
-        DocUpdate,
-        UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
-        hint="--summary, --tag, or --clear-tags",
-    )
+from machinate.cli.options import (
+    CLEAR_TAGS,
+    DESCENDING,
+    LIMIT,
+    MATCH_TAGS,
+    OUTPUT_FORMAT,
+    PROJECT_DIR,
+    SORT,
+    SUMMARY,
+    TAGS,
+    build_update,
+)
+from machinate.models.operations import CreateInput, DocumentQuery, DocumentUpdate
 
 
-def doc_add(
-    context: typer.Context,
-    names: Annotated[list[str], typer.Argument(help="Name(s) of the document(s) to create.")],
-    project: _PROJECT = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option(
-            "--tag", help="Tag(s) to apply to every created document. Repeat for multiple tags."
-        ),
-    ] = None,
-    output_format: _OUTPUT_FORMAT = None,
+def doc_add_command(
+    ctx: typer.Context,
+    names: Annotated[list[str], typer.Argument(help="Name(s) of the docs to create.")],
+    project_directory: PROJECT_DIR = None,
+    tags: TAGS = None,
+    summary: SUMMARY = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    """Create one or more project-level documents."""
-    with execute(context, "doc add", output_format) as run:
-        project_context = run.prepare(project)
-        created, errors = project_context.docs.create_batch(
-            names, DocMetadata(created=datetime.now(UTC), tags=tags or [])
+    """Create one or more project-level docs."""
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        batch = services.docs.create_many(names, CreateInput(tags=tags or [], summary=summary))
+        result = DocAddResult(
+            command="doc add",
+            project=services.project,
+            batch=batch,
         )
-        result = DocAddResult(project=project_context.project, docs=created, errors=errors)
-        run.render(result)
-    if result.errors:
-        raise typer.Exit(1)  # Partial failure; the result still reports what was created.
+        run.emit(result)
+        if result.batch.failures:
+            raise typer.Exit(EXIT_ERROR)
 
 
-def doc_list(  # noqa: PLR0913
-    context: typer.Context,
-    project: _PROJECT = None,
-    output_format: _OUTPUT_FORMAT = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Match any tag. Repeat for multiple tags."),
-    ] = None,
-    sort: Annotated[str, typer.Option(help="Sort by name, created, or updated.")] = "name",
-    descending: Annotated[bool, typer.Option(help="Reverse primary sort order.")] = False,
-    limit: Annotated[str | None, typer.Option(help="Maximum results (positive integer).")] = None,
+def doc_list_command(
+    ctx: typer.Context,
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
+    tags: MATCH_TAGS = None,
+    sort: SORT = "name",
+    descending: DESCENDING = False,
+    limit: LIMIT = None,
 ) -> None:
-    """List project-level documents."""
-    with execute(context, "doc list", output_format) as run:
-        query = DocumentQuery.model_validate(
-            {
-                "tags": tags,
-                "sort": sort,
-                "descending": descending,
-                "limit": limit,
-            }
+    """List project-level docs."""
+    with execute(ctx, output_format) as run:
+        query = DocumentQuery(
+            tags=set(tags) if tags is not None else None,
+            sort=sort,
+            descending=descending,
+            limit=limit,
         )
-        project_context = run.prepare(project)
+        services = run.open_project(project_directory)
         result = DocListResult(
-            project=project_context.project,
-            docs=project_context.docs.list(query),
+            command="doc list",
+            project=services.project,
+            docs=services.docs.list_records(query),
         )
-        run.render(result)
+        run.emit(result)
 
 
-def doc_show(
-    context: typer.Context,
-    name: Annotated[str, typer.Argument(help="Name of the document to show.")],
-    project: _PROJECT = None,
-    output_format: _OUTPUT_FORMAT = None,
+def doc_show_command(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Argument(help="Name of the doc to show.")],
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    """Show document metadata and body."""
-    with execute(context, "doc show", output_format) as run:
-        project_context = run.prepare(project)
-        document = project_context.docs.get(name)
-        result = DocShowResult(project=project_context.project, doc=document)
-        run.render(result)
+    """Show doc metadata and body."""
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        document = services.docs.get(name)
+        result = DocShowResult(
+            command="doc show",
+            project=services.project,
+            doc=document.record,
+            body=document.body,
+        )
+        run.emit(result)
 
 
-def doc_info(
-    context: typer.Context,
-    name: Annotated[str, typer.Argument(help="Name of the document to inspect.")],
-    project: _PROJECT = None,
-    output_format: _OUTPUT_FORMAT = None,
+def doc_info_command(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Argument(help="Name of the doc to inspect.")],
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    """Show document metadata."""
-    with execute(context, "doc info", output_format) as run:
-        project_context = run.prepare(project)
-        document = project_context.docs.info(name)
-        result = DocInfoResult(project=project_context.project, doc=document)
-        run.render(result)
+    """Show doc metadata."""
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        document = services.docs.get_record(name)
+        result = DocInfoResult(command="doc info", project=services.project, doc=document)
+        run.emit(result)
 
 
-def doc_path(
-    context: typer.Context,
+def doc_path_command(
+    ctx: typer.Context,
     name: Annotated[
         str | None,
-        typer.Argument(help="Document name; omit to print the docs directory."),
+        typer.Argument(help="Doc name; omit to print the docs directory."),
     ] = None,
-    project: _PROJECT = None,
-    output_format: _OUTPUT_FORMAT = None,
+    project_directory: PROJECT_DIR = None,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    """Print the absolute path of a document or the docs directory."""
-    with execute(context, "doc path", output_format) as run:
-        doc_name = name
-        project_context = run.prepare(project)
-        scope = project_context.project
-        if doc_name is None:
-            target = scope.storage / project_context.docs.directory()
-            result = PathResult(
-                command="doc path",
-                project=scope,
-                path=target,
-                kind="docs_directory",
-                exists=target.is_dir(),
-            )
-        else:
-            target = scope.storage / project_context.docs.path(doc_name)
-            result = PathResult(
-                command="doc path",
-                project=scope,
-                path=target,
-                kind="doc",
-                exists=target.is_file(),
-            )
-        run.render(result)
+    """Print the absolute path of a doc or the docs directory."""
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        located = services.docs.locate(name)
+        run.render_path(command="doc path", plan_name=None, located=located)
 
 
-def doc_update(  # noqa: PLR0913
-    context: typer.Context,
-    name: Annotated[str, typer.Argument(help="Name of the document to update.")],
-    project: _PROJECT = None,
-    summary: Annotated[
-        str | None,
-        typer.Option("--summary", help="New summary; pass an empty string to clear it."),
-    ] = None,
-    tags: Annotated[
-        list[str] | None,
-        typer.Option("--tag", help="Replace the document's tags. Repeat for multiple tags."),
-    ] = None,
-    clear_tags: Annotated[
-        bool,
-        typer.Option("--clear-tags", help="Remove all tags; mutually exclusive with --tag."),
-    ] = False,
-    output_format: _OUTPUT_FORMAT = None,
+def doc_update_command(
+    ctx: typer.Context,
+    name: Annotated[str, typer.Argument(help="Name of the doc to update.")],
+    project_directory: PROJECT_DIR = None,
+    summary: SUMMARY = None,
+    tags: TAGS = None,
+    clear_tags: CLEAR_TAGS = False,
+    output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    """Change document summary or tags."""
-    with execute(context, "doc update", output_format) as run:
-        changes = doc_changes(summary, tags, clear_tags)
-        project_context = run.prepare(project)
-        updated = project_context.docs.update(name, changes)
-        result = DocUpdateResult(project=project_context.project, doc=updated)
-        run.render(result)
+    """Change doc summary or tags."""
+    with execute(ctx, output_format) as run:
+        update = build_update(
+            DocumentUpdate,
+            summary=summary,
+            tags=tags,
+            clear_tags=clear_tags,
+            hint="--summary, --tag, or --clear-tags",
+        )
+        services = run.open_project(project_directory)
+        updated = services.docs.update(name, update)
+        result = DocUpdateResult(
+            command="doc update",
+            project=services.project,
+            doc=updated.record,
+            body=updated.body,
+        )
+        run.emit(result)
