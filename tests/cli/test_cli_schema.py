@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import ClassVar, get_args
+from typing import ClassVar, cast, get_args
 
 import pytest
 from harness import DEFAULT_DEPENDENCIES
@@ -106,6 +106,17 @@ def test_schema_needs_no_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     result = runner.invoke(app, ["schema"])
     assert result.exit_code == 0, result.output
     assert _Bundle.model_validate_json(result.stdout).version
+
+
+def test_schema_keeps_typed_metadata() -> None:
+    schema = _CommandSchema.model_validate_json(
+        runner.invoke(app, ["schema", "task", "show"]).stdout
+    )
+    metadata = cast("dict[str, object]", schema.defs["TaskMetadata"])
+    properties = cast("dict[str, object]", metadata["properties"])
+    assert set(properties) == {"created_at", "tags", "status"}
+    statuses = cast("dict[str, object]", schema.defs["TaskStatus"])
+    assert statuses["enum"] == ["todo", "in-progress", "done"]
 
 
 def test_every_leaf_result_command_matches_its_catalog_path() -> None:

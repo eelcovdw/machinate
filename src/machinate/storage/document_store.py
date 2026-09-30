@@ -96,7 +96,11 @@ class DocumentStore:
             output = StringIO()
             yaml = YAML(typ="safe")
             yaml.default_flow_style = False
-            yaml.dump(document.metadata.model_dump(), output)  # pyright: ignore[reportUnknownMemberType]
+            # The authored summary is excluded from metadata dumps, so write it back.
+            data = document.metadata.model_dump()
+            if document.metadata.summary is not None:
+                data["summary"] = document.metadata.summary
+            yaml.dump(data, output)  # pyright: ignore[reportUnknownMemberType]
             return f"---\n{output.getvalue()}---\n{document.body}".encode()
         except (ValueError, YAMLError) as exc:
             raise InvalidDocumentError(path, exc) from exc
@@ -241,6 +245,7 @@ def _glob_regular_files(directory: Path, patterns: list[str]) -> list[Path]:
     search all use one discovery rule.
     """
     files: list[Path] = []
+    seen: set[Path] = set()
     base = directory.resolve()
     for pattern in patterns:
         for match in directory.glob(pattern):
@@ -251,6 +256,10 @@ def _glob_regular_files(directory: Path, patterns: list[str]) -> list[Path]:
                 continue
             if any(part.startswith(".") for part in relative.parts):
                 continue
+            # Overlapping patterns can match one file more than once; keep first-seen order.
+            if relative in seen:
+                continue
             if match.is_file():
+                seen.add(relative)
                 files.append(match)
     return files

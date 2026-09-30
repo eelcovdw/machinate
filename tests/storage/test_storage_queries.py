@@ -170,6 +170,15 @@ def test_list_skips_dotfiles_and_dangling_symlinks(store: DocumentStore, tmp_pat
     assert {record.name for record in records} == {"visible", "real", "link"}
 
 
+def test_list_files_deduplicates_overlapping_patterns(tmp_path: Path) -> None:
+    store = DocumentStore(tmp_path)
+    tasks = tmp_path / "plans" / "alpha" / "tasks"
+    tasks.mkdir(parents=True)
+    (tasks / "login.md").write_text("---\ncreated_at: 2026-09-22T00:00:00Z\n---\nbody\n")
+    files = store.list_files(PurePosixPath(), ["**/*.md", "**/tasks/*.md"])
+    assert files == [PurePosixPath("plans/alpha/tasks/login.md")]
+
+
 def test_non_directory_collection_is_error(store: DocumentStore) -> None:
     with pytest.raises(StorageError):
         store.list(

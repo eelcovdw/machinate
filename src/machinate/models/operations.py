@@ -7,9 +7,9 @@ search, batch results, then overviews.
 
 # --- Create inputs ---------------------------------------------------------
 
-from typing import ClassVar, Literal, TypeGuard, override
+from typing import ClassVar, Literal, Self, TypeGuard, override
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
 
 from .documents import (
     DocumentIdentity,
@@ -67,7 +67,12 @@ def _apply_updates[M: Metadata](
     """Return a document with the proposed metadata updates, or None when unchanged."""
     if not updates:
         return None
-    metadata = document.metadata.model_copy(update=updates)
+    # model_copy skips validators, so re-validate the merged metadata: an update that
+    # produces an invalid value (or would read back differently) must fail here.
+    data = document.metadata.model_dump()
+    data["summary"] = document.metadata.summary
+    data.update(updates)
+    metadata = type(document.metadata).model_validate(data)
     return document.model_copy(update={"metadata": metadata})
 
 
@@ -119,6 +124,13 @@ class StatusUpdate[S: str](BaseModel):
     summary: str | None = None
     tags: list[Tag] | None = None
     status: S | None = None
+
+    @model_validator(mode="after")
+    def _reject_null_status(self) -> Self:
+        """Reject an explicit ``status=None``; an unset status means unchanged."""
+        if "status" in self.model_fields_set and self.status is None:
+            raise ValueError("status cannot be unset")
+        return self
 
     def apply_to[M: Metadata](self, document: ParsedDocument[M]) -> ParsedDocument[M] | None:
         """Return a document with this update applied, or None when nothing changed."""

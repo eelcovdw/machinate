@@ -25,7 +25,6 @@ from pydantic import (
     PlainValidator,
     TypeAdapter,
     WithJsonSchema,
-    field_serializer,
     field_validator,
 )
 
@@ -102,18 +101,13 @@ def validate_tag(value: str) -> str:
 Tag = Annotated[str, AfterValidator(validate_tag)]
 
 
-def _is_none(value: object) -> bool:
-    """Omit an optional field from dumps when it is unset."""
-    return value is None
-
-
 class Metadata(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow", validate_assignment=True)
 
     created_at: AwareDatetime
-    # Authored summary; omitted from the frontmatter when unset, and excluded from
-    # serialized records because those carry the effective summary top-level.
-    summary: str | None = Field(default=None, exclude_if=_is_none)
+    # Authored summary; written to frontmatter explicitly and excluded from records,
+    # which carry the effective summary top-level instead.
+    summary: str | None = Field(default=None, exclude=True)
     tags: list[Tag] = Field(default_factory=list)
 
     @field_validator("tags", mode="before")
@@ -319,12 +313,6 @@ class DocumentRecord[M: Metadata](BaseModel):
             modified_at=modified_at,
             summary=document.determine_summary(),
         )
-
-    @field_serializer("metadata")
-    def _serialize_metadata(self, metadata: M) -> dict[str, object]:
-        # The record's top-level summary is the effective one; the authored value
-        # stays in metadata for writes and schema, but records do not repeat it.
-        return metadata.model_dump(exclude={"summary"})
 
 
 class PlanRecord(DocumentRecord[PlanMetadata]):
