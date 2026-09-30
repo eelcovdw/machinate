@@ -25,7 +25,7 @@ from machinate.cli.update_options import UpdateOptions, build_update
 from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 
 
-def doc_add_command(  # noqa: PLR0913
+def doc_add_command(
     ctx: typer.Context,
     names: Annotated[list[str], typer.Argument(help="Name(s) of the docs to create.")],
     project_directory: PROJECT_DIR = None,
@@ -44,10 +44,10 @@ def doc_add_command(  # noqa: PLR0913
                 created=[doc.record for doc in batch.created], failures=batch.failures
             ),
         )
-        run.render(result)
+        run.emit(result)
 
 
-def doc_list_command(  # noqa: PLR0913
+def doc_list_command(
     ctx: typer.Context,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
@@ -70,7 +70,7 @@ def doc_list_command(  # noqa: PLR0913
             project=services.project,
             docs=services.docs.list_records(query),
         )
-        run.render(result)
+        run.emit(result)
 
 
 def doc_show_command(
@@ -89,7 +89,7 @@ def doc_show_command(
             doc=document.record,
             body=document.body,
         )
-        run.render(result)
+        run.emit(result)
 
 
 def doc_info_command(
@@ -101,9 +101,9 @@ def doc_info_command(
     """Show doc metadata."""
     with execute(ctx, output_format) as run:
         services = run.open_project(project_directory)
-        document = services.docs.get_info(name)
+        document = services.docs.get_record(name)
         result = DocInfoResult(command="doc info", project=services.project, doc=document)
-        run.render(result)
+        run.emit(result)
 
 
 def doc_path_command(
@@ -122,7 +122,7 @@ def doc_path_command(
         run.render_path(command="doc path", plan_name=None, located=located)
 
 
-def doc_update_command(  # noqa: PLR0913
+def doc_update_command(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the doc to update.")],
     project_directory: PROJECT_DIR = None,
@@ -146,4 +146,4 @@ def doc_update_command(  # noqa: PLR0913
             doc=updated.record,
             body=updated.body,
         )
-        run.render(result)
+        run.emit(result)

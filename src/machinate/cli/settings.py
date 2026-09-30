@@ -1,16 +1,9 @@
 from collections.abc import Mapping
-from typing import Annotated, ClassVar, Literal, Self
+from typing import Annotated, ClassVar, Self
 
-from pydantic import (
-    AliasChoices,
-    BaseModel,
-    ConfigDict,
-    Field,
-    field_validator,
-    model_validator,
-)
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-type LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+from .formatting import OutputFormat
 
 
 class Settings(BaseModel):
@@ -22,28 +15,21 @@ class Settings(BaseModel):
     ai_agent: Annotated[
         str | None, Field(validation_alias=AliasChoices("MACHI_AI_AGENT", "AI_AGENT"))
     ] = None
-    # Left unvalidated here so an explicit --format override wins over an invalid
-    # MACHI_FORMAT; get_formatter validates the effective name instead.
-    format: Annotated[str, Field(validation_alias="MACHI_FORMAT")] = ""
-    log_level: Annotated[LogLevel | None, Field(validation_alias="MACHI_LOG_LEVEL")] = None
+    format: Annotated[OutputFormat | None, Field(validation_alias="MACHI_FORMAT")] = None
 
     @property
     def is_agent_mode(self) -> bool:
         """Whether an agent name was set; no terminal or other fallback."""
         return bool(self.ai_agent)
 
-    @field_validator("log_level", mode="before")
-    @classmethod
-    def _normalize_log_level(cls, value: object) -> object:
-        return value.upper() if isinstance(value, str) else value
-
-    @model_validator(mode="after")
-    def _resolve_format(self) -> Self:
-        if not self.format:
-            self.format = "json" if self.is_agent_mode else "text"
-        return self
+    @property
+    def output_format(self) -> OutputFormat:
+        """The effective format: the explicit value, or the agent-aware default."""
+        return (
+            self.format if self.format is not None else ("json" if self.is_agent_mode else "text")
+        )
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str]) -> Self:
-        """Build settings from an explicit environment mapping."""
-        return cls.model_validate(dict(environ))
+        """Build settings from the declared aliases only, ignoring lowercase field names."""
+        return cls.model_validate(dict(environ), by_alias=True, by_name=False)

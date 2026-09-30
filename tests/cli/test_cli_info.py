@@ -22,7 +22,7 @@ def test_info_project_overview(project: Path) -> None:
     assert isinstance(parsed.overview, ProjectOverview)
     overview = parsed.overview
     assert overview.current_plan is None
-    assert overview.current_plan_exists is True
+    assert overview.current_plan_exists is None
     assert overview.plan_count == 2
     assert overview.plans_by_status == {"draft": 1, "active": 1, "done": 0}
     assert overview.tasks_by_status == {"todo": 1, "in-progress": 0, "done": 1}

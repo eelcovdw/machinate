@@ -88,7 +88,7 @@ class ResourceAdapter:
     document_store: DocumentStore
     ensure_parent: Callable[[], None]
     create: Callable[..., LoadedDocument[Metadata]]
-    create_many: Callable[..., BatchCreated[LoadedDocument[Metadata]]]
+    create_many: Callable[..., BatchCreated[LoadedDocument[Metadata]]] | None
     get: Callable[[str], LoadedDocument[Metadata]]
     info: Callable[[str], DocumentRecord[Metadata]]
     update: Callable[..., LoadedDocument[Metadata]]
@@ -114,16 +114,6 @@ def _plan_adapter(plans: PlanService) -> ResourceAdapter:
                 name,
                 StatusCreateInput[PlanStatus](summary=summary, tags=tags or [], status=status),
             )
-        )
-
-    def create_many(
-        names: list[str], *, summary: str | None = None, tags: list[Tag] | None = None
-    ) -> BatchCreated[LoadedDocument[Metadata]]:
-        batch = plans.create_many(
-            names, StatusCreateInput[PlanStatus](summary=summary, tags=tags or [])
-        )
-        return BatchCreated(
-            created=[_flat_loaded(loaded) for loaded in batch.created], failures=batch.failures
         )
 
     def get(name: str) -> LoadedDocument[Metadata]:
@@ -158,9 +148,9 @@ def _plan_adapter(plans: PlanService) -> ResourceAdapter:
         document_store=plans.document_store,
         ensure_parent=ensure_parent,
         create=create,
-        create_many=create_many,
+        create_many=None,
         get=get,
-        info=lambda name: _flat_record(plans.get_info(name)),
+        info=lambda name: _flat_record(plans.get_record(name)),
         update=update,
         list_records=list_records,
         path=plans.get_path,
@@ -236,7 +226,7 @@ def _task_adapter(tasks: TaskService, plans: PlanService) -> ResourceAdapter:
         create=create,
         create_many=create_many,
         get=get,
-        info=lambda name: _flat_record(tasks.get_info("alpha", name)),
+        info=lambda name: _flat_record(tasks.get_record("alpha", name)),
         update=update,
         list_records=list_records,
         path=lambda name: tasks.get_path("alpha", name),
@@ -296,7 +286,7 @@ def _context_adapter(contexts: ContextService, plans: PlanService) -> ResourceAd
         create=create,
         create_many=create_many,
         get=get,
-        info=lambda name: _flat_record(contexts.get_info("alpha", name)),
+        info=lambda name: _flat_record(contexts.get_record("alpha", name)),
         update=update,
         list_records=list_records,
         path=lambda name: contexts.get_path("alpha", name),
@@ -352,7 +342,7 @@ def _doc_adapter(docs: DocService) -> ResourceAdapter:
         create=create,
         create_many=create_many,
         get=get,
-        info=lambda name: _flat_record(docs.get_info(name)),
+        info=lambda name: _flat_record(docs.get_record(name)),
         update=update,
         list_records=list_records,
         path=docs.get_path,
@@ -424,6 +414,8 @@ def test_create_get_path_duplicate_and_suffix(adapter: ResourceAdapter) -> None:
 
 @ADAPTER_CASES
 def test_create_many(adapter: ResourceAdapter) -> None:
+    if adapter.create_many is None:
+        pytest.skip("batch create is not offered for plans")
     adapter.ensure_parent()
     batch = adapter.create_many(["one", "two"])
     assert [loaded.record.name for loaded in batch.created] == ["one", "two"]

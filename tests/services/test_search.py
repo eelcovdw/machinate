@@ -13,8 +13,9 @@ from machinate.models.documents import (
 )
 from machinate.models.operations import SearchQuery
 from machinate.services.errors import NotFoundError, SearchQueryError
+from machinate.services.plan import PlanService
 from machinate.services.search import SearchService
-from machinate.storage import DocumentStore, Layout
+from machinate.storage import DocumentStore, Layout, ProjectStateStore
 
 _NOW = datetime(2026, 9, 22, tzinfo=UTC)
 
@@ -46,7 +47,8 @@ def search(tmp_path: Path) -> SearchService:
     (tmp_path / "notes.txt").write_text("plain notes")
     (tmp_path / "misc").mkdir()
     (tmp_path / "misc" / "random.md").write_text("random misc")
-    return SearchService(store, layout)
+    plans = PlanService(store, layout, ProjectStateStore(tmp_path / "machinate.toml"))
+    return SearchService(store, layout, plans)
 
 
 def paths(search: SearchService, query: SearchQuery | None = None) -> list[str]:
@@ -69,13 +71,13 @@ def test_listing_has_no_scores(search: SearchService) -> None:
     assert all(entry.score is None for entry in entries)
 
 
-def test_dot_prefixed_document_is_listed_and_searchable(search: SearchService) -> None:
+def test_dot_prefixed_document_is_not_listed_or_searchable(search: SearchService) -> None:
     search.document_store.create(
         search.layout.task_path("auth", ".hidden"),
         _doc(TaskMetadata(created_at=_NOW), "quokka hidden note"),
     )
-    assert "plans/auth/tasks/.hidden.md" in paths(search, SearchQuery())
-    assert paths(search, SearchQuery(query="quokka")) == ["plans/auth/tasks/.hidden.md"]
+    assert "plans/auth/tasks/.hidden.md" not in paths(search, SearchQuery())
+    assert paths(search, SearchQuery(query="quokka")) == []
 
 
 def test_symlinked_file_is_indexed_and_dangling_symlink_is_skipped(search: SearchService) -> None:

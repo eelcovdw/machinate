@@ -31,7 +31,7 @@ def test_plan_path_text_smoke(project: Path) -> None:
 def test_plan_path_current_plan(project: Path) -> None:
     seed.plan(project, "auth")
     seed.plan(project, "billing")
-    open_project(project).plans.set_current("auth")
+    open_project(project).plans.select_plan("auth")
     parsed = cli.json(PathResult, ["plan", "path", "-P", str(project), "--format", "json"])
     assert parsed.plan_name == "auth"
 
@@ -39,7 +39,7 @@ def test_plan_path_current_plan(project: Path) -> None:
 def test_plan_path_does_not_change_selection(project: Path) -> None:
     seed.plan(project, "auth")
     seed.plan(project, "billing")
-    open_project(project).plans.set_current("auth")
+    open_project(project).plans.select_plan("auth")
     cli.json(PathResult, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"])
     assert read_state(project).current_plan == "auth"
 
@@ -86,6 +86,12 @@ def test_task_path_directory_never_creates(project: Path) -> None:
     seed.plan(project, "auth")
     cli.json(PathResult, ["task", "path", "-p", "auth", "-P", str(project), "--format", "json"])
     assert not (project / ".machi/plans/auth/tasks").exists()
+
+
+def test_task_path_directory_missing_plan_reports_not_found(project: Path) -> None:
+    error = cli.error(["task", "path", "-p", "nope", "-P", str(project), "--format", "json"])
+    assert error.command == "task path"
+    assert error.code == "not_found"
 
 
 def test_context_path_document(project: Path) -> None:

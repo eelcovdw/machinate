@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel
 
-from .errors import InputError
+from machinate.services.errors import InputError
 
 
 @dataclass(frozen=True, slots=True)

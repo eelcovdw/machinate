@@ -60,7 +60,7 @@ def test_task_add_explicit_plan(auth_project: Path) -> None:
 
 
 def test_task_add_current_plan(auth_project: Path) -> None:
-    open_project(auth_project).plans.set_current("auth")
+    open_project(auth_project).plans.select_plan("auth")
     parsed = cli.json(
         TaskAddResult,
         ["task", "add", "login", "-P", str(auth_project), "--format", "json"],

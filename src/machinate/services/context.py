@@ -31,7 +31,7 @@ class ContextService(DocumentService[ContextMetadata]):
             Collection(
                 kind="context",
                 metadata_type=ContextMetadata,
-                storage=lambda plan: layout.context_collection(ensure_plan(plan)),
+                collection=lambda plan: layout.context_collection(ensure_plan(plan)),
                 path=lambda plan, name: layout.context_path(ensure_plan(plan), name),
                 requires_plan=True,
                 directory_kind="context_directory",
@@ -61,12 +61,8 @@ class ContextService(DocumentService[ContextMetadata]):
         return self._get(plan, name)
 
     @validate_call
-    def get_info(self, plan: Name, name: NestedName) -> DocumentRecord[ContextMetadata]:
+    def get_record(self, plan: Name, name: NestedName) -> DocumentRecord[ContextMetadata]:
         return self._info(plan, name)
-
-    @validate_call
-    def get_directory(self, plan: Name) -> PurePosixPath:
-        return self._directory(plan)
 
     @validate_call
     def get_path(self, plan: Name, name: NestedName) -> PurePosixPath:

@@ -2,7 +2,7 @@ from pathlib import PurePosixPath
 
 from machinate.models.documents import DocumentIdentity, DocumentKind, Name, NestedName
 
-from .models import DocumentCollection, DocumentScope
+from .models import DocumentCollection
 
 _PLANS_DIRECTORY = PurePosixPath("plans")
 _TASKS_DIRECTORY = PurePosixPath("tasks")
@@ -28,9 +28,6 @@ class Layout:
 
     def doc_path(self, name: NestedName) -> PurePosixPath:
         return _DOCS_DIRECTORY / f"{name}.md"
-
-    def plan_directory(self) -> PurePosixPath:
-        return _PLANS_DIRECTORY
 
     def task_directory(self, plan: Name) -> PurePosixPath:
         return self.plan_path(plan).parent / _TASKS_DIRECTORY
@@ -74,15 +71,10 @@ class Layout:
         return DocumentIdentity(kind="unknown")
 
     def plan_collection(self) -> DocumentCollection:
-        # Activity scopes are relative to each plan document's directory.
         return DocumentCollection(
             path=_PLANS_DIRECTORY,
             pattern=PurePosixPath("*/plan.md"),
             name_source="parent",
-            activity_scopes=(
-                DocumentScope(path=_TASKS_DIRECTORY, pattern=PurePosixPath("**/*.md")),
-                DocumentScope(path=_CONTEXT_DIRECTORY, pattern=PurePosixPath("**/*.md")),
-            ),
         )
 
     def task_collection(self, plan: Name) -> DocumentCollection:

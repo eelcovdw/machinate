@@ -30,7 +30,7 @@ class DocService(DocumentService[DocMetadata]):
             Collection(
                 kind="doc",
                 metadata_type=DocMetadata,
-                storage=lambda _plan: layout.doc_collection(),
+                collection=lambda _plan: layout.doc_collection(),
                 path=lambda _plan, name: layout.doc_path(name),
                 requires_plan=False,
                 directory_kind="doc_directory",
@@ -58,12 +58,8 @@ class DocService(DocumentService[DocMetadata]):
         return self._get(None, name)
 
     @validate_call
-    def get_info(self, name: NestedName) -> DocumentRecord[DocMetadata]:
+    def get_record(self, name: NestedName) -> DocumentRecord[DocMetadata]:
         return self._info(None, name)
-
-    @validate_call
-    def get_directory(self) -> PurePosixPath:
-        return self._directory(None)
 
     @validate_call
     def get_path(self, name: NestedName) -> PurePosixPath:

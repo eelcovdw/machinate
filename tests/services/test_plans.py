@@ -31,10 +31,10 @@ def service(tmp_path: Path, state: ProjectStateStore) -> PlanService:
 
 def test_selection_does_not_retarget_explicit_operations(service: PlanService) -> None:
     service.create("alpha", StatusCreateInput[PlanStatus]())
-    assert service.set_current("alpha") == ProjectState(project_name="demo", current_plan="alpha")
+    assert service.select_plan("alpha") == ProjectState(project_name="demo", current_plan="alpha")
     service.create("beta", StatusCreateInput[PlanStatus]())
     assert service.find_current_plan() == "alpha"
-    service.set_current("beta")
+    service.select_plan("beta")
     service.document_store.write(
         service.get_path("alpha"),
         ParsedDocument(metadata=service.get("alpha").record.metadata, body="only alpha"),
@@ -44,14 +44,14 @@ def test_selection_does_not_retarget_explicit_operations(service: PlanService) -
     assert service.get("beta").body == ""
     assert service.find_current_plan() == "beta"
     assert service.project_state_store.read().project_name == "demo"
-    assert service.clear_current() == ProjectState(project_name="demo")
+    assert service.unselect_plan() == ProjectState(project_name="demo")
     assert service.find_current_plan() is None
 
 
 def test_missing_operations_and_dangling_selection(
     service: PlanService, state: ProjectStateStore
 ) -> None:
-    for operation in (service.get, service.set_current):
+    for operation in (service.get, service.select_plan):
         with pytest.raises(NotFoundError):
             operation("missing")
     with pytest.raises(NotFoundError):

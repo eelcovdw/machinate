@@ -32,7 +32,7 @@ class TaskService(DocumentService[TaskMetadata, StatusCreateInput[TaskStatus]]):
             Collection(
                 kind="task",
                 metadata_type=TaskMetadata,
-                storage=lambda plan: layout.task_collection(ensure_plan(plan)),
+                collection=lambda plan: layout.task_collection(ensure_plan(plan)),
                 path=lambda plan, name: layout.task_path(ensure_plan(plan), name),
                 requires_plan=True,
                 directory_kind="task_directory",
@@ -65,12 +65,8 @@ class TaskService(DocumentService[TaskMetadata, StatusCreateInput[TaskStatus]]):
         return self._get(plan, name)
 
     @validate_call
-    def get_info(self, plan: Name, name: NestedName) -> DocumentRecord[TaskMetadata]:
+    def get_record(self, plan: Name, name: NestedName) -> DocumentRecord[TaskMetadata]:
         return self._info(plan, name)
-
-    @validate_call
-    def get_directory(self, plan: Name) -> PurePosixPath:
-        return self._directory(plan)
 
     @validate_call
     def get_path(self, plan: Name, name: NestedName) -> PurePosixPath:

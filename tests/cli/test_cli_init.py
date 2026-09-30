@@ -1,9 +1,8 @@
 from pathlib import Path
 
 import pytest
-from harness import cli, make_settings, read_state
+from harness import cli, read_state
 
-from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import InitResult
 
 
@@ -76,14 +75,3 @@ def test_init_text_smoke(target: Path) -> None:
     result = cli.run(["init", "-P", str(target), "--format", "text"])
     assert result.exit_code == 0
     assert target.name in result.stdout
-
-
-def test_init_explicit_format_overrides_invalid_env_format(target: Path) -> None:
-    dependencies = Dependencies(settings=make_settings(format_name="human"))
-    parsed = cli.json(
-        InitResult,
-        ["init", "-P", str(target), "--format", "json"],
-        dependencies=dependencies,
-    )
-    assert parsed.command == "init"
-    assert (target / ".machi").exists()

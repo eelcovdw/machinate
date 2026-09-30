@@ -26,7 +26,7 @@ from machinate.cli.update_options import UpdateOptions, build_update
 from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 
 
-def context_add_command(  # noqa: PLR0913
+def context_add_command(
     ctx: typer.Context,
     names: Annotated[list[str], typer.Argument(help="Name(s) of the contexts to create.")],
     plan: PLAN = None,
@@ -50,10 +50,10 @@ def context_add_command(  # noqa: PLR0913
                 created=[context.record for context in batch.created], failures=batch.failures
             ),
         )
-        run.render(result)
+        run.emit(result)
 
 
-def context_list_command(  # noqa: PLR0913
+def context_list_command(
     ctx: typer.Context,
     plan: PLAN = None,
     project_directory: PROJECT_DIR = None,
@@ -79,7 +79,7 @@ def context_list_command(  # noqa: PLR0913
             plan_name=plan_name,
             contexts=services.contexts.list_records(plan_name, query),
         )
-        run.render(result)
+        run.emit(result)
 
 
 def context_show_command(
@@ -101,7 +101,7 @@ def context_show_command(
             context=document.record,
             body=document.body,
         )
-        run.render(result)
+        run.emit(result)
 
 
 def context_info_command(
@@ -115,17 +115,17 @@ def context_info_command(
     with execute(ctx, output_format) as run:
         services = run.open_project(project_directory)
         plan_name = run.determine_plan_name(services.plans, plan)
-        document = services.contexts.get_info(plan_name, name)
+        document = services.contexts.get_record(plan_name, name)
         result = ContextInfoResult(
             command="context info",
             project=services.project,
             plan_name=plan_name,
             context=document,
         )
-        run.render(result)
+        run.emit(result)
 
 
-def context_update_command(  # noqa: PLR0913
+def context_update_command(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the context to update.")],
     plan: PLAN = None,
@@ -152,7 +152,7 @@ def context_update_command(  # noqa: PLR0913
             context=updated.record,
             body=updated.body,
         )
-        run.render(result)
+        run.emit(result)
 
 
 def context_path_command(

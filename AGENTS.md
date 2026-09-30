@@ -86,7 +86,7 @@ which picks up source changes through the editable install.
   goals are readability, easy navigation, and easy future changes.
 - Pass dependencies in through constructors (`DocService(document_store, layout)`). No module
   globals holding state, no singletons, no work at import time.
-- Before adding a helper, look for an existing one (`services/batch.py`, `storage/queries.py`,
+- Before adding a helper, look for an existing one (`services/batch.py`, `storage/document_store.py`,
   `cli/formatting.py`). Extend it rather than writing a near-copy for one resource type.
   Plan, task, context, and doc should behave the same unless there is a reason they differ.
 
@@ -239,7 +239,8 @@ machinate; regenerate this section with `machi instructions`.
 
 ### Targeting
 
-- Agents always pass `-p NAME`. Without it the current plan is used; select one
+- Pass `-p NAME` to plan-scoped commands (plan, task, context); doc commands are
+  project-wide and take no plan. Without `-p` the current plan is used; select one
   with `machi plan select NAME` (humans only) and clear it with `plan unselect`.
 - `MACHI_AI_AGENT` (alias `AI_AGENT`) names the agent in use. In agent mode `-p`
   is required, `plan select`/`unselect` fail, and output defaults to JSON. The

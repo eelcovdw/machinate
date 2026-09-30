@@ -5,20 +5,20 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from io import StringIO
-from typing import assert_never, get_args, override
+from typing import Final, Literal, assert_never, override
 
 from rich.console import Console, RenderableType
 from rich.table import Table
 from rich.text import Text
 
 from machinate.models.documents import (
+    PLAN_STATUSES,
+    TASK_STATUSES,
     DocumentRecord,
     Metadata,
     PlanRecord,
-    PlanStatus,
-    TaskStatus,
 )
-from machinate.models.operations import CreateFailure, SearchMatch
+from machinate.models.operations import CreateFailure, SearchMatch, SearchSkip
 
 from .models import (
     CommandResult,
@@ -51,19 +51,33 @@ from .models import (
     TaskShowResult,
     TaskUpdateResult,
 )
-from .styles import (
-    ERROR,
-    HEADING,
-    LABEL,
-    MUTED,
-    PATH,
-    PROJECT,
-    TIMESTAMP,
-    status_style,
-)
 
-PLAN_STATUS_ORDER: Sequence[str] = get_args(PlanStatus.__value__)  # pyright: ignore[reportAny]
-TASK_STATUS_ORDER: Sequence[str] = get_args(TaskStatus.__value__)  # pyright: ignore[reportAny]
+type OutputFormat = Literal["json", "text"]
+
+# Rich style strings live here so colors and emphasis are declared once.
+HEADING: Final = "bold"
+LABEL: Final = "bold"
+PROJECT: Final = "bold"
+MUTED: Final = "dim"
+PATH: Final = "cyan"
+TIMESTAMP: Final = "dim"
+ERROR: Final = "bold red"
+
+# Status badges are shared by plans and tasks; the same key means the same color.
+STATUS_STYLES: Final[dict[str, str]] = {
+    "draft": "dim",
+    "active": "green",
+    "done": "blue",
+    "todo": "yellow",
+    "in-progress": "cyan",
+}
+
+
+def status_style(status: str) -> str:
+    """Return the style for a status badge; empty for an unknown status."""
+    return STATUS_STYLES.get(status, "")
+
+
 _CONSOLE_WIDTH = 120
 _MIN_SUMMARY_WIDTH = 20
 
@@ -90,6 +104,12 @@ class TextFormatter(Formatter):
     @override
     def format(self, result: CommandResult) -> str:
         return render_text(result)
+
+
+FORMATTERS: Final[dict[str, Formatter]] = {
+    "json": JsonFormatter(),
+    "text": TextFormatter(),
+}
 
 
 def _is_color_enabled() -> bool:
@@ -159,6 +179,15 @@ def _format_failures(failures: Sequence[CreateFailure]) -> list[Text]:
     return lines
 
 
+def _format_skips(skipped: Sequence[SearchSkip]) -> list[Text]:
+    """Render the files a search could not read, so text output never drops them."""
+    if not skipped:
+        return []
+    lines = [Text(), Text("Skipped:", style=MUTED)]
+    lines.extend(_bullet(skip.path.as_posix(), skip.reason, style=MUTED) for skip in skipped)
+    return lines
+
+
 def _format_counts[S: str](counts: Mapping[S, int]) -> str:
     return ", ".join(f"{name}: {count}" for name, count in counts.items())
 
@@ -177,7 +206,7 @@ def _shorten(text: str, width: int) -> str:
     return f"{text[:cut].rstrip()}…"
 
 
-def _format_row(  # noqa: PLR0913
+def _format_row(  # noqa: PLR0913 - one parameter per displayed column
     name: str,
     name_width: int,
     tags: str,
@@ -227,7 +256,7 @@ def _format_status_sections(
     return lines
 
 
-def _show[M: Metadata](  # noqa: PLR0913
+def _show[M: Metadata](  # noqa: PLR0913 - one parameter per displayed field
     *,
     kind: str,
     record: DocumentRecord[M] | PlanRecord,
@@ -237,6 +266,7 @@ def _show[M: Metadata](  # noqa: PLR0913
     modified_label: str = "Modified",
     modified: datetime | None = None,
     body: str | None = None,
+    extra: Sequence[RenderableType] = (),
 ) -> str:
     """Render one entity's title, location, timestamps, summary, tags, and optional body."""
     metadata = record.metadata
@@ -246,6 +276,7 @@ def _show[M: Metadata](  # noqa: PLR0913
         _field("Path", path, style=PATH),
         _field("Created", metadata.created_at.isoformat(), style=TIMESTAMP),
         _field(modified_label, (modified or record.modified_at).isoformat(), style=TIMESTAMP),
+        *extra,
     ]
     if record.summary:
         lines.append(_field("Summary", record.summary))
@@ -281,7 +312,7 @@ def _update(*, kind: str, name: str, location: str, status: str | None = None) -
     return _render([line])
 
 
-def _list[M: Metadata](  # noqa: PLR0913
+def _list[M: Metadata](  # noqa: PLR0913 - one parameter per layout option
     *,
     header: Sequence[RenderableType],
     records: Sequence[DocumentRecord[M] | PlanRecord],
@@ -334,7 +365,7 @@ def _list[M: Metadata](  # noqa: PLR0913
 
 
 # One branch per result model; the explicit match is the point (see assert_never below).
-def render_text(result: CommandResult) -> str:  # noqa: C901, PLR0911, PLR0912
+def render_text(result: CommandResult) -> str:  # noqa: C901, PLR0911, PLR0912 - one branch per result type
     """Render a command result as text; every result must have a renderer."""
     match result:
         case PlanAddResult():
@@ -412,6 +443,7 @@ def render_plan_add(result: PlanAddResult) -> str:
 
 def render_plan_info(result: PlanInfoResult) -> str:
     overview = result.overview
+    task_count = sum(overview.tasks_by_status.values())
     return _show(
         kind="Plan",
         record=overview.plan,
@@ -420,6 +452,10 @@ def render_plan_info(result: PlanInfoResult) -> str:
         status=overview.plan.metadata.status,
         modified_label="Last activity",
         modified=overview.plan.last_activity_at,
+        extra=[
+            _field("Tasks", f"{task_count} ({_format_counts(overview.tasks_by_status)})"),
+            _field("Contexts", str(overview.context_count)),
+        ],
     )
 
 
@@ -463,7 +499,7 @@ def render_plan_list(result: PlanListResult) -> str:
         records=result.plans,
         empty_message="No plans found.",
         statuses=[plan.metadata.status for plan in result.plans],
-        status_order=PLAN_STATUS_ORDER,
+        status_order=PLAN_STATUSES,
         grouped=result.group_by is not None,
         current_plan=result.current_plan,
     )
@@ -526,7 +562,7 @@ def render_task_list(result: TaskListResult) -> str:
         records=result.tasks,
         empty_message="No tasks found.",
         statuses=[task.metadata.status for task in result.tasks],
-        status_order=TASK_STATUS_ORDER,
+        status_order=TASK_STATUSES,
         grouped=result.group_by is not None,
         current_plan=None,
     )
@@ -656,6 +692,7 @@ def render_search(result: SearchResult) -> str:
     lines: list[RenderableType] = [Text(f"{result.project.name} / {scope}", style=PROJECT)]
     if not result.matches:
         lines.append(Text("No matches found.", style=MUTED))
+        lines.extend(_format_skips(result.skipped))
         return _render(lines)
     ranked = any(match.score is not None for match in result.matches)
     lines.append(Text())
@@ -674,6 +711,7 @@ def render_search(result: SearchResult) -> str:
         else:
             table.add_row(block)
     lines.append(table)
+    lines.extend(_format_skips(result.skipped))
     return _render(lines)
 
 
@@ -687,15 +725,3 @@ def render_init(result: InitResult) -> str:
         _field("Store", str(result.project.store_directory), style=PATH),
     ]
     return _render(lines)
-
-
-class UnknownFormatError(Exception):
-    pass
-
-
-def get_formatter(name: str, formatters: Mapping[str, Formatter]) -> Formatter:
-    try:
-        return formatters[name]
-    except KeyError as exc:
-        message = f"Unknown format {name!r}. Available formats: {', '.join(formatters)}"
-        raise UnknownFormatError(message) from exc

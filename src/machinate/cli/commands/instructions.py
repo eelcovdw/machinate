@@ -15,7 +15,8 @@ machinate; regenerate this section with `machi instructions`.
 
 ### Targeting
 
-- Agents always pass `-p NAME`. Without it the current plan is used; select one
+- Pass `-p NAME` to plan-scoped commands (plan, task, context); doc commands are
+  project-wide and take no plan. Without `-p` the current plan is used; select one
   with `machi plan select NAME` (humans only) and clear it with `plan unselect`.
 - `MACHI_AI_AGENT` (alias `AI_AGENT`) names the agent in use. In agent mode `-p`
   is required, `plan select`/`unselect` fail, and output defaults to JSON. The
@@ -81,4 +82,4 @@ def instructions_command(
 ) -> None:
     """Print a paste-ready description of the machinate CLI for agent instruction files."""
     with execute(ctx, output_format) as run:
-        run.render(InstructionsResult(command="instructions", text=_INSTRUCTIONS))
+        run.emit(InstructionsResult(command="instructions", text=_INSTRUCTIONS))

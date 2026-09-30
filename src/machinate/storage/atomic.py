@@ -50,7 +50,7 @@ def atomic_write(target: Path, content: bytes, *, mode: int | None = None) -> No
         _cleanup(temporary, sys.exception())
 
 
-def atomic_create(target: Path, content: bytes, *, mode: int | None = None) -> None:
+def atomic_create(target: Path, content: bytes) -> None:
     """Create target exclusively by writing a temporary sibling and hard-linking it.
 
     ``os.link`` fails with ``FileExistsError`` when target already exists, so an
@@ -64,7 +64,7 @@ def atomic_create(target: Path, content: bytes, *, mode: int | None = None) -> N
         with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as stream:
             temporary = Path(stream.name)
             stream.write(content)
-        temporary.chmod(mode if mode is not None else _umask_default_mode())
+        temporary.chmod(_umask_default_mode())
         os.link(temporary, target)
     except BaseException as exc:
         failure = exc

@@ -16,7 +16,6 @@ from machinate.models.documents import (
     PlanStatus,
 )
 from machinate.models.operations import (
-    BatchCreated,
     PlanQuery,
     StatusCreateInput,
     StatusUpdate,
@@ -35,7 +34,7 @@ class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):
             Collection(
                 kind="plan",
                 metadata_type=PlanMetadata,
-                storage=lambda _plan: layout.plan_collection(),
+                collection=lambda _plan: layout.plan_collection(),
                 path=lambda _plan, name: layout.plan_path(name),
                 requires_plan=False,
                 directory_kind=None,
@@ -59,8 +58,10 @@ class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):
             metadata=record.metadata,
             modified_at=record.modified_at,
             summary=record.summary,
-            last_activity_at=self.document_store.get_last_activity_at(
-                record.path, self.layout.plan_collection().activity_scopes
+            last_activity_at=self.document_store.read_last_activity_at(
+                record.path,
+                self.layout.task_collection(record.name),
+                self.layout.context_collection(record.name),
             ),
         )
 
@@ -72,26 +73,12 @@ class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):
         return self._plan_loaded(self._create(None, name, create))
 
     @validate_call
-    def create_many(
-        self, names: list[str], create: StatusCreateInput[PlanStatus]
-    ) -> BatchCreated[LoadedPlan]:
-        batch = self._create_many(None, names, create)
-        return BatchCreated(
-            created=[self._plan_loaded(loaded) for loaded in batch.created],
-            failures=batch.failures,
-        )
-
-    @validate_call
-    def get_info(self, name: Name) -> PlanRecord:
+    def get_record(self, name: Name) -> PlanRecord:
         return self._plan_record(self._info(None, name))
 
     @validate_call
     def get_path(self, name: Name) -> PurePosixPath:
         return self._path(None, name)
-
-    @validate_call
-    def get_directory(self) -> PurePosixPath:
-        return self._directory(None)
 
     @validate_call
     def locate(self, name: Name) -> LocatedPath:
@@ -107,17 +94,23 @@ class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):
 
     @validate_call
     def list_records(self, query: PlanQuery | None = None) -> list[PlanRecord]:
-        return [self._plan_record(record) for record in self._list(None, query)]
+        active = query or PlanQuery()
+        if active.sort == "last_activity_at":
+            base = active.model_copy(update={"sort": "name", "limit": None})
+            records = [self._plan_record(record) for record in self._list(None, base)]
+            records.sort(key=lambda record: record.last_activity_at, reverse=active.descending)
+            return records if active.limit is None else records[: active.limit]
+        return [self._plan_record(record) for record in self._list(None, active)]
 
     @validate_call
-    def set_current(self, name: Name) -> ProjectState:
-        self.get(name)
+    def select_plan(self, name: Name) -> ProjectState:
+        self.require_plan(name)
         state = self.project_state_store.read()
         state.current_plan = name
         self.project_state_store.write(state)
         return state
 
-    def clear_current(self) -> ProjectState:
+    def unselect_plan(self) -> ProjectState:
         state = self.project_state_store.read()
         state.current_plan = None
         self.project_state_store.write(state)

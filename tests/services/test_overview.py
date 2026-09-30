@@ -78,5 +78,5 @@ def test_get_project_overview_counts_plans_tasks_contexts_and_docs(tmp_path: Pat
     assert project.context_count == 1
     assert project.doc_count == 1
     assert project.current_plan is None
-    assert project.current_plan_exists
+    assert project.current_plan_exists is None
     assert [plan.name for plan in project.recent_plans] == ["alpha", "beta"]

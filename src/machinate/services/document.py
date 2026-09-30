@@ -57,7 +57,7 @@ class DocumentChanges(Protocol):
 class Collection[M: Metadata]:
     """One kind of document: its metadata type and where its files live.
 
-    ``storage`` and ``path`` take the owning plan name; plan and doc ignore it.
+    ``path`` and ``collection`` take the owning plan name; plan and doc ignore it.
     ``requires_plan`` controls whether the owning plan must exist first. ``kind`` is
     the singular noun used in domain errors (``not found``, ``already exists``);
     ``directory_kind`` names the collection directory, or is ``None`` when the kind has
@@ -66,7 +66,7 @@ class Collection[M: Metadata]:
 
     kind: CollectionKind
     metadata_type: type[M]
-    storage: Callable[[Name | None], StorageCollection]
+    collection: Callable[[Name | None], StorageCollection]
     path: Callable[[Name | None, NestedName], PurePosixPath]
     requires_plan: bool = True
     directory_kind: PathKind | None = None
@@ -78,7 +78,8 @@ class LocatedPath:
 
     path: Path
     kind: PathKind
-    exists: bool
+    # None for documents, whose existence is implied by the kind; directories report it.
+    exists: bool | None
 
 
 def ensure_plan(plan: Name | None) -> Name:
@@ -109,33 +110,33 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
     """
 
     def __init__(
-        self, document_store: DocumentStore, layout: Layout, collection: Collection[M]
+        self, document_store: DocumentStore, layout: Layout, resource: Collection[M]
     ) -> None:
         self.document_store: DocumentStore = document_store
         self.layout: Layout = layout
-        self.collection: Collection[M] = collection
+        self.resource: Collection[M] = resource
 
     # --- paths and existence ------------------------------------------------
 
-    def _require_plan(self, plan: Name | None) -> None:
-        """The single plan-existence check; every resource uses this instead of parsing."""
-        if not self.collection.requires_plan:
-            return
+    def require_plan(self, plan: Name | None) -> None:
+        """Stat the owning plan document; every resource uses this plan-existence check."""
         plan_name = ensure_plan(plan)
         with _translate_errors("plan", plan_name):
             self.document_store.stat(self.layout.plan_path(plan_name))
 
-    def _directory(self, plan: Name | None) -> PurePosixPath:
-        return self.collection.storage(plan).path
+    def _require_plan(self, plan: Name | None) -> None:
+        if self.resource.requires_plan:
+            self.require_plan(plan)
 
     def _locate(self, plan: Name | None, name: NestedName | None) -> LocatedPath:
         """Resolve a document or collection directory to an absolute path and its state."""
+        self._require_plan(plan)
         if name is None:
-            directory_kind = self.collection.directory_kind
+            directory_kind = self.resource.directory_kind
             if directory_kind is None:
-                msg = f"{self.collection.kind} has no collection directory"
+                msg = f"{self.resource.kind} has no collection directory"
                 raise InputError(msg)
-            relative = self._directory(plan)
+            relative = self.resource.collection(plan).path
             return LocatedPath(
                 path=self.document_store.absolute_path(relative),
                 kind=directory_kind,
@@ -144,20 +145,20 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
         relative = self._path(plan, name)
         return LocatedPath(
             path=self.document_store.absolute_path(relative),
-            kind=self.collection.kind,
-            exists=True,
+            kind=self.resource.kind,
+            exists=None,
         )
 
     def _path(self, plan: Name | None, name: NestedName) -> PurePosixPath:
         self._require_plan(plan)
-        target = self.collection.path(plan, name)
-        with _translate_errors(self.collection.kind, name):
+        target = self.resource.path(plan, name)
+        with _translate_errors(self.resource.kind, name):
             self.document_store.stat(target)
         return target
 
     def _count(self, plan: Name | None) -> int:
         """Count documents by file discovery without parsing them."""
-        return self.document_store.count_files(self.collection.storage(plan))
+        return self.document_store.count_documents(self.resource.collection(plan))
 
     # --- metadata and records ----------------------------------------------
 
@@ -168,11 +169,10 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
     def _record(
         self, path: PurePosixPath, name: NestedName, document: ParsedDocument[M]
     ) -> DocumentRecord[M]:
+        with _translate_errors(self.resource.kind, name):
+            modified_at = self.document_store.stat(path).modified_at
         return DocumentRecord[M].from_document(
-            document,
-            name=name,
-            path=path,
-            modified_at=self.document_store.stat(path).modified_at,
+            document, name=name, path=path, modified_at=modified_at
         )
 
     def _loaded(
@@ -181,9 +181,9 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
         return LoadedDocument(record=self._record(path, name, document), body=document.body)
 
     def _read(self, plan: Name | None, name: NestedName) -> tuple[PurePosixPath, ParsedDocument[M]]:
-        path = self.collection.path(plan, name)
-        with _translate_errors(self.collection.kind, name):
-            document = self.document_store.read(path, self.collection.metadata_type)
+        path = self.resource.path(plan, name)
+        with _translate_errors(self.resource.kind, name):
+            document = self.document_store.read(path, self.resource.metadata_type)
         return path, document
 
     # --- operations ---------------------------------------------------------
@@ -191,9 +191,9 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
     def _create_document(
         self, plan: Name | None, name: NestedName, metadata: M
     ) -> LoadedDocument[M]:
-        path = self.collection.path(plan, name)
+        path = self.resource.path(plan, name)
         document = ParsedDocument(metadata=metadata, body="")
-        with _translate_errors(self.collection.kind, name):
+        with _translate_errors(self.resource.kind, name):
             self.document_store.create(path, document)
         return self._loaded(path, name, document)
 
@@ -210,7 +210,7 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
             names=names,
             document_store=self.document_store,
             validate_name=NESTED_NAME_ADAPTER.validate_python,
-            path_for=lambda name: self.collection.path(plan, name),
+            path_for=lambda name: self.resource.path(plan, name),
             create=lambda name: self._create_document(plan, name, metadata),
         )
 
@@ -231,13 +231,29 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
         path, document = self._read(plan, name)
         updated = update.apply_to(document)
         if updated is not None:
-            self.document_store.write(path, updated)
+            with _translate_errors(self.resource.kind, name):
+                self.document_store.write(path, updated)
             document = updated
         return self._loaded(path, name, document)
 
     def _list(self, plan: Name | None, query: DocumentQuery | None) -> list[DocumentRecord[M]]:
         self._require_plan(plan)
-        with _translate_errors(self.collection.kind, plan or ""):
-            return self.document_store.list(
-                self.collection.storage(plan), self.collection.metadata_type, query
-            )
+        collection = self.resource.collection(plan)
+        with _translate_errors(self.resource.kind, collection.path.as_posix()):
+            records = self.document_store.list(collection, self.resource.metadata_type, query)
+        return _sort_records(records, query or DocumentQuery())
+
+
+def _sort_records[M: Metadata](
+    records: list[DocumentRecord[M]], query: DocumentQuery
+) -> list[DocumentRecord[M]]:
+    """Order and limit records by the query's stored sort key."""
+    records.sort(key=lambda record: record.name)
+    # Stable sorting preserves ascending names for equal primary keys.
+    if query.sort == "created_at":
+        records.sort(key=lambda record: record.metadata.created_at, reverse=query.descending)
+    elif query.sort == "modified_at":
+        records.sort(key=lambda record: record.modified_at, reverse=query.descending)
+    elif query.descending:
+        records.reverse()
+    return records if query.limit is None else records[: query.limit]

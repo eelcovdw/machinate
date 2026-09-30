@@ -6,36 +6,22 @@ resource (status) have more than one alias.
 """
 
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated
 
 import click
 import typer
 
-from machinate.models.documents import PlanStatus, TaskStatus
+from machinate.models.documents import PLAN_STATUSES, TASK_STATUSES, PlanStatus, TaskStatus
+from machinate.models.operations import DOCUMENT_SORTS, PLAN_SORTS, DocumentSort, PlanSort
 
-from .dependencies import get_dependencies
-
-
-def validate_output_format(
-    ctx: click.Context, param: click.Parameter, value: str | None
-) -> str | None:
-    """Reject unknown formatter names as a usage error, keeping custom formatters usable."""
-    if value is None:
-        return None
-    names = get_dependencies(ctx).formatters
-    if value not in names:
-        choices = ", ".join(sorted(names))
-        message = f"{value!r} is not a known formatter; choose from {choices}."
-        raise click.BadParameter(message, ctx=ctx, param=param, param_hint="'--format'")
-    return value
-
+from .formatting import OutputFormat
 
 OUTPUT_FORMAT = Annotated[
-    str | None,
+    OutputFormat | None,
     typer.Option(
         "--format",
-        callback=validate_output_format,
-        help="Formatter name (text or json by default).",
+        click_type=click.Choice(["text", "json"]),
+        help="Output format: text or json.",
     ),
 ]
 
@@ -47,6 +33,13 @@ PROJECT_DIR = Annotated[
 PLAN = Annotated[
     str | None,
     typer.Option("--plan", "-p", help="Plan to use; otherwise the current plan."),
+]
+
+SEARCH_PLAN = Annotated[
+    str | None,
+    typer.Option(
+        "--plan", "-p", help="Narrow the search to one plan; otherwise search everything."
+    ),
 ]
 
 TAGS = Annotated[
@@ -70,21 +63,29 @@ CLEAR_TAGS = Annotated[
 ]
 
 PLAN_STATUS = Annotated[
-    Literal["draft", "active", "done"] | None,
-    typer.Option("--status", help="Status: draft, active, or done."),
+    PlanStatus | None,
+    typer.Option(
+        "--status",
+        help=f"Status: {', '.join(PLAN_STATUSES)}.",
+        click_type=click.Choice(PLAN_STATUSES),
+    ),
 ]
 
 TASK_STATUS = Annotated[
-    Literal["todo", "in-progress", "done"] | None,
-    typer.Option("--status", help="Status: todo, in-progress, or done."),
+    TaskStatus | None,
+    typer.Option(
+        "--status",
+        help=f"Status: {', '.join(TASK_STATUSES)}.",
+        click_type=click.Choice(TASK_STATUSES),
+    ),
 ]
 
 PLAN_STATUS_FILTER = Annotated[
     list[PlanStatus] | None,
     typer.Option(
         "--status",
-        help="Match any status: draft, active, done. Repeat for multiple statuses.",
-        click_type=click.Choice(["draft", "active", "done"]),
+        help="Match any status. Repeat for multiple statuses.",
+        click_type=click.Choice(PLAN_STATUSES),
     ),
 ]
 
@@ -92,19 +93,24 @@ TASK_STATUS_FILTER = Annotated[
     list[TaskStatus] | None,
     typer.Option(
         "--status",
-        help="Match any status: todo, in-progress, done. Repeat for multiple statuses.",
-        click_type=click.Choice(["todo", "in-progress", "done"]),
+        help="Match any status. Repeat for multiple statuses.",
+        click_type=click.Choice(TASK_STATUSES),
     ),
 ]
 
 SORT = Annotated[
-    Literal["name", "created_at", "modified_at"],
-    typer.Option(help="Sort by name, created_at, or modified_at."),
+    DocumentSort,
+    typer.Option(
+        click_type=click.Choice(DOCUMENT_SORTS), help="Sort by name, created_at, or modified_at."
+    ),
 ]
 
 PLAN_SORT = Annotated[
-    Literal["name", "created_at", "modified_at", "last_activity_at"],
-    typer.Option(help="Sort by name, created_at, modified_at, or last_activity_at."),
+    PlanSort,
+    typer.Option(
+        click_type=click.Choice(PLAN_SORTS),
+        help="Sort by name, created_at, modified_at, or last_activity_at.",
+    ),
 ]
 
 DESCENDING = Annotated[bool, typer.Option(help="Reverse primary sort order.")]

@@ -25,6 +25,7 @@ from pydantic import (
     PlainValidator,
     TypeAdapter,
     WithJsonSchema,
+    field_serializer,
     field_validator,
 )
 
@@ -33,7 +34,7 @@ def validate_name(value: str) -> str:
     if (
         not value.strip()
         or value != value.strip()
-        or value in {".", ".."}
+        or value.startswith(".")
         or any(char in value for char in "/\\:")
         or any(not char.isprintable() for char in value)
     ):
@@ -101,13 +102,18 @@ def validate_tag(value: str) -> str:
 Tag = Annotated[str, AfterValidator(validate_tag)]
 
 
+def _is_none(value: object) -> bool:
+    """Omit an optional field from dumps when it is unset."""
+    return value is None
+
+
 class Metadata(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow", validate_assignment=True)
 
     created_at: AwareDatetime
-    # Authored summary; excluded from serialization because the record carries the
-    # effective summary top-level. Storage still writes it to frontmatter explicitly.
-    summary: str | None = Field(default=None, exclude=True)
+    # Authored summary; omitted from the frontmatter when unset, and excluded from
+    # serialized records because those carry the effective summary top-level.
+    summary: str | None = Field(default=None, exclude_if=_is_none)
     tags: list[Tag] = Field(default_factory=list)
 
     @field_validator("tags", mode="before")
@@ -144,13 +150,12 @@ class Metadata(BaseModel):
 type PlanStatus = Literal["draft", "active", "done"]
 type TaskStatus = Literal["todo", "in-progress", "done"]
 
+PLAN_STATUSES: tuple[PlanStatus, ...] = ("draft", "active", "done")
+TASK_STATUSES: tuple[TaskStatus, ...] = ("todo", "in-progress", "done")
+
 
 class StatusMetadata[S: str](Metadata):
     status: S
-
-    def status_matches(self, status: object) -> bool:
-        """Return whether the given status equals this metadata's status."""
-        return self.status == status
 
 
 class PlanMetadata(StatusMetadata[PlanStatus]):
@@ -314,6 +319,12 @@ class DocumentRecord[M: Metadata](BaseModel):
             modified_at=modified_at,
             summary=document.determine_summary(),
         )
+
+    @field_serializer("metadata")
+    def _serialize_metadata(self, metadata: M) -> dict[str, object]:
+        # The record's top-level summary is the effective one; the authored value
+        # stays in metadata for writes and schema, but records do not repeat it.
+        return metadata.model_dump(exclude={"summary"})
 
 
 class PlanRecord(DocumentRecord[PlanMetadata]):

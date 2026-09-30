@@ -1,5 +1,4 @@
 import json
-import logging
 import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -148,12 +147,13 @@ def test_list_files_matches_regular_files_only(store: DocumentStore, tmp_path: P
     assert store.list_files(PurePosixPath("missing"), ["**/*.md"]) == []
 
 
-def test_list_files_includes_dot_prefixed_files(store: DocumentStore, tmp_path: Path) -> None:
+def test_list_files_skips_dot_prefixed_files(store: DocumentStore, tmp_path: Path) -> None:
     (tmp_path / "a").mkdir()
     (tmp_path / "a" / ".hidden.md").write_text("hidden")
     (tmp_path / "a" / "visible.md").write_text("visible")
+    (tmp_path / "a" / ".git").mkdir()
+    (tmp_path / "a" / ".git" / "nested.md").write_text("nested")
     assert sorted(store.list_files(PurePosixPath("a"), ["**/*.md"])) == [
-        PurePosixPath("a/.hidden.md"),
         PurePosixPath("a/visible.md"),
     ]
 
@@ -179,18 +179,6 @@ def test_missing_frontmatter_uses_defaults(store: DocumentStore, tmp_path: Path)
     assert document.metadata.status == "todo"
     assert document.metadata.tags == []
     assert document.metadata.summary is None
-
-
-def test_missing_frontmatter_logs_debug(
-    store: DocumentStore, tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    (tmp_path / "bare.md").write_text("body")
-    with caplog.at_level(logging.DEBUG, logger="machinate.storage.document_store"):
-        store.read("bare.md", TaskMetadata)
-    records = [r for r in caplog.records if r.name == "machinate.storage.document_store"]
-    assert len(records) == 1
-    assert records[0].levelno == logging.DEBUG
-    assert records[0].args == (PurePosixPath("bare.md"),)
 
 
 def test_missing_frontmatter_created_from_mtime(store: DocumentStore, tmp_path: Path) -> None:
@@ -259,7 +247,8 @@ def test_list_files_drops_parent_escape(store: DocumentStore, tmp_path: Path) ->
 
 
 @pytest.mark.parametrize(
-    "name", ["", " ", ".", "..", "../escape", "a/b", "a\\b", "C:drive", "bad\n"]
+    "name",
+    ["", " ", ".", "..", ".hidden", "../escape", "a/.hidden", "a/b", "a\\b", "C:drive", "bad\n"],
 )
 def test_names_reject_invalid_values(name: str) -> None:
     with pytest.raises(ValidationError):
@@ -304,6 +293,24 @@ def test_case_only_duplicate_create_is_rejected(
         store.create("login.md", document)
     assert error.value.path == PurePosixPath("login.md")
     assert store.read("Login.md", TaskMetadata) == document
+
+
+def test_case_conflict_plan_directory_leaves_no_directory(
+    store: DocumentStore, document: ParsedDocument[TaskMetadata], tmp_path: Path
+) -> None:
+    store.create("plans/Auth/plan.md", document)
+    with pytest.raises(DocumentExistsError):
+        store.create("plans/auth/plan.md", document)
+    assert not (tmp_path / "plans" / "auth").exists()
+
+
+def test_case_conflict_nested_directory_leaves_no_directory(
+    store: DocumentStore, document: ParsedDocument[TaskMetadata], tmp_path: Path
+) -> None:
+    store.create("plans/alpha/tasks/GRP/x.md", document)
+    with pytest.raises(DocumentExistsError):
+        store.create("plans/alpha/tasks/grp/x.md", document)
+    assert not (tmp_path / "plans" / "alpha" / "tasks" / "grp").exists()
 
 
 def test_state_round_trip(tmp_path: Path) -> None:

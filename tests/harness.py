@@ -18,7 +18,7 @@ from machinate.cli.cli import build_cli
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import ErrorResult
 from machinate.cli.project_setup import open_project
-from machinate.cli.settings import LogLevel, Settings
+from machinate.cli.settings import Settings
 from machinate.models.documents import (
     ContextMetadata,
     DocMetadata,
@@ -52,13 +52,13 @@ def make_settings(
     *,
     ai_agent: str | None = None,
     format_name: str | None = None,
-    log_level: LogLevel | None = None,
 ) -> Settings:
     """Build settings with every field explicit, so the environment cannot leak in."""
-    return Settings(
-        ai_agent=ai_agent,
-        format=format_name if format_name is not None else ("json" if ai_agent else "text"),
-        log_level=log_level,
+    return Settings.model_validate(
+        {
+            "ai_agent": ai_agent,
+            "format": format_name if format_name is not None else ("json" if ai_agent else "text"),
+        }
     )
 
 

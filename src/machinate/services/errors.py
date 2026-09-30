@@ -23,12 +23,6 @@ class InputError(ServiceError):
     code: ClassVar[ErrorCode] = "input"
 
 
-class MissingTargetPlanError(InputError):
-    """A command needs a plan but none was given, selected, or still exists."""
-
-    code: ClassVar[ErrorCode] = "input"
-
-
 class NotFoundError(ServiceError):
     """A document the caller referenced does not exist."""
 
@@ -68,11 +62,16 @@ class SearchQueryError(ServiceError):
     code: ClassVar[ErrorCode] = "search_query"
 
 
+def validation_failure_detail(exc: ValidationError) -> str:
+    """Render the first pydantic failure as `field: message`, dropping `self` and the URL."""
+    error = exc.errors()[0]
+    field = ".".join(str(part) for part in error["loc"] if part != "self")
+    message = str(error["msg"]).removeprefix("Value error, ")
+    return f"{field}: {message}" if field else message
+
+
 def invalid_document_detail(reason: Exception | None) -> str:
     """Render a parse failure as `field: message`, without pydantic's dump or URL."""
     if isinstance(reason, ValidationError):
-        error = reason.errors()[0]
-        field = ".".join(str(part) for part in error["loc"])
-        message = str(error["msg"]).removeprefix("Value error, ")
-        return f"{field}: {message}" if field else message
+        return validation_failure_detail(reason)
     return str(reason) if reason is not None else "invalid document"

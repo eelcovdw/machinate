@@ -90,5 +90,5 @@ def open_project(explicit: Path | None = None) -> ProjectServices:
         contexts=contexts,
         docs=docs,
         overviews=OverviewService(plans, tasks, contexts, docs),
-        search=SearchService(document_store, layout),
+        search=SearchService(document_store, layout, plans),
     )

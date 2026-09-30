@@ -1,4 +1,3 @@
-from contextlib import suppress
 from typing import cast, override
 
 import click
@@ -8,12 +7,11 @@ from typer.core import TyperCommand, TyperGroup
 
 from .commands.catalog import ALIASES, COMMANDS, CommandSpec
 from .commands.schema import schema_command
-from .dependencies import Dependencies, get_dependencies, get_settings
+from .dependencies import Dependencies, get_dependencies
 from .errors import EXIT_USAGE, describe_error
 from .execution import command_label, resolve_formatter
-from .formatting import JsonFormatter, UnknownFormatError
+from .formatting import JsonFormatter
 from .models import ErrorResult
-from .settings import Settings
 
 
 class Command(TyperCommand):
@@ -77,41 +75,13 @@ def _report_usage_error(
             override_name = recovered.params.get("output_format")
     try:
         override = override_name if isinstance(override_name, str) else None
-        formatter = resolve_formatter(override, get_settings(ctx), get_dependencies(ctx))
-    except (ValidationError, UnknownFormatError) as formatting_error:
+        formatter = resolve_formatter(override, get_dependencies(ctx).resolve_settings())
+    except ValidationError as formatting_error:
         message = describe_error(formatting_error).message
     typer.echo(
         formatter.format(ErrorResult(command=command_label(ctx), error=message, code="input")),
         err=True,
     )
-
-
-def configure_logging(settings: Settings) -> None:
-    """Route Machinate logs to stderr when MACHI_LOG_LEVEL is set."""
-    if settings.log_level is None:
-        return
-    # Imported lazily: logging is only needed when diagnostics are actually enabled.
-    import logging
-    from typing import TextIO
-
-    class _DiagnosticHandler(logging.StreamHandler[TextIO]):
-        """stderr handler for opt-in diagnostics; the subclass prevents duplicates."""
-
-    logger = logging.getLogger("machinate")
-    for handler in list(logger.handlers):
-        if isinstance(handler, _DiagnosticHandler):
-            logger.removeHandler(handler)
-    handler = _DiagnosticHandler()
-    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
-    logger.addHandler(handler)
-    logger.setLevel(settings.log_level)
-
-
-def root(ctx: typer.Context) -> None:
-    """Work with Machinate projects."""
-    # Invalid settings are reported by the command handler through its formatter.
-    with suppress(ValidationError):
-        configure_logging(get_settings(ctx))
 
 
 def _register(parent: typer.Typer, spec: CommandSpec) -> None:
@@ -129,9 +99,9 @@ def build_cli(dependencies: Dependencies | None = None) -> typer.Typer:
         no_args_is_help=True,
         cls=Group,
         rich_markup_mode=None,
+        help="Work with Machinate projects.",
         context_settings={"obj": dependencies if dependencies is not None else Dependencies()},
     )
-    cli.callback()(root)
     for spec in COMMANDS:
         _register(cli, spec)
     for alias in ALIASES:

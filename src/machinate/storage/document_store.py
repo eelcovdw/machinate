@@ -19,7 +19,7 @@ from .errors import (
     StorageError,
     SymbolicLinkError,
 )
-from .models import DocumentCollection, DocumentScope, FileStat
+from .models import DocumentCollection, FileStat
 
 
 class DocumentStore:
@@ -33,34 +33,25 @@ class DocumentStore:
         from ruamel.yaml.error import YAMLError
 
         relative = RELATIVE_PATH_ADAPTER.validate_python(path)
+        text = self.read_text(relative)
         try:
-            # Decode bytes directly so universal-newline translation cannot alter the body.
-            # utf-8-sig strips a BOM that editors commonly add on Windows.
-            text = (self.root / relative).read_bytes().decode("utf-8-sig")
             lines = text.splitlines(keepends=True)
             if not lines or lines[0].rstrip("\r\n") != "---":
-                document = self._without_frontmatter(relative, text, metadata_type)
-            else:
-                end = next(
-                    (i for i in range(1, len(lines)) if lines[i].rstrip("\r\n") == "---"), None
-                )
-                if end is None:
-                    raise ValueError("Unterminated YAML frontmatter")  # noqa: TRY301
-                data: object = YAML(typ="safe").load("".join(lines[1:end]))  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
-                document = self._document_from_data(
-                    relative,
-                    data,  # pyright: ignore[reportUnknownArgumentType]
-                    metadata_type,
-                    body="".join(lines[end + 1 :]),
-                )
-        except FileNotFoundError as exc:
-            raise MissingDocumentError(relative, exc) from exc
+                return self._document_from_data(relative, None, metadata_type, body=text)
+            end = next((i for i in range(1, len(lines)) if lines[i].rstrip("\r\n") == "---"), None)
+            if end is None:
+                raise ValueError("Unterminated YAML frontmatter")  # noqa: TRY301 - raised into the handler below
+            data: object = YAML(typ="safe").load("".join(lines[1:end]))  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+            return self._document_from_data(
+                relative,
+                data,  # pyright: ignore[reportUnknownArgumentType]
+                metadata_type,
+                body="".join(lines[end + 1 :]),
+            )
         except (ValueError, YAMLError) as exc:
             raise InvalidDocumentError(relative, exc) from exc
         except OSError as exc:
             raise StorageError(relative, exc) from exc
-        else:
-            return document
 
     def _document_from_data[M: Metadata](
         self, relative: PurePosixPath, data: object, metadata_type: type[M], *, body: str
@@ -80,7 +71,7 @@ class DocumentStore:
         try:
             return [
                 PurePosixPath(match.relative_to(self.root).as_posix())
-                for match in _glob_regular_files(directory, patterns, include_dotfiles=True)
+                for match in _glob_regular_files(directory, patterns)
             ]
         except OSError as exc:
             raise StorageError(relative, exc) from exc
@@ -97,17 +88,6 @@ class DocumentStore:
         except OSError as exc:
             raise StorageError(relative, exc) from exc
 
-    def _without_frontmatter[M: Metadata](
-        self, relative: PurePosixPath, text: str, metadata_type: type[M]
-    ) -> ParsedDocument[M]:
-        """Treat a file with no frontmatter block as a bare body with default metadata."""
-        import logging
-
-        logging.getLogger(__name__).debug(
-            "Missing YAML frontmatter in %s; using defaults", relative
-        )
-        return self._document_from_data(relative, None, metadata_type, body=text)
-
     def _encode[M: Metadata](self, path: PurePosixPath, document: ParsedDocument[M]) -> bytes:
         from ruamel.yaml import YAML
         from ruamel.yaml.error import YAMLError
@@ -116,12 +96,7 @@ class DocumentStore:
             output = StringIO()
             yaml = YAML(typ="safe")
             yaml.default_flow_style = False
-            # The authored summary is excluded from model_dump so serialized records
-            # never repeat it; re-add it for the stored frontmatter.
-            data = document.metadata.model_dump()
-            if document.metadata.summary is not None:
-                data["summary"] = document.metadata.summary
-            yaml.dump(data, output)  # pyright: ignore[reportUnknownMemberType]
+            yaml.dump(document.metadata.model_dump(), output)  # pyright: ignore[reportUnknownMemberType]
             return f"---\n{output.getvalue()}---\n{document.body}".encode()
         except (ValueError, YAMLError) as exc:
             raise InvalidDocumentError(path, exc) from exc
@@ -131,26 +106,34 @@ class DocumentStore:
         content = self._encode(relative, document)
         target = self.root / relative
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if self._case_conflict(target):
+            if self._case_conflict(relative):
                 message = f"{relative} differs only by case"
-                raise FileExistsError(message)  # noqa: TRY301
+                raise FileExistsError(message)  # noqa: TRY301 - raised into the handler below
             atomic_create(target, content)
         except FileExistsError as exc:
             raise DocumentExistsError(relative, exc) from exc
         except OSError as exc:
             raise StorageError(relative, exc) from exc
 
-    def _case_conflict(self, target: Path) -> bool:
-        """Return whether a sibling shares target's name ignoring case."""
-        folded = target.name.casefold()
-        try:
-            entries = list(target.parent.iterdir())
-        except FileNotFoundError:
-            return False
-        return any(
-            child.name != target.name and child.name.casefold() == folded for child in entries
-        )
+    def _case_conflict(self, relative: PurePosixPath) -> bool:
+        """Return whether any component already exists under a different case.
+
+        Checked before any directory is created, so a rejected create cannot leave an
+        empty case-variant directory behind and a plan name cannot differ only by case.
+        """
+        current = self.root
+        for part in relative.parts:
+            if not current.is_dir():
+                return False
+            folded = part.casefold()
+            try:
+                entries = list(current.iterdir())
+            except FileNotFoundError:
+                return False
+            if any(child.name != part and child.name.casefold() == folded for child in entries):
+                return True
+            current = current / part
+        return False
 
     def write[M: Metadata](self, path: str | PurePosixPath, document: ParsedDocument[M]) -> None:
         relative = RELATIVE_PATH_ADAPTER.validate_python(path)
@@ -175,11 +158,10 @@ class DocumentStore:
         try:
             info = (self.root / relative).stat()
             if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
-                raise ValueError("Expected a regular file or directory")  # noqa: TRY301
+                raise ValueError("Expected a regular file or directory")  # noqa: TRY301 - raised into the handler below
             return FileStat(
                 path=relative,
                 modified_at=datetime.fromtimestamp(info.st_mtime, UTC),
-                kind="directory" if stat.S_ISDIR(info.st_mode) else "file",
             )
         except FileNotFoundError as exc:
             raise MissingDocumentError(relative, exc) from exc
@@ -194,32 +176,28 @@ class DocumentStore:
         """Report whether a store-relative path is an existing directory."""
         return (self.root / RELATIVE_PATH_ADAPTER.validate_python(path)).is_dir()
 
-    def _list_collection_files(self, scope: DocumentScope) -> list[FileStat]:
+    def _list_collection_files(self, collection: DocumentCollection) -> list[FileStat]:
         try:
-            directory = self.root / scope.path
+            directory = self.root / collection.path
             if not directory.exists():
                 return []
             if not directory.is_dir():
                 raise NotADirectoryError(str(directory))
             return [
                 self.stat(PurePosixPath(match.relative_to(self.root).as_posix()))
-                for match in _glob_regular_files(
-                    directory, [str(scope.pattern)], include_dotfiles=False
-                )
+                for match in _glob_regular_files(directory, [str(collection.pattern)])
             ]
         except OSError as exc:
-            raise StorageError(scope.path, exc) from exc
+            raise StorageError(collection.path, exc) from exc
 
-    def get_last_activity_at(
-        self, path: str | PurePosixPath, activity_scopes: tuple[DocumentScope, ...] = ()
+    def read_last_activity_at(
+        self, path: str | PurePosixPath, *collections: DocumentCollection
     ) -> datetime:
-        """Read activity timestamps without loading descendant documents."""
+        """Read the newest timestamp of a document and its descendant collections."""
         record = self.stat(path)
         last_activity_at = record.modified_at
-        for scope in activity_scopes:
-            for child in self._list_collection_files(
-                DocumentScope(path=record.path.parent / scope.path, pattern=scope.pattern)
-            ):
+        for collection in collections:
+            for child in self._list_collection_files(collection):
                 last_activity_at = max(last_activity_at, child.modified_at)
         return last_activity_at
 
@@ -229,6 +207,7 @@ class DocumentStore:
         metadata_type: type[M],
         query: DocumentQuery | None = None,
     ) -> list[DocumentRecord[M]]:
+        """Glob, parse, and filter a collection; ordering and limits are the caller's."""
         query = query or DocumentQuery()
         matching_documents: list[DocumentRecord[M]] = []
         for file_metadata in self._list_collection_files(collection):
@@ -247,34 +226,19 @@ class DocumentStore:
                         modified_at=file_metadata.modified_at,
                     )
                 )
-        matching_documents.sort(key=lambda record: record.name)
-        # Stable sorting preserves ascending names for equal primary keys.
-        if query.sort == "created_at":
-            matching_documents.sort(
-                key=lambda record: record.metadata.created_at, reverse=query.descending
-            )
-        elif query.sort == "modified_at":
-            matching_documents.sort(key=lambda record: record.modified_at, reverse=query.descending)
-        elif query.sort == "last_activity_at":
-            matching_documents.sort(
-                key=lambda record: self.get_last_activity_at(
-                    record.path, collection.activity_scopes
-                ),
-                reverse=query.descending,
-            )
-        elif query.descending:
-            matching_documents.reverse()
-        return matching_documents if query.limit is None else matching_documents[: query.limit]
+        return matching_documents
 
-    def count_files(self, collection: DocumentCollection) -> int:
+    def count_documents(self, collection: DocumentCollection) -> int:
         """Count a collection's files without parsing any of them."""
         return len(self._list_collection_files(collection))
 
 
-def _glob_regular_files(
-    directory: Path, patterns: list[str], *, include_dotfiles: bool
-) -> list[Path]:
-    """Glob patterns under directory, keeping regular files inside the base directory."""
+def _glob_regular_files(directory: Path, patterns: list[str]) -> list[Path]:
+    """Glob patterns under directory, keeping regular files inside the base directory.
+
+    Dot-files and files under dot-directories are skipped, so listings, counts, and
+    search all use one discovery rule.
+    """
     files: list[Path] = []
     base = directory.resolve()
     for pattern in patterns:
@@ -284,7 +248,7 @@ def _glob_regular_files(
                 relative = match.relative_to(directory)
             except ValueError:
                 continue
-            if not include_dotfiles and any(part.startswith(".") for part in relative.parts):
+            if any(part.startswith(".") for part in relative.parts):
                 continue
             if match.is_file():
                 files.append(match)

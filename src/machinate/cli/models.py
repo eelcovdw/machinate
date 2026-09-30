@@ -8,6 +8,7 @@ from machinate.models.documents import (
     DocMetadata,
     DocumentRecord,
     Name,
+    PathKind,
     PlanRecord,
     TaskMetadata,
 )
@@ -185,21 +186,16 @@ class DocUpdateResult(BaseModel):
     body: str
 
 
+type PathCommand = Literal["plan path", "task path", "context path", "doc path"]
+
+
 class PathResult(BaseModel):
-    command: Literal["plan path", "task path", "context path", "doc path"]
+    command: PathCommand
     project: ProjectScope
     plan_name: str | None = None
     absolute_path: Path
-    kind: Literal[
-        "plan",
-        "task",
-        "context",
-        "task_directory",
-        "context_directory",
-        "doc",
-        "doc_directory",
-    ]
-    # Only meaningful for directory kinds; document paths are validated before rendering.
+    kind: PathKind
+    # None for document paths, which are validated before rendering; directories report it.
     exists: bool | None = None
 
 

@@ -1,7 +1,5 @@
-import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import override
 from unittest.mock import Mock
 
 import pytest
@@ -10,8 +8,7 @@ from typer.testing import CliRunner
 
 from machinate.cli.cli import build_cli
 from machinate.cli.dependencies import Dependencies
-from machinate.cli.formatting import Formatter
-from machinate.cli.models import CommandResult, ErrorResult, PlanListResult
+from machinate.cli.models import ErrorResult, PlanListResult
 from machinate.cli.project_setup import open_project
 from machinate.models.documents import ParsedDocument, PlanMetadata
 from machinate.models.operations import PlanQuery
@@ -280,51 +277,6 @@ def test_invalid_options(project: Path, args: list[str], exit_code: int) -> None
     assert result.exit_code == exit_code, result.output
 
 
-class ReplacementFormatter(Formatter):
-    def __init__(self) -> None:
-        self.results: list[CommandResult] = []
-
-    @override
-    def format(self, result: CommandResult) -> str:
-        self.results.append(result)
-        return "replacement"
-
-
-def test_formatter_injection(project: Path) -> None:
-    formatter = ReplacementFormatter()
-    custom = build_cli(Dependencies(settings=DEFAULT_SETTINGS, formatters={"custom": formatter}))
-    result = runner.invoke(custom, ["plan", "list", "-P", str(project), "--format", "custom"])
-    assert result.exit_code == 0
-    assert result.stdout == "replacement\n"
-    assert isinstance(formatter.results[0], PlanListResult)
-    result = runner.invoke(
-        custom, ["plan", "list", "-P", str(project / "missing"), "--format", "custom"]
-    )
-    assert result.exit_code == 1
-    assert result.stderr == "replacement\n"
-    assert isinstance(formatter.results[1], ErrorResult)
-
-
-def test_log_level_setting_enables_debug_diagnostics(project: Path) -> None:
-    logger = logging.getLogger("machinate")
-    dependencies = Dependencies(settings=make_settings(log_level="DEBUG"))
-    target = project / ".machi/plans/bare/plan.md"
-    target.parent.mkdir(parents=True)
-    target.write_text("no frontmatter here")
-    try:
-        result = runner.invoke(
-            build_cli(dependencies), ["plan", "list", "-P", str(project), "--format", "json"]
-        )
-        assert result.exit_code == 0
-        assert "DEBUG" in result.stderr
-        assert "machinate.storage.document_store" in result.stderr
-        assert "plans/bare/plan.md" in result.stderr
-    finally:
-        for handler in list(logger.handlers):
-            logger.removeHandler(handler)
-        logger.setLevel(logging.NOTSET)
-
-
 def test_read_only_and_malformed_document(project: Path) -> None:
     open_project(project).plans.project_state_store.write(
         ProjectState(project_name="example", current_plan="dangling")
@@ -376,15 +328,6 @@ def test_parser_errors_use_json(
     factory.assert_not_called()
 
 
-def test_parser_error_formatter_injection() -> None:
-    formatter = ReplacementFormatter()
-    custom = build_cli(Dependencies(settings=DEFAULT_SETTINGS, formatters={"custom": formatter}))
-    result = runner.invoke(custom, ["plan", "list", "--unknown", "--format=custom"])
-    assert result.exit_code == 2
-    assert result.stderr == "replacement\n"
-    assert isinstance(formatter.results[0], ErrorResult)
-
-
 def test_parser_error_format_override() -> None:
     dependencies = Dependencies(settings=make_settings(format_name="json"))
     result = runner.invoke(build_cli(dependencies), ["plan", "list", "--format", "text", "--limit"])
@@ -424,18 +367,6 @@ def test_group_parser_errors_use_text() -> None:
     assert result.exit_code == 2
     assert result.stdout == ""
     assert not result.stderr.startswith("{")
-
-
-def test_group_parser_error_formatter_injection() -> None:
-    formatter = ReplacementFormatter()
-    dependencies = Dependencies(
-        settings=make_settings(format_name="custom"), formatters={"custom": formatter}
-    )
-    custom = build_cli(dependencies)
-    result = runner.invoke(custom, ["task", "oops"])
-    assert result.exit_code == 2
-    assert result.stderr == "replacement\n"
-    assert isinstance(formatter.results[0], ErrorResult)
 
 
 def test_group_help_still_prints() -> None:

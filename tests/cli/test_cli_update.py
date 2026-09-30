@@ -13,7 +13,7 @@ def read_metadata(project: Path, name: str = "auth") -> PlanMetadata:
 
 
 def set_current(project: Path, name: str) -> None:
-    open_project(project).plans.set_current(name)
+    open_project(project).plans.select_plan(name)
 
 
 def test_update_sets_status_explicit(project: Path) -> None:

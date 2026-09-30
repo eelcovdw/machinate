@@ -4,11 +4,11 @@ import typer
 
 from machinate.cli.execution import execute
 from machinate.cli.models import SearchResult
-from machinate.cli.options import LIMIT, OUTPUT_FORMAT, PLAN, PROJECT_DIR
+from machinate.cli.options import LIMIT, OUTPUT_FORMAT, PROJECT_DIR, SEARCH_PLAN
 from machinate.models.operations import SearchQuery
 
 
-def search_command(  # noqa: PLR0913
+def search_command(
     ctx: typer.Context,
     query: Annotated[
         str | None,
@@ -20,7 +20,7 @@ def search_command(  # noqa: PLR0913
             "--glob", help="Filesystem glob relative to the base (quote it); repeat for OR."
         ),
     ] = None,
-    plan: PLAN = None,
+    plan: SEARCH_PLAN = None,
     project_directory: PROJECT_DIR = None,
     regex: Annotated[
         bool,
@@ -98,7 +98,7 @@ def search_command(  # noqa: PLR0913
         )
         services = run.open_project(project_directory)
         matches = services.search.search(search_query)
-        run.render(
+        run.emit(
             SearchResult(
                 command="search",
                 project=services.project,

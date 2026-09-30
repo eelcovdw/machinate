@@ -8,7 +8,7 @@ from machinate.cli.project_setup import open_project
 
 
 def set_current(project: Path, name: str) -> None:
-    open_project(project).plans.set_current(name)
+    open_project(project).plans.select_plan(name)
 
 
 def test_select_explicit_plan(project: Path) -> None:

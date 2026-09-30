@@ -7,13 +7,12 @@ from .errors import (
     SymbolicLinkError,
 )
 from .layout import Layout
-from .models import DocumentCollection, DocumentScope, FileStat, ProjectState
+from .models import DocumentCollection, FileStat, ProjectState
 from .project_state_store import ProjectStateStore
 
 __all__ = [
     "DocumentCollection",
     "DocumentExistsError",
-    "DocumentScope",
     "DocumentStore",
     "FileStat",
     "InvalidDocumentError",

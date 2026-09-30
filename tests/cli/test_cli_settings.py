@@ -16,23 +16,36 @@ def test_defaults_to_text() -> None:
     settings = Settings()
     assert settings.ai_agent is None
     assert settings.is_agent_mode is False
-    assert settings.format == "text"
+    assert settings.format is None
+    assert settings.output_format == "text"
+
+
+def test_lowercase_env_names_are_ignored() -> None:
+    settings = Settings.from_environ({"ai_agent": "someone", "format": "json"})
+    assert settings.ai_agent is None
+    assert settings.format is None
+
+
+def test_uppercase_env_names_are_read() -> None:
+    settings = Settings.from_environ({"MACHI_AI_AGENT": "someone", "MACHI_FORMAT": "json"})
+    assert settings.ai_agent == "someone"
+    assert settings.format == "json"
 
 
 def test_invalid_settings_reports_field(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MACHI_FORMAT", "human")
     result = runner.invoke(app, ["plan", "list", "-P", str(project)])
     assert result.exit_code == 1
-    assert "format" in ErrorResult.model_validate_json(result.stderr).error
+    assert "MACHI_FORMAT" in ErrorResult.model_validate_json(result.stderr).error
 
 
-def test_explicit_format_overrides_invalid_env_format(
+def test_invalid_env_format_is_a_usage_error(
     project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MACHI_FORMAT", "human")
     result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
-    assert result.exit_code == 0, result.output
-    assert result.stdout.startswith("{")
+    assert result.exit_code == 1
+    assert "MACHI_FORMAT" in ErrorResult.model_validate_json(result.stderr).error
 
 
 def test_help_does_not_open_project(monkeypatch: pytest.MonkeyPatch) -> None:

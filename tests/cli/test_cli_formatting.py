@@ -10,9 +10,9 @@ from typer.testing import CliRunner
 
 from machinate.cli import formatting
 from machinate.cli.cli import build_cli
+from machinate.cli.formatting import status_style
 from machinate.cli.models import ErrorResult
 from machinate.cli.project_setup import open_project
-from machinate.cli.styles import status_style
 from machinate.models.documents import PlanStatus, TaskStatus
 from machinate.models.operations import StatusUpdate
 

@@ -17,6 +17,7 @@ from machinate.cli.options import (
     DESCENDING,
     GROUP,
     LIMIT,
+    MATCH_TAGS,
     OUTPUT_FORMAT,
     PLAN,
     PLAN_SORT,
@@ -31,7 +32,7 @@ from machinate.models.documents import PlanStatus
 from machinate.models.operations import PlanQuery, StatusCreateInput, StatusUpdate
 
 
-def plan_add_command(  # noqa: PLR0913
+def plan_add_command(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the plan to create.")],
     project_directory: PROJECT_DIR = None,
@@ -43,11 +44,9 @@ def plan_add_command(  # noqa: PLR0913
     """Create a plan."""
     with execute(ctx, output_format) as run:
         services = run.open_project(project_directory)
-        create = StatusCreateInput[PlanStatus].model_validate(
-            {"summary": summary, "tags": tags or [], "status": status}
-        )
+        create = StatusCreateInput[PlanStatus](summary=summary, tags=tags or [], status=status)
         plan = services.plans.create(name, create)
-        run.render(
+        run.emit(
             PlanAddResult(
                 command="plan add",
                 project=services.project,
@@ -56,11 +55,11 @@ def plan_add_command(  # noqa: PLR0913
         )
 
 
-def plan_list_command(  # noqa: PLR0913
+def plan_list_command(
     ctx: typer.Context,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
-    tags: TAGS = None,
+    tags: MATCH_TAGS = None,
     statuses: PLAN_STATUS_FILTER = None,
     sort: PLAN_SORT = "name",
     descending: DESCENDING = False,
@@ -77,7 +76,7 @@ def plan_list_command(  # noqa: PLR0913
             limit=limit,
         )
         services = run.open_project(project_directory)
-        run.render(
+        run.emit(
             PlanListResult(
                 command="plan list",
                 project=services.project,
@@ -98,7 +97,7 @@ def plan_info_command(
     with execute(ctx, output_format) as run:
         services = run.open_project(project_directory)
         plan_name = run.determine_plan_name(services.plans, plan)
-        run.render(
+        run.emit(
             PlanInfoResult(
                 command="plan info",
                 project=services.project,
@@ -120,8 +119,8 @@ def plan_select_command(
     with execute(ctx, output_format) as run:
         run.require_human_session()
         services = run.open_project(project_directory)
-        state = services.plans.set_current(name)
-        run.render(
+        state = services.plans.select_plan(name)
+        run.emit(
             PlanSelectResult(
                 command="plan select",
                 project=services.project,
@@ -139,8 +138,8 @@ def plan_unselect_command(
     with execute(ctx, output_format) as run:
         run.require_human_session()
         services = run.open_project(project_directory)
-        state = services.plans.clear_current()
-        run.render(
+        state = services.plans.unselect_plan()
+        run.emit(
             PlanUnselectResult(
                 command="plan unselect",
                 project=services.project,
@@ -149,7 +148,7 @@ def plan_unselect_command(
         )
 
 
-def plan_update_command(  # noqa: PLR0913
+def plan_update_command(
     ctx: typer.Context,
     plan: PLAN = None,
     project_directory: PROJECT_DIR = None,
@@ -169,7 +168,7 @@ def plan_update_command(  # noqa: PLR0913
         services = run.open_project(project_directory)
         plan_name = run.determine_plan_name(services.plans, plan)
         updated = services.plans.update(plan_name, update)
-        run.render(
+        run.emit(
             PlanUpdateResult(
                 command="plan update",
                 project=services.project,
@@ -202,8 +201,9 @@ def plan_show_command(
     """Show plan metadata and body."""
     with execute(ctx, output_format) as run:
         services = run.open_project(project_directory)
-        selected = run.get_target_plan(services.plans, plan)
-        run.render(
+        plan_name = run.determine_plan_name(services.plans, plan)
+        selected = services.plans.get(plan_name)
+        run.emit(
             PlanShowResult(
                 command="plan show",
                 project=services.project,

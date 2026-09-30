@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from machinate.models.documents import ParsedDocument, PlanMetadata, TaskMetadata
 from machinate.models.operations import DocumentQuery, PlanQuery, TaskQuery
+from machinate.services.document import _sort_records
 from machinate.storage import (
     DocumentCollection,
     DocumentStore,
@@ -43,7 +44,21 @@ def store(tmp_path: Path) -> DocumentStore:
 
 
 def names(store: DocumentStore, query: PlanQuery) -> list[str]:
-    return [record.name for record in store.list(Layout().plan_collection(), PlanMetadata, query)]
+    records = store.list(Layout().plan_collection(), PlanMetadata, query)
+    if query.sort == "last_activity_at":
+        ordered = sorted(records, key=lambda record: record.name)
+        ordered.sort(
+            key=lambda record: store.read_last_activity_at(
+                record.path,
+                Layout().task_collection(record.name),
+                Layout().context_collection(record.name),
+            ),
+            reverse=query.descending,
+        )
+        if query.limit is not None:
+            ordered = ordered[: query.limit]
+        return [record.name for record in ordered]
+    return [record.name for record in _sort_records(records, query)]
 
 
 @pytest.mark.parametrize(
@@ -109,7 +124,7 @@ def test_last_activity_sort_is_plan_only() -> None:
 
 
 @pytest.mark.parametrize("folder", ["tasks", "context"])
-def test_activity_precedes_filters_sort_and_limit(
+def test_activity_precedes_filters_and_limit(
     store: DocumentStore, tmp_path: Path, folder: str
 ) -> None:
     child = tmp_path / "plans" / "alpha" / folder / "nested" / "bad.md"
@@ -125,11 +140,14 @@ def test_activity_precedes_filters_sort_and_limit(
     query = PlanQuery(sort="last_activity_at", descending=True, limit=1)
     collection = Layout().plan_collection()
     records = store.list(collection, PlanMetadata, query)
-    assert [record.name for record in records] == ["alpha"]
-    assert store.get_last_activity_at(
-        records[0].path, collection.activity_scopes
+    assert {record.name for record in records} == {"alpha", "beta", "gamma"}
+    alpha = next(record for record in records if record.name == "alpha")
+    assert store.read_last_activity_at(
+        alpha.path,
+        Layout().task_collection("alpha"),
+        Layout().context_collection("alpha"),
     ) == datetime.fromtimestamp(300, UTC)
-    assert names(store, PlanQuery(sort="last_activity_at", descending=True, limit=1)) == ["alpha"]
+    assert names(store, query) == ["alpha"]
 
 
 def test_discovery_empty_scopes_and_malformed_documents(
@@ -197,7 +215,11 @@ def test_missing_root_is_empty(tmp_path: Path) -> None:
 
 
 def test_summary_has_no_body(store: DocumentStore) -> None:
-    record = store.list(Layout().plan_collection(), PlanMetadata, DocumentQuery(limit=1))[0]
+    record = next(
+        record
+        for record in store.list(Layout().plan_collection(), PlanMetadata, DocumentQuery())
+        if record.name == "alpha"
+    )
     assert record.path == PurePosixPath("plans/alpha/plan.md")
     assert '"body"' not in record.model_dump_json()
 
@@ -231,10 +253,11 @@ def test_nested_document_names_support_ordering(
         DocumentQuery(),
         DocumentQuery(sort="created_at", descending=True),
     ):
-        records = store.list(collection, TaskMetadata, query)
+        records = _sort_records(store.list(collection, TaskMetadata, query), query)
         assert [record.name for record in records] == ["login.v2", "one/login", "two/login"]
 
-    records = store.list(collection, TaskMetadata, DocumentQuery(descending=True, limit=1))
+    query = DocumentQuery(descending=True, limit=1)
+    records = _sort_records(store.list(collection, TaskMetadata, query), query)
     assert [record.name for record in records] == ["two/login"]
 
 
@@ -270,7 +293,9 @@ def test_task_status_queries(store: DocumentStore, query: TaskQuery, expected: l
             ),
         )
         os.utime(store.root / path, (stamp, stamp))
-    records = store.list(Layout().task_collection("alpha"), TaskMetadata, query)
+    records = _sort_records(
+        store.list(Layout().task_collection("alpha"), TaskMetadata, query), query
+    )
     assert [record.name for record in records] == expected
 
 

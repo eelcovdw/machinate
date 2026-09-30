@@ -55,14 +55,8 @@ line-length = 100
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "G004",   # f-string in comment
     "COM812", # missing-trailing-comma
     "CPY001", # Missing copyright notice at top of file
-    "D100",   # Missing docstring in public module
-    "D104",   # Missing docstring in public package
-    "D203",   # blank line required before class docstring
-    "D211",   # no-blank-line-before-class
-    "D213",   # multi-line-summary-second-line
     "EM101",  # raw-string-in-exception
     "FIX002", # line-contains-todo
     "ISC001", # Conflicts with formatter ruff
@@ -73,6 +67,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"src/machinate/cli/commands/*.py" = [
+    "PLR0913", # Explicit typer signatures; one parameter per CLI option
+]
 "src/machinate/cli/**/*.py" = [
     "FBT",     # Boolean positional args are fine for typer CLI flags
     "PLC0415", # Imports are deferred inside functions to keep CLI startup fast

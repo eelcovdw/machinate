@@ -30,7 +30,7 @@ from machinate.models.documents import TaskStatus
 from machinate.models.operations import BatchCreated, StatusCreateInput, StatusUpdate, TaskQuery
 
 
-def task_add_command(  # noqa: PLR0913
+def task_add_command(
     ctx: typer.Context,
     names: Annotated[list[str], typer.Argument(help="Name(s) of the task(s) to create.")],
     plan: PLAN = None,
@@ -57,10 +57,10 @@ def task_add_command(  # noqa: PLR0913
                 created=[task.record for task in batch.created], failures=batch.failures
             ),
         )
-        run.render(result)
+        run.emit(result)
 
 
-def task_list_command(  # noqa: PLR0913
+def task_list_command(
     ctx: typer.Context,
     plan: PLAN = None,
     project_directory: PROJECT_DIR = None,
@@ -90,7 +90,7 @@ def task_list_command(  # noqa: PLR0913
             tasks=services.tasks.list_records(plan_name, query),
             group_by="status" if group else None,
         )
-        run.render(result)
+        run.emit(result)
 
 
 def task_show_command(
@@ -112,7 +112,7 @@ def task_show_command(
             task=task.record,
             body=task.body,
         )
-        run.render(result)
+        run.emit(result)
 
 
 def task_info_command(
@@ -126,14 +126,14 @@ def task_info_command(
     with execute(ctx, output_format) as run:
         services = run.open_project(project_directory)
         plan_name = run.determine_plan_name(services.plans, plan)
-        task = services.tasks.get_info(plan_name, name)
+        task = services.tasks.get_record(plan_name, name)
         result = TaskInfoResult(
             command="task info", project=services.project, plan_name=plan_name, task=task
         )
-        run.render(result)
+        run.emit(result)
 
 
-def task_update_command(  # noqa: PLR0913
+def task_update_command(
     ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the task to update.")],
     plan: PLAN = None,
@@ -161,7 +161,7 @@ def task_update_command(  # noqa: PLR0913
             task=updated.record,
             body=updated.body,
         )
-        run.render(result)
+        run.emit(result)
 
 
 def task_path_command(

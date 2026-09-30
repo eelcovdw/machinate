@@ -5,11 +5,10 @@ from typing import cast
 import tantivy
 from pydantic import validate_call
 
-from machinate.models.documents import PlanMetadata
 from machinate.models.operations import DEFAULT_GLOB, SearchMatch, SearchQuery, SearchSkip
-from machinate.services.errors import NotFoundError, SearchQueryError
+from machinate.services.errors import SearchQueryError
+from machinate.services.plan import PlanService
 from machinate.storage import DocumentStore, Layout, StorageError
-from machinate.storage.errors import MissingDocumentError
 
 _TEXT_FIELDS = ("path", "body")
 _PATH_BOOST = 2.0
@@ -40,9 +39,10 @@ class SearchService:
     no index at all.
     """
 
-    def __init__(self, document_store: DocumentStore, layout: Layout) -> None:
+    def __init__(self, document_store: DocumentStore, layout: Layout, plans: PlanService) -> None:
         self.document_store: DocumentStore = document_store
         self.layout: Layout = layout
+        self.plans: PlanService = plans
 
     @validate_call
     def search(self, query: SearchQuery | None = None) -> SearchMatches:
@@ -50,12 +50,8 @@ class SearchService:
         globs = query.globs or [DEFAULT_GLOB]
         base = PurePosixPath()
         if query.plan is not None:
-            plan_path = self.layout.plan_path(query.plan)
-            try:
-                self.document_store.read(plan_path, PlanMetadata)
-            except MissingDocumentError as exc:
-                raise NotFoundError("plan", query.plan) from exc
-            base = plan_path.parent
+            self.plans.require_plan(query.plan)
+            base = self.layout.plan_path(query.plan).parent
 
         relatives = self.document_store.list_files(base, globs)
         text = (query.query or "").strip()

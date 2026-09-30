@@ -7,7 +7,7 @@ search, batch results, then overviews.
 
 # --- Create inputs ---------------------------------------------------------
 
-from typing import ClassVar, Literal, override
+from typing import ClassVar, Literal, TypeGuard, override
 
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator
 
@@ -24,6 +24,12 @@ from .documents import (
     TaskStatus,
     validate_relative_path,
 )
+
+
+def _has_status(metadata: Metadata) -> TypeGuard[StatusMetadata[str]]:
+    """Narrow metadata to a document kind that stores a status."""
+    return isinstance(metadata, StatusMetadata)
+
 
 # --- Error codes -----------------------------------------------------------
 
@@ -122,8 +128,8 @@ class StatusUpdate[S: str](BaseModel):
         metadata = document.metadata
         if (
             "status" in self.model_fields_set
-            and isinstance(metadata, StatusMetadata)
-            and not metadata.status_matches(self.status)
+            and _has_status(metadata)
+            and metadata.status != self.status
         ):
             updates["status"] = self.status
         return _apply_updates(updates, document)
@@ -131,25 +137,28 @@ class StatusUpdate[S: str](BaseModel):
 
 # --- Queries ---------------------------------------------------------------
 
-# The widest set of sort keys; subclasses narrow what they accept via `_allowed_sorts`.
-type DocumentSort = Literal["name", "created_at", "modified_at", "last_activity_at"]
+# The widest set of stored sort keys; plans widen this with `last_activity_at`.
+type DocumentSort = Literal["name", "created_at", "modified_at"]
+type PlanSort = Literal["name", "created_at", "modified_at", "last_activity_at"]
+
+DOCUMENT_SORTS: tuple[DocumentSort, ...] = ("name", "created_at", "modified_at")
+PLAN_SORTS: tuple[PlanSort, ...] = ("name", "created_at", "modified_at", "last_activity_at")
 
 
 class DocumentQuery(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    #: Sort keys valid for task, context, and doc listings.
-    _allowed_sorts: ClassVar[frozenset[str]] = frozenset({"name", "created_at", "modified_at"})
-
     tags: set[Tag] | None = None
-    sort: DocumentSort = "name"
+    # Widened to every sort key a subclass may accept; the validator narrows it to
+    # the keys this document kind stores.
+    sort: PlanSort = "name"
     descending: bool = False
     limit: PositiveInt | None = None
 
     @field_validator("sort")
     @classmethod
-    def _validate_sort(cls, value: str) -> str:
-        if value not in cls._allowed_sorts:
+    def _validate_sort(cls, value: PlanSort) -> PlanSort:
+        if value not in DOCUMENT_SORTS:
             raise ValueError("Sort key is not supported for this document kind")
         return value
 
@@ -171,16 +180,21 @@ class StatusQuery[S: str](DocumentQuery):
             return False
         if self.statuses is None:
             return True
-        status = getattr(metadata, "status", None)
-        return status in self.statuses
+        if not _has_status(metadata):
+            return False
+        return metadata.status in self.statuses
 
 
 class PlanQuery(StatusQuery[PlanStatus]):
     """Plan listing filters; plans are the one kind that can sort by activity."""
 
-    _allowed_sorts: ClassVar[frozenset[str]] = frozenset(
-        {"name", "created_at", "modified_at", "last_activity_at"}
-    )
+    @override
+    @field_validator("sort")
+    @classmethod
+    def _validate_sort(cls, value: PlanSort) -> PlanSort:
+        if value not in PLAN_SORTS:
+            raise ValueError("Sort key is not supported for this document kind")
+        return value
 
 
 class TaskQuery(StatusQuery[TaskStatus]):
@@ -247,11 +261,6 @@ class BatchCreated[T](BaseModel):
     created: list[T]
     failures: list[CreateFailure]
 
-    @property
-    def failed(self) -> bool:
-        """Whether any name in the batch failed."""
-        return bool(self.failures)
-
 
 class SearchSkip(BaseModel):
     """A file the search could not read, with why, reported instead of logged."""
@@ -273,10 +282,11 @@ class PlanOverview(BaseModel):
 
 
 class ProjectOverview(BaseModel):
-    """Project-wide aggregates for `machi info` without an explicit plan."""
+    """Project-wide aggregates for `machi info`."""
 
     current_plan: Name | None
-    current_plan_exists: bool
+    # None when no plan is selected; otherwise whether the selection still exists.
+    current_plan_exists: bool | None
     plan_count: int
     plans_by_status: dict[PlanStatus, int]
     tasks_by_status: dict[TaskStatus, int]

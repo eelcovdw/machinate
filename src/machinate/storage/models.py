@@ -11,7 +11,6 @@ from machinate.models.documents import Name, RelativePath
 class FileStat(BaseModel):
     path: RelativePath
     modified_at: datetime
-    kind: Literal["file", "directory"]
 
 
 class ProjectState(BaseModel):
@@ -21,12 +20,8 @@ class ProjectState(BaseModel):
     current_plan: Name | None = None
 
 
-class DocumentScope(BaseModel):
+class DocumentCollection(BaseModel):
     path: RelativePath
     pattern: RelativePath
-
-
-class DocumentCollection(DocumentScope):
     # Plans use their parent name; other documents keep collection-relative directories.
     name_source: Literal["parent", "stem"] = "stem"
-    activity_scopes: tuple[DocumentScope, ...] = ()

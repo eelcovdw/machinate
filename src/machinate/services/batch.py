@@ -6,15 +6,9 @@ from pathlib import PurePosixPath
 from pydantic import ValidationError
 
 from machinate.models.operations import BatchCreated, CreateFailure
-from machinate.services.errors import ExistsError, ServiceError
+from machinate.services.errors import ExistsError, ServiceError, validation_failure_detail
 from machinate.storage import DocumentStore
 from machinate.storage.errors import MissingDocumentError, StorageError
-
-
-def first_validation_message(exc: ValidationError) -> str:
-    """The single most relevant message from a pydantic validation failure."""
-    msg = str(exc.errors()[0]["msg"])
-    return msg.removeprefix("Value error, ")
 
 
 def create_many[DocumentT](
@@ -49,7 +43,7 @@ def _preflight_names(
             valid = validate_name(name)
         except ValidationError as exc:
             slots[index] = CreateFailure(
-                name=name, reason="invalid_name", message=first_validation_message(exc)
+                name=name, reason="invalid_name", message=validation_failure_detail(exc)
             )
             continue
         if valid.casefold() in seen:
@@ -70,8 +64,8 @@ def _existing_error(
         document_store.stat(target)
     except MissingDocumentError:
         return None
-    except StorageError:
-        return CreateFailure(name=name, reason="failed", message="Could not inspect the document")
+    except StorageError as exc:
+        return CreateFailure(name=name, reason="failed", message=str(exc))
     return CreateFailure(name=name, reason="exists", message="Already exists")
 
 
@@ -93,10 +87,14 @@ def _create_pending[DocumentT](
             failures.append(CreateFailure(name=names[index], reason="exists", message=str(exc)))
         except ServiceError as exc:
             failures.append(CreateFailure(name=names[index], reason="failed", message=str(exc)))
-        except StorageError, ValidationError:
+        except StorageError as exc:
+            failures.append(CreateFailure(name=names[index], reason="failed", message=str(exc)))
+        except ValidationError as exc:
             failures.append(
                 CreateFailure(
-                    name=names[index], reason="failed", message="Could not create the document"
+                    name=names[index],
+                    reason="failed",
+                    message=validation_failure_detail(exc),
                 )
             )
     return BatchCreated(created=created, failures=failures)

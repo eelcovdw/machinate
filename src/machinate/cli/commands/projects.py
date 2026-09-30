@@ -18,7 +18,7 @@ def init_command(
     """Initialize the target directory as a Machinate project."""
     with execute(ctx, output_format) as run:
         scope = run.dependencies.initialize_project(project_directory, project_name)
-        run.render(InitResult(command="init", project=scope))
+        run.emit(InitResult(command="init", project=scope))
 
 
 def info_command(
@@ -29,7 +29,7 @@ def info_command(
     """Show a project overview."""
     with execute(ctx, output_format) as run:
         services = run.open_project(project_directory)
-        run.render(
+        run.emit(
             InfoResult(
                 command="info",
                 project=services.project,

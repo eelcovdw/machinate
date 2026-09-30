@@ -24,14 +24,14 @@ def test_unset_environment_is_human_mode() -> None:
     settings = Settings.from_environ({})
     assert settings.is_agent_mode is False
     assert settings.ai_agent is None
-    assert settings.format == "text"
+    assert settings.output_format == "text"
 
 
 def test_machi_ai_agent_enables_agent_mode() -> None:
     settings = Settings.from_environ({"MACHI_AI_AGENT": "claude-code"})
     assert settings.is_agent_mode is True
     assert settings.ai_agent == "claude-code"
-    assert settings.format == "json"
+    assert settings.output_format == "json"
 
 
 def test_ai_agent_alias_enables_agent_mode() -> None:
@@ -53,7 +53,7 @@ def test_empty_variable_means_human_mode() -> None:
 def test_empty_machi_ai_agent_forces_human_mode() -> None:
     settings = Settings.from_environ({"MACHI_AI_AGENT": "", "AI_AGENT": "cursor"})
     assert settings.is_agent_mode is False
-    assert settings.format == "text"
+    assert settings.output_format == "text"
 
 
 def test_explicit_format_beats_agent_default() -> None:
@@ -65,7 +65,7 @@ def test_explicit_format_beats_agent_default() -> None:
 def test_agent_mode_requires_explicit_plan(project: Path, arguments: list[str]) -> None:
     """A current plan is set, but agent mode still refuses to use it without -p."""
     seed.plan(project, "auth")
-    open_project(project).plans.set_current("auth")
+    open_project(project).plans.select_plan("auth")
     error = cli.error([*arguments, "-P", str(project)], dependencies=AGENT)
     assert error.command == " ".join(arguments[:2])
 
@@ -83,7 +83,7 @@ def test_agent_mode_allows_explicit_plan(project: Path) -> None:
 def test_agent_mode_rejects_plan_select(project: Path) -> None:
     seed.plan(project, "auth")
     seed.plan(project, "other")
-    open_project(project).plans.set_current("other")
+    open_project(project).plans.select_plan("other")
     error = cli.error(["plan", "select", "auth", "-P", str(project)], dependencies=AGENT)
     assert error.command == "plan select"
     assert read_state(project).current_plan == "other"
@@ -91,7 +91,7 @@ def test_agent_mode_rejects_plan_select(project: Path) -> None:
 
 def test_agent_mode_rejects_plan_unselect(project: Path) -> None:
     seed.plan(project, "auth")
-    open_project(project).plans.set_current("auth")
+    open_project(project).plans.select_plan("auth")
     error = cli.error(["plan", "unselect", "-P", str(project)], dependencies=AGENT)
     assert error.command == "plan unselect"
     assert read_state(project).current_plan == "auth"

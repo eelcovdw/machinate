@@ -58,7 +58,7 @@ def test_context_add_explicit_plan(project: Path) -> None:
 
 def test_context_add_current_plan(project: Path) -> None:
     seed.plan(project, "auth")
-    open_project(project).plans.set_current("auth")
+    open_project(project).plans.select_plan("auth")
     parsed = cli.json(
         ContextAddResult, ["context", "add", "spec", "-P", str(project)], dependencies=JSON
     )

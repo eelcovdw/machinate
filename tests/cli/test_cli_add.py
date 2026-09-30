@@ -52,7 +52,7 @@ def test_add_sets_summary_and_status(project: Path) -> None:
 
 def test_add_never_changes_selection(project: Path) -> None:
     seed.plan(project, "existing")
-    open_project(project).plans.set_current("existing")
+    open_project(project).plans.select_plan("existing")
     cli.json(PlanAddResult, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
     assert read_state(project).current_plan == "existing"
 
