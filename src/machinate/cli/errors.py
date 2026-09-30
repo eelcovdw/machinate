@@ -28,6 +28,7 @@ EXIT_USAGE = 2
 class ErrorDetail:
     code: ErrorCode
     message: str
+    hint: str | None = None
 
 
 def _describe_storage_error(exc: Exception) -> ErrorDetail | None:
@@ -39,7 +40,7 @@ def _describe_storage_error(exc: Exception) -> ErrorDetail | None:
 def describe_error(exc: Exception) -> ErrorDetail:
     """Render an exception as a machine code plus a concise, actionable message."""
     if isinstance(exc, ServiceError):
-        return ErrorDetail(exc.code, str(exc))
+        return ErrorDetail(exc.code, str(exc), exc.hint)
     if isinstance(exc, ProjectError):
         return ErrorDetail("project", str(exc))
     if isinstance(exc, ValidationError):

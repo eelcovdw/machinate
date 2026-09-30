@@ -8,7 +8,7 @@ from typer.core import TyperCommand, TyperGroup
 from .commands.catalog import ALIASES, COMMANDS, CommandEntry, CommandGroup
 from .commands.schema import schema_command
 from .dependencies import Dependencies, get_dependencies
-from .errors import EXIT_USAGE, describe_error
+from .errors import EXIT_USAGE, ErrorDetail, describe_error
 from .execution import command_label, resolve_formatter
 from .formatting import JsonFormatter
 from .models import ErrorResult
@@ -53,13 +53,65 @@ class Group(TyperGroup):
             raise typer.Exit(EXIT_USAGE) from exc
 
 
+PLAN_NAME_SUBCOMMANDS = frozenset({"show", "info", "path", "update"})
+PLAN_NAME_PLACEHOLDER = "NAME"
+
+
+def _has_plan_flag(arguments: list[str]) -> bool:
+    return any(
+        argument in {"-p", "--plan"}
+        or argument.startswith("--plan=")
+        or (argument.startswith("-p") and len(argument) > len("-p"))
+        for argument in arguments
+    )
+
+
+def _rewrite_plan_arguments(arguments: list[str]) -> list[str]:
+    """Replace the parent -p/--plan option with a positional plan name."""
+    rewritten: list[str] = []
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in {"-p", "--plan"}:
+            following = arguments[index + 1] if index + 1 < len(arguments) else None
+            if following is None or following.startswith("-"):
+                rewritten.append(PLAN_NAME_PLACEHOLDER)
+                index += 1
+            else:
+                rewritten.append(following)
+                index += 2
+            continue
+        if argument.startswith("--plan="):
+            rewritten.append(argument.partition("=")[2] or PLAN_NAME_PLACEHOLDER)
+        elif argument.startswith("-p") and len(argument) > len("-p"):
+            rewritten.append(argument[2:])
+        else:
+            rewritten.append(argument)
+        index += 1
+    return rewritten
+
+
+def _plan_targeting_hint(ctx: click.Context, original_args: list[str] | None) -> str | None:
+    """Suggest the positional NAME form when a plan subcommand gets -p/--plan."""
+    if original_args is None or ctx.info_name not in PLAN_NAME_SUBCOMMANDS:
+        return None
+    parent = ctx.parent
+    if parent is None or parent.info_name != "plan" or not _has_plan_flag(original_args):
+        return None
+    rewritten = _rewrite_plan_arguments(original_args)
+    command = " ".join(["machi", parent.info_name, ctx.info_name, *rewritten])
+    return f"pass the plan name directly: {command}"
+
+
 def _report_usage_error(
     ctx: click.Context,
     exc: click.UsageError,
     original_args: list[str] | None,
 ) -> None:
     """Format a usage failure using the flag, settings, or default formatter."""
-    message = exc.format_message()
+    detail = ErrorDetail(
+        "input", exc.format_message(), hint=_plan_targeting_hint(ctx, original_args)
+    )
     formatter = JsonFormatter()  # Structured fallback if settings/format selection fails.
     override_name: object = None
     if original_args is not None:
@@ -77,9 +129,16 @@ def _report_usage_error(
         override = override_name if isinstance(override_name, str) else None
         formatter = resolve_formatter(override, get_dependencies(ctx).resolve_settings())
     except ValidationError as formatting_error:
-        message = describe_error(formatting_error).message
+        detail = describe_error(formatting_error)
     typer.echo(
-        formatter.format(ErrorResult(command=command_label(ctx), error=message, code="input")),
+        formatter.format(
+            ErrorResult(
+                command=command_label(ctx),
+                error=detail.message,
+                code=detail.code,
+                hint=detail.hint,
+            )
+        ),
         err=True,
     )
 

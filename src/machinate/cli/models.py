@@ -224,6 +224,7 @@ class ErrorResult(BaseModel):
     command: str
     error: str
     code: ErrorCode
+    hint: str | None = None
     project: ProjectScope | None = None
 
 

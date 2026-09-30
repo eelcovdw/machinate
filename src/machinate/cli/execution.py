@@ -81,6 +81,7 @@ class Execution:
                     command=self.command,
                     error=detail.message,
                     code=detail.code,
+                    hint=detail.hint,
                     project=self.project,
                 )
             ),
@@ -125,17 +126,17 @@ class Execution:
         if name is not None:
             return name
         if self.settings.is_agent_mode:
-            msg = f"Agent mode requires an explicit plan; use {usage}."
-            raise InputError(msg)
+            msg = "Agent mode requires an explicit plan"
+            raise InputError(msg, hint=f"use {usage}")
         current = plans.find_current_plan()
         if current is None:
-            msg = f"No current plan is selected; use {usage}."
-            raise InputError(msg)
+            msg = "No current plan is selected"
+            raise InputError(msg, hint=f"use {usage}")
         try:
             plans.require_plan(current)
         except NotFoundError as err:
-            msg = f"Current plan {current!r} no longer exists; use {usage} or plan select."
-            raise InputError(msg) from err
+            msg = f"Current plan {current!r} no longer exists"
+            raise InputError(msg, hint=f"use {usage} or select another plan") from err
         return current
 
     def require_human_session(self) -> None:
@@ -159,7 +160,12 @@ def execute(
         detail = describe_error(exc)
         typer.echo(
             JsonFormatter().format(
-                ErrorResult(command=command_label(ctx), error=detail.message, code=detail.code)
+                ErrorResult(
+                    command=command_label(ctx),
+                    error=detail.message,
+                    code=detail.code,
+                    hint=detail.hint,
+                )
             ),
             err=True,
         )

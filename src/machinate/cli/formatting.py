@@ -429,7 +429,10 @@ def render_text(result: CommandResult) -> str:  # noqa: C901, PLR0911, PLR0912 -
 
 
 def render_error(result: ErrorResult) -> str:
-    return _render([Text(f"Error: {result.error}", style=ERROR)])
+    lines: list[RenderableType] = [Text(f"Error: {result.error}", style=ERROR)]
+    if result.hint:
+        lines.append(Text(f"Hint: {result.hint}", style=MUTED))
+    return _render(lines)
 
 
 def render_plan_add(result: PlanAddResult) -> str:

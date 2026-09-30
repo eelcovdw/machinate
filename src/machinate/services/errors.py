@@ -16,6 +16,10 @@ class ServiceError(Exception):
 
     code: ClassVar[ErrorCode] = "internal"
 
+    def __init__(self, message: str, *, hint: str | None = None) -> None:
+        super().__init__(message)
+        self.hint: str | None = hint
+
 
 class InputError(ServiceError):
     """CLI options are missing, contradictory, or otherwise unusable."""

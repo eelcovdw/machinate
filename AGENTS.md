@@ -275,9 +275,9 @@ JSON is the agent interface; read fields with `jq`:
     machi plan info v2 | jq '.overview.tasks_by_status'
     machi info | jq '.overview | {plan_count, doc_count, tasks_by_status}'
 
-Errors are JSON too and carry a machine-readable `code`. `machi schema <command>`
-documents each result's shape. The one exception: get a bare editing path with
-`machi <resource> path … --format text`.
+Errors are JSON too and carry a machine-readable `code` and, when there is something to do
+about it, a `hint`. `machi schema <command>` documents each result's shape. The one
+exception: get a bare editing path with `machi <resource> path … --format text`.
 
 ### Reading and writing
 

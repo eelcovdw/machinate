@@ -158,6 +158,6 @@ def build_update[M: BaseModel](  # noqa: PLR0913 - one keyword per update field
     elif tags is not None:
         update["tags"] = tags
     if not update:
-        msg = f"Nothing to update; pass {hint}."
-        raise InputError(msg)
+        msg = "Nothing to update"
+        raise InputError(msg, hint=f"pass {hint}")
     return model.model_validate(update)

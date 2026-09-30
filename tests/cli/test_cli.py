@@ -242,8 +242,6 @@ def test_parser_errors_use_json(
     settings = DEFAULT_SETTINGS
     if source == "flag":
         args.extend(["--format", "json"])
-    elif source == "environment":
-        settings = make_settings(format_name="json")
     else:
         settings = make_settings(ai_agent="test-agent")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
@@ -254,6 +252,36 @@ def test_parser_errors_use_json(
     error = ErrorResult.model_validate_json(result.stderr)
     assert error.code == "input"
     factory.assert_not_called()
+
+
+@pytest.mark.parametrize("subcommand", ["show", "info", "path", "update"])
+def test_plan_subcommands_reject_parent_plan_flag(subcommand: str) -> None:
+    result = runner.invoke(app, ["plan", subcommand, "-p", "auth", "--format", "json"])
+    assert result.exit_code == 2
+    error = ErrorResult.model_validate_json(result.stderr)
+    assert error.code == "input"
+    assert error.hint
+
+
+@pytest.mark.parametrize(
+    ("arguments", "expected_hint"),
+    [
+        (["-p", "auth"], "machi plan show auth --format json"),
+        (["--plan", "auth"], "machi plan show auth --format json"),
+        (["-pauth"], "machi plan show auth --format json"),
+        (["--plan=auth"], "machi plan show auth --format json"),
+        (["-p"], "machi plan show NAME --format json"),
+        (["--plan", "auth", "-p"], "machi plan show auth NAME --format json"),
+    ],
+)
+def test_plan_parent_flag_hint_rewrites_to_positional(
+    arguments: list[str], expected_hint: str
+) -> None:
+    result = runner.invoke(app, ["plan", "show", *arguments, "--format", "json"])
+    assert result.exit_code == 2
+    hint = ErrorResult.model_validate_json(result.stderr).hint
+    assert hint is not None
+    assert hint.endswith(expected_hint)
 
 
 def test_parser_error_format_override() -> None:
