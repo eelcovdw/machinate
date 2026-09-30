@@ -33,7 +33,7 @@ class TaskService(DocumentService[TaskMetadata, StatusCreateInput[TaskStatus]]):
                 kind="task",
                 metadata_type=TaskMetadata,
                 storage=lambda plan: layout.task_collection(ensure_plan(plan)),
-                path=lambda plan, name: layout.task(ensure_plan(plan), name),
+                path=lambda plan, name: layout.task_path(ensure_plan(plan), name),
                 requires_plan=True,
                 directory_kind="task_directory",
             ),
@@ -55,25 +55,25 @@ class TaskService(DocumentService[TaskMetadata, StatusCreateInput[TaskStatus]]):
         return self._create(plan, name, create)
 
     @validate_call
-    def create_batch(
+    def create_many(
         self, plan: Name, names: list[str], create: StatusCreateInput[TaskStatus]
     ) -> BatchCreated[LoadedDocument[TaskMetadata]]:
-        return self._create_batch(plan, names, create)
+        return self._create_many(plan, names, create)
 
     @validate_call
     def get(self, plan: Name, name: NestedName) -> LoadedDocument[TaskMetadata]:
         return self._get(plan, name)
 
     @validate_call
-    def info(self, plan: Name, name: NestedName) -> DocumentRecord[TaskMetadata]:
+    def get_info(self, plan: Name, name: NestedName) -> DocumentRecord[TaskMetadata]:
         return self._info(plan, name)
 
     @validate_call
-    def directory(self, plan: Name) -> PurePosixPath:
+    def get_directory(self, plan: Name) -> PurePosixPath:
         return self._directory(plan)
 
     @validate_call
-    def path(self, plan: Name, name: NestedName) -> PurePosixPath:
+    def get_path(self, plan: Name, name: NestedName) -> PurePosixPath:
         return self._path(plan, name)
 
     @validate_call
@@ -82,9 +82,9 @@ class TaskService(DocumentService[TaskMetadata, StatusCreateInput[TaskStatus]]):
 
     @validate_call
     def update(
-        self, plan: Name, name: NestedName, changes: StatusUpdate[TaskStatus]
+        self, plan: Name, name: NestedName, update: StatusUpdate[TaskStatus]
     ) -> LoadedDocument[TaskMetadata]:
-        return self._update(plan, name, changes)
+        return self._update(plan, name, update)
 
     @validate_call
     def list_records(

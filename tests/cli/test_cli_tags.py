@@ -3,13 +3,13 @@ from pathlib import Path
 from harness import cli, seed
 
 from machinate.cli.models import PlanInfoResult, PlanShowResult
-from machinate.cli.project_setup import prepare_project
+from machinate.cli.project_setup import open_project
 from machinate.models.documents import PlanStatus
 from machinate.models.operations import StatusUpdate
 
 
 def add_tags(project: Path, name: str, *tags: str) -> None:
-    prepare_project(project).plans.update(name, StatusUpdate[PlanStatus](tags=list(tags)))
+    open_project(project).plans.update(name, StatusUpdate[PlanStatus](tags=list(tags)))
 
 
 def test_plan_show_includes_tags(project: Path) -> None:
@@ -50,4 +50,4 @@ def test_plan_update_tag_and_clear_tags_conflict(project: Path) -> None:
         ]
     )
     assert error.command == "plan update"
-    assert prepare_project(project).plans.get("alpha").record.metadata.tags == ["frontend"]
+    assert open_project(project).plans.get("alpha").record.metadata.tags == ["frontend"]

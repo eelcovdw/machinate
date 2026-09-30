@@ -8,14 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.json_schema import JsonSchemaValue
 from typer.testing import CliRunner
 
-from machinate.cli.cli import create_cli
+from machinate.cli.cli import build_cli
 from machinate.cli.commands.catalog import ALIASES, COMMANDS, leaves
 from machinate.cli.commands.schema import schema_results
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import CommandResult, ErrorResult
 
 runner = CliRunner()
-app = create_cli(DEFAULT_DEPENDENCIES)
+app = build_cli(DEFAULT_DEPENDENCIES)
 
 
 class _Node(BaseModel):
@@ -67,7 +67,7 @@ def test_schema_lists_all_commands() -> None:
 
 
 def test_catalog_is_the_single_source_of_truth() -> None:
-    cli = create_cli(DEFAULT_DEPENDENCIES)
+    cli = build_cli(DEFAULT_DEPENDENCIES)
     registered = {command.name for command in cli.registered_commands}
     groups = {group.name for group in cli.registered_groups}
     hidden = {spec.name for spec in ALIASES}
@@ -125,22 +125,22 @@ def test_schema_needs_no_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 def test_every_leaf_result_command_matches_its_catalog_path() -> None:
     for path, spec in leaves(COMMANDS):
-        assert spec.result is not None
-        command = get_args(spec.result.model_fields["command"].annotation)
+        assert spec.result_model is not None
+        command = get_args(spec.result_model.model_fields["command"].annotation)
         assert path in command, f"{path} result declares {command!r}"
 
 
 def test_schema_parser_errors_follow_mode() -> None:
     factory = Mock(side_effect=AssertionError("schema must not prepare a project"))
-    dependencies = Dependencies(prepare_project=factory, settings=DEFAULT_SETTINGS)
+    dependencies = Dependencies(open_project=factory, settings=DEFAULT_SETTINGS)
 
-    text = runner.invoke(create_cli(dependencies), ["schema", "--unknown"])
+    text = runner.invoke(build_cli(dependencies), ["schema", "--unknown"])
     assert text.exit_code == 2
     assert text.stdout == ""
 
     structured = runner.invoke(
-        create_cli(
-            Dependencies(prepare_project=factory, settings=make_settings(ai_agent="test-agent"))
+        build_cli(
+            Dependencies(open_project=factory, settings=make_settings(ai_agent="test-agent"))
         ),
         ["schema", "--unknown"],
     )

@@ -254,7 +254,7 @@ class ParsedDocument[M: Metadata](BaseModel):
     metadata: M
     body: str
 
-    def get_or_derive_summary(self) -> str | None:
+    def determine_summary(self) -> str | None:
         """Return the authored summary, or one derived from the body."""
         if self.metadata.summary is not None:
             return self.metadata.summary
@@ -274,7 +274,7 @@ type PathKind = Literal[
 ]
 
 
-class DocumentMembership(BaseModel):
+class DocumentIdentity(BaseModel):
     """Kind and owning plan/name for a store-relative path."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -312,7 +312,7 @@ class DocumentRecord[M: Metadata](BaseModel):
             path=path,
             metadata=document.metadata,
             modified_at=modified_at,
-            summary=document.get_or_derive_summary(),
+            summary=document.determine_summary(),
         )
 
 

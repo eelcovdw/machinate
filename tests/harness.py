@@ -14,10 +14,10 @@ from click.testing import Result
 from pydantic import BaseModel
 from typer.testing import CliRunner
 
-from machinate.cli.cli import create_cli
+from machinate.cli.cli import build_cli
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import ErrorResult
-from machinate.cli.project_setup import prepare_project
+from machinate.cli.project_setup import open_project
 from machinate.cli.settings import LogLevel, Settings
 from machinate.models.documents import (
     ContextMetadata,
@@ -70,7 +70,7 @@ AGENT_DEPENDENCIES = Dependencies(settings=make_settings(ai_agent="test-agent"))
 
 def read_state(project: Path) -> ProjectState:
     """Read the project's stored selection/state."""
-    return prepare_project(project).plans.project_state_store.read()
+    return open_project(project).plans.project_state_store.read()
 
 
 def snapshot(project: Path) -> dict[Path, bytes]:
@@ -91,11 +91,11 @@ class Seed:
         summary: str | None = None,
         body: str = "",
     ) -> LoadedPlan:
-        service = prepare_project(project).plans
+        service = open_project(project).plans
         loaded = service.create(name, StatusCreateInput[PlanStatus](status=status, summary=summary))
         if body:
             service.document_store.write(
-                service.path(name), ParsedDocument(metadata=loaded.record.metadata, body=body)
+                service.get_path(name), ParsedDocument(metadata=loaded.record.metadata, body=body)
             )
             return loaded.model_copy(update={"body": body})
         return loaded
@@ -110,13 +110,13 @@ class Seed:
         summary: str | None = None,
         body: str = "",
     ) -> LoadedDocument[TaskMetadata]:
-        service = prepare_project(project).tasks
+        service = open_project(project).tasks
         loaded = service.create(
             plan, name, StatusCreateInput[TaskStatus](status=status, summary=summary)
         )
         if body:
             service.document_store.write(
-                service.path(plan, name),
+                service.get_path(plan, name),
                 ParsedDocument(metadata=loaded.record.metadata, body=body),
             )
             return loaded.model_copy(update={"body": body})
@@ -131,11 +131,11 @@ class Seed:
         summary: str | None = None,
         body: str = "",
     ) -> LoadedDocument[ContextMetadata]:
-        service = prepare_project(project).contexts
+        service = open_project(project).contexts
         loaded = service.create(plan, name, CreateInput(summary=summary))
         if body:
             service.document_store.write(
-                service.path(plan, name),
+                service.get_path(plan, name),
                 ParsedDocument(metadata=loaded.record.metadata, body=body),
             )
             return loaded.model_copy(update={"body": body})
@@ -149,11 +149,11 @@ class Seed:
         summary: str | None = None,
         body: str = "",
     ) -> LoadedDocument[DocMetadata]:
-        service = prepare_project(project).docs
+        service = open_project(project).docs
         loaded = service.create(name, CreateInput(summary=summary))
         if body:
             service.document_store.write(
-                service.path(name), ParsedDocument(metadata=loaded.record.metadata, body=body)
+                service.get_path(name), ParsedDocument(metadata=loaded.record.metadata, body=body)
             )
             return loaded.model_copy(update={"body": body})
         return loaded
@@ -167,7 +167,7 @@ class CLI:
 
     def run(self, args: list[str], *, dependencies: Dependencies | None = None) -> Result:
         active = dependencies if dependencies is not None else DEFAULT_DEPENDENCIES
-        return runner.invoke(create_cli(active), args)
+        return runner.invoke(build_cli(active), args)
 
     def json(
         self,

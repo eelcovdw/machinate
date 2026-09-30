@@ -23,7 +23,7 @@ class Settings(BaseModel):
         str | None, Field(validation_alias=AliasChoices("MACHI_AI_AGENT", "AI_AGENT"))
     ] = None
     # Left unvalidated here so an explicit --format override wins over an invalid
-    # MACHI_FORMAT; select_formatter validates the effective name instead.
+    # MACHI_FORMAT; get_formatter validates the effective name instead.
     format: Annotated[str, Field(validation_alias="MACHI_FORMAT")] = ""
     log_level: Annotated[LogLevel | None, Field(validation_alias="MACHI_LOG_LEVEL")] = None
 

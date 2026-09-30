@@ -3,7 +3,7 @@ from pathlib import Path
 from harness import cli, read_state, seed
 
 from machinate.cli.models import PathResult
-from machinate.cli.project_setup import prepare_project
+from machinate.cli.project_setup import open_project
 
 
 def test_plan_path_explicit(project: Path) -> None:
@@ -31,7 +31,7 @@ def test_plan_path_text_smoke(project: Path) -> None:
 def test_plan_path_current_plan(project: Path) -> None:
     seed.plan(project, "auth")
     seed.plan(project, "billing")
-    prepare_project(project).plans.set_current("auth")
+    open_project(project).plans.set_current("auth")
     parsed = cli.json(PathResult, ["plan", "path", "-P", str(project), "--format", "json"])
     assert parsed.plan_name == "auth"
 
@@ -39,7 +39,7 @@ def test_plan_path_current_plan(project: Path) -> None:
 def test_plan_path_does_not_change_selection(project: Path) -> None:
     seed.plan(project, "auth")
     seed.plan(project, "billing")
-    prepare_project(project).plans.set_current("auth")
+    open_project(project).plans.set_current("auth")
     cli.json(PathResult, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"])
     assert read_state(project).current_plan == "auth"
 

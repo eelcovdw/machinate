@@ -53,7 +53,7 @@ def test_summary_is_not_persisted(tmp_path: Path) -> None:
         ),
     )
     assert "summary" not in (tmp_path / "note.md").read_text()
-    assert store.read("note.md", ContextMetadata).get_or_derive_summary() == "Hello"
+    assert store.read("note.md", ContextMetadata).determine_summary() == "Hello"
 
 
 def test_stored_summary_wins(tmp_path: Path) -> None:

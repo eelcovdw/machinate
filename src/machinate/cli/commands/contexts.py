@@ -22,12 +22,12 @@ from machinate.cli.options import (
     SUMMARY,
     TAGS,
 )
-from machinate.cli.update_changes import UpdateOptions, build_update
+from machinate.cli.update_options import UpdateOptions, build_update
 from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 
 
-def context_add(  # noqa: PLR0913
-    context: typer.Context,
+def context_add_command(  # noqa: PLR0913
+    ctx: typer.Context,
     names: Annotated[list[str], typer.Argument(help="Name(s) of the contexts to create.")],
     plan: PLAN = None,
     project_directory: PROJECT_DIR = None,
@@ -36,25 +36,25 @@ def context_add(  # noqa: PLR0913
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create one or more contexts in a plan."""
-    with execute(context, output_format) as run:
-        project_context = run.prepare(project_directory)
-        plan_name = run.determine_plan_name(project_context.plans, plan)
-        batch = project_context.contexts.create_batch(
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
+        batch = services.contexts.create_many(
             plan_name, names, CreateInput(tags=tags or [], summary=summary)
         )
         result = ContextAddResult(
             command="context add",
-            project=project_context.project,
+            project=services.project,
             plan_name=plan_name,
             batch=BatchCreated(
-                created=[context.record for context in batch.created], errors=batch.errors
+                created=[context.record for context in batch.created], failures=batch.failures
             ),
         )
         run.render(result)
 
 
-def context_list(  # noqa: PLR0913
-    context: typer.Context,
+def context_list_command(  # noqa: PLR0913
+    ctx: typer.Context,
     plan: PLAN = None,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
@@ -64,39 +64,39 @@ def context_list(  # noqa: PLR0913
     limit: LIMIT = None,
 ) -> None:
     """List contexts in a plan."""
-    with execute(context, output_format) as run:
+    with execute(ctx, output_format) as run:
         query = DocumentQuery(
             tags=set(tags) if tags is not None else None,
             sort=sort,
             descending=descending,
             limit=limit,
         )
-        project_context = run.prepare(project_directory)
-        plan_name = run.determine_plan_name(project_context.plans, plan)
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
         result = ContextListResult(
             command="context list",
-            project=project_context.project,
+            project=services.project,
             plan_name=plan_name,
-            contexts=project_context.contexts.list_records(plan_name, query),
+            contexts=services.contexts.list_records(plan_name, query),
         )
         run.render(result)
 
 
-def context_show(
-    context: typer.Context,
+def context_show_command(
+    ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the context to show.")],
     plan: PLAN = None,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show context metadata and body."""
-    with execute(context, output_format) as run:
-        project_context = run.prepare(project_directory)
-        plan_name = run.determine_plan_name(project_context.plans, plan)
-        document = project_context.contexts.get(plan_name, name)
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
+        document = services.contexts.get(plan_name, name)
         result = ContextShowResult(
             command="context show",
-            project=project_context.project,
+            project=services.project,
             plan_name=plan_name,
             context=document.record,
             body=document.body,
@@ -104,29 +104,29 @@ def context_show(
         run.render(result)
 
 
-def context_info(
-    context: typer.Context,
+def context_info_command(
+    ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the context to inspect.")],
     plan: PLAN = None,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show context metadata."""
-    with execute(context, output_format) as run:
-        project_context = run.prepare(project_directory)
-        plan_name = run.determine_plan_name(project_context.plans, plan)
-        document = project_context.contexts.info(plan_name, name)
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
+        document = services.contexts.get_info(plan_name, name)
         result = ContextInfoResult(
             command="context info",
-            project=project_context.project,
+            project=services.project,
             plan_name=plan_name,
             context=document,
         )
         run.render(result)
 
 
-def context_update(  # noqa: PLR0913
-    context: typer.Context,
+def context_update_command(  # noqa: PLR0913
+    ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the context to update.")],
     plan: PLAN = None,
     project_directory: PROJECT_DIR = None,
@@ -136,18 +136,18 @@ def context_update(  # noqa: PLR0913
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change context summary or tags."""
-    with execute(context, output_format) as run:
-        changes = build_update(
+    with execute(ctx, output_format) as run:
+        update = build_update(
             DocumentUpdate,
             UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
             hint="--summary, --tag, or --clear-tags",
         )
-        project_context = run.prepare(project_directory)
-        plan_name = run.determine_plan_name(project_context.plans, plan)
-        updated = project_context.contexts.update(plan_name, name, changes)
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
+        updated = services.contexts.update(plan_name, name, update)
         result = ContextUpdateResult(
             command="context update",
-            project=project_context.project,
+            project=services.project,
             plan_name=plan_name,
             context=updated.record,
             body=updated.body,
@@ -155,8 +155,8 @@ def context_update(  # noqa: PLR0913
         run.render(result)
 
 
-def context_path(
-    context: typer.Context,
+def context_path_command(
+    ctx: typer.Context,
     name: Annotated[
         str | None,
         typer.Argument(help="Context name; omit to print the plan's context directory."),
@@ -166,8 +166,8 @@ def context_path(
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute path of a context or the context directory."""
-    with execute(context, output_format) as run:
-        project_context = run.prepare(project_directory)
-        plan_name = run.determine_plan_name(project_context.plans, plan)
-        located = project_context.contexts.locate(plan_name, name)
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
+        located = services.contexts.locate(plan_name, name)
         run.render_path(command="context path", plan_name=plan_name, located=located)

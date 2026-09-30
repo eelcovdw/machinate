@@ -18,7 +18,7 @@ from machinate.models.documents import (
     PlanStatus,
     TaskStatus,
 )
-from machinate.models.operations import BatchCreateError, SearchMatch
+from machinate.models.operations import CreateFailure, SearchMatch
 
 from .models import (
     CommandResult,
@@ -92,7 +92,7 @@ class TextFormatter(Formatter):
         return render_text(result)
 
 
-def _use_color() -> bool:
+def _is_color_enabled() -> bool:
     """Style output only on a terminal, honoring the NO_COLOR convention."""
     return sys.stdout.isatty() and "NO_COLOR" not in os.environ
 
@@ -105,7 +105,7 @@ def _display_width() -> int:
 
 
 def _console(output: StringIO) -> Console:
-    color = _use_color()
+    color = _is_color_enabled()
     return Console(
         file=output,
         width=_display_width(),
@@ -150,16 +150,16 @@ def _bullet(name: str, value: str, *, style: str = PATH) -> Text:
     return Text.assemble(("- ", ""), (name, HEADING), (f": {value}", style))
 
 
-def _not_created(errors: Sequence[BatchCreateError]) -> list[Text]:
+def _format_failures(failures: Sequence[CreateFailure]) -> list[Text]:
     """Render the names a batch rejected, so text output never drops them."""
-    if not errors:
+    if not failures:
         return []
     lines = [Text(), Text("Not created:", style=ERROR)]
-    lines.extend(_bullet(error.name, error.message, style=ERROR) for error in errors)
+    lines.extend(_bullet(failure.name, failure.message, style=ERROR) for failure in failures)
     return lines
 
 
-def _counts[S: str](counts: Mapping[S, int]) -> str:
+def _format_counts[S: str](counts: Mapping[S, int]) -> str:
     return ", ".join(f"{name}: {count}" for name, count in counts.items())
 
 
@@ -177,7 +177,7 @@ def _shorten(text: str, width: int) -> str:
     return f"{text[:cut].rstrip()}…"
 
 
-def _entry(  # noqa: PLR0913
+def _format_row(  # noqa: PLR0913
     name: str,
     name_width: int,
     tags: str,
@@ -208,7 +208,9 @@ def _entry(  # noqa: PLR0913
     return line
 
 
-def _status_sections(entries: Sequence[tuple[str, Text]], statuses: Sequence[str]) -> list[Text]:
+def _format_status_sections(
+    entries: Sequence[tuple[str, Text]], statuses: Sequence[str]
+) -> list[Text]:
     """Group entry rows under colored status headers, known statuses first."""
     grouped: dict[str, list[Text]] = {}
     for status, row in entries:
@@ -259,12 +261,12 @@ def _add[M: Metadata](
     heading: str,
     records: Sequence[DocumentRecord[M] | PlanRecord],
     store: str,
-    errors: Sequence[BatchCreateError],
+    failures: Sequence[CreateFailure],
 ) -> str:
     """Render a batch creation heading, one bullet per record, and rejected names."""
     lines: list[RenderableType] = [Text(heading, style=HEADING)]
     lines.extend(_bullet(record.name, f"{store}/{record.path}") for record in records)
-    lines.extend(_not_created(errors))
+    lines.extend(_format_failures(failures))
     return _render(lines)
 
 
@@ -313,7 +315,7 @@ def _list[M: Metadata](  # noqa: PLR0913
         entries.append(
             (
                 status or "",
-                _entry(
+                _format_row(
                     labels[index],
                     name_width,
                     tags[index],
@@ -325,7 +327,7 @@ def _list[M: Metadata](  # noqa: PLR0913
             )
         )
     if grouped:
-        lines.extend(_status_sections(entries, status_order))
+        lines.extend(_format_status_sections(entries, status_order))
     else:
         lines.extend(row for _, row in entries)
     return _render(lines)
@@ -404,7 +406,7 @@ def render_plan_add(result: PlanAddResult) -> str:
         heading=f"Created plan {result.plan.name} in {result.project.name}",
         records=[result.plan],
         store=str(result.project.store_directory),
-        errors=[],
+        failures=[],
     )
 
 
@@ -426,15 +428,14 @@ def render_info(result: InfoResult) -> str:
     current = overview.current_plan
     if current is not None and not overview.current_plan_exists:
         current = f"{current} (missing)"
+    task_count = sum(overview.tasks_by_status.values())
+    task_counts = _format_counts(overview.tasks_by_status)
     lines: list[RenderableType] = [
         Text(f"Project {result.project.name} — {result.project.directory}", style=PROJECT),
         _field("Store", str(result.project.store_directory), style=PATH),
         _field("Current plan", current or "(none)", style="" if current else MUTED),
-        _field("Plans", f"{overview.plan_count} ({_counts(overview.plans_by_status)})"),
-        _field(
-            "Tasks",
-            f"{sum(overview.tasks_by_status.values())} ({_counts(overview.tasks_by_status)})",
-        ),
+        _field("Plans", f"{overview.plan_count} ({_format_counts(overview.plans_by_status)})"),
+        _field("Tasks", f"{task_count} ({task_counts})"),
         _field("Contexts", str(overview.context_count)),
         _field("Docs", str(overview.doc_count)),
     ]
@@ -504,7 +505,7 @@ def render_task_add(result: TaskAddResult) -> str:
         heading=f"Created {len(result.batch.created)} task(s) in {location}",
         records=result.batch.created,
         store=str(result.project.store_directory),
-        errors=result.batch.errors,
+        failures=result.batch.failures,
     )
 
 
@@ -557,7 +558,7 @@ def render_context_add(result: ContextAddResult) -> str:
         heading=f"Created {len(result.batch.created)} context(s) in {location}",
         records=result.batch.created,
         store=str(result.project.store_directory),
-        errors=result.batch.errors,
+        failures=result.batch.failures,
     )
 
 
@@ -602,7 +603,7 @@ def render_doc_add(result: DocAddResult) -> str:
         heading=f"Created {len(result.batch.created)} doc(s) in {result.project.name}",
         records=result.batch.created,
         store=str(result.project.store_directory),
-        errors=result.batch.errors,
+        failures=result.batch.failures,
     )
 
 
@@ -692,7 +693,7 @@ class UnknownFormatError(Exception):
     pass
 
 
-def select_formatter(name: str, formatters: Mapping[str, Formatter]) -> Formatter:
+def get_formatter(name: str, formatters: Mapping[str, Formatter]) -> Formatter:
     try:
         return formatters[name]
     except KeyError as exc:

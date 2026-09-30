@@ -8,11 +8,11 @@ import pytest
 from harness import DEFAULT_DEPENDENCIES, DEFAULT_SETTINGS, make_settings
 from typer.testing import CliRunner
 
-from machinate.cli.cli import create_cli
+from machinate.cli.cli import build_cli
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.formatting import Formatter
 from machinate.cli.models import CommandResult, ErrorResult, PlanListResult
-from machinate.cli.project_setup import prepare_project
+from machinate.cli.project_setup import open_project
 from machinate.models.documents import ParsedDocument, PlanMetadata
 from machinate.models.operations import PlanQuery
 from machinate.storage import (
@@ -23,14 +23,14 @@ from machinate.storage import (
 )
 
 runner = CliRunner()
-app = create_cli(DEFAULT_DEPENDENCIES)
+app = build_cli(DEFAULT_DEPENDENCIES)
 
 
 def populate(project: Path) -> None:
     store = DocumentStore(project / ".machi")
     for name, status in (("beta", "done"), ("alpha", "active")):
         store.create(
-            Layout().plan(name),
+            Layout().plan_path(name),
             ParsedDocument(
                 metadata=PlanMetadata.model_validate(
                     {
@@ -157,13 +157,13 @@ def test_symlinked_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_query_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     populate(project)
-    application = prepare_project(project)
+    application = open_project(project)
     summaries = application.plans.list_records()[::-1]
     listing = Mock(return_value=summaries)
     monkeypatch.setattr(application.plans, "list_records", listing)
     factory = Mock(return_value=application)
     result = runner.invoke(
-        create_cli(Dependencies(settings=DEFAULT_SETTINGS, prepare_project=factory)),
+        build_cli(Dependencies(settings=DEFAULT_SETTINGS, open_project=factory)),
         [
             "plan",
             "list",
@@ -260,7 +260,7 @@ def test_format_precedence(
     args = ["plan", "list", "-P", str(project)]
     if flag is not None:
         args.extend(["--format", flag])
-    result = runner.invoke(create_cli(dependencies), args)
+    result = runner.invoke(build_cli(dependencies), args)
     assert result.exit_code == 0, result.output
     assert result.stdout.startswith("{") == (expected == "json")
 
@@ -292,7 +292,7 @@ class ReplacementFormatter(Formatter):
 
 def test_formatter_injection(project: Path) -> None:
     formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(settings=DEFAULT_SETTINGS, formatters={"custom": formatter}))
+    custom = build_cli(Dependencies(settings=DEFAULT_SETTINGS, formatters={"custom": formatter}))
     result = runner.invoke(custom, ["plan", "list", "-P", str(project), "--format", "custom"])
     assert result.exit_code == 0
     assert result.stdout == "replacement\n"
@@ -313,7 +313,7 @@ def test_log_level_setting_enables_debug_diagnostics(project: Path) -> None:
     target.write_text("no frontmatter here")
     try:
         result = runner.invoke(
-            create_cli(dependencies), ["plan", "list", "-P", str(project), "--format", "json"]
+            build_cli(dependencies), ["plan", "list", "-P", str(project), "--format", "json"]
         )
         assert result.exit_code == 0
         assert "DEBUG" in result.stderr
@@ -326,7 +326,7 @@ def test_log_level_setting_enables_debug_diagnostics(project: Path) -> None:
 
 
 def test_read_only_and_malformed_document(project: Path) -> None:
-    prepare_project(project).plans.project_state_store.write(
+    open_project(project).plans.project_state_store.write(
         ProjectState(project_name="example", current_plan="dangling")
     )
     populate(project)
@@ -342,7 +342,7 @@ def test_read_only_and_malformed_document(project: Path) -> None:
         result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", format_name])
         assert result.exit_code == 0
     assert snapshot() == before
-    assert prepare_project(project).plans.project_state_store.read().current_plan == "dangling"
+    assert open_project(project).plans.project_state_store.read().current_plan == "dangling"
     (project / ".machi/plans/alpha/plan.md").write_text("---\nsummary: missing date\n---\n")
     result = runner.invoke(app, ["plan", "list", "-P", str(project), "--format", "json"])
     assert result.exit_code == 1
@@ -367,8 +367,8 @@ def test_parser_errors_use_json(
     else:
         settings = make_settings(ai_agent="test-agent")
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    dependencies = Dependencies(settings=settings, prepare_project=factory)
-    result = runner.invoke(create_cli(dependencies), [*args, *invalid])
+    dependencies = Dependencies(settings=settings, open_project=factory)
+    result = runner.invoke(build_cli(dependencies), [*args, *invalid])
     assert result.exit_code == 2
     assert result.stdout == ""
     error = ErrorResult.model_validate_json(result.stderr)
@@ -378,7 +378,7 @@ def test_parser_errors_use_json(
 
 def test_parser_error_formatter_injection() -> None:
     formatter = ReplacementFormatter()
-    custom = create_cli(Dependencies(settings=DEFAULT_SETTINGS, formatters={"custom": formatter}))
+    custom = build_cli(Dependencies(settings=DEFAULT_SETTINGS, formatters={"custom": formatter}))
     result = runner.invoke(custom, ["plan", "list", "--unknown", "--format=custom"])
     assert result.exit_code == 2
     assert result.stderr == "replacement\n"
@@ -387,9 +387,7 @@ def test_parser_error_formatter_injection() -> None:
 
 def test_parser_error_format_override() -> None:
     dependencies = Dependencies(settings=make_settings(format_name="json"))
-    result = runner.invoke(
-        create_cli(dependencies), ["plan", "list", "--format", "text", "--limit"]
-    )
+    result = runner.invoke(build_cli(dependencies), ["plan", "list", "--format", "text", "--limit"])
     assert result.exit_code == 2
     assert not result.stderr.startswith("{")
 
@@ -397,8 +395,8 @@ def test_parser_error_format_override() -> None:
 def test_group_parser_errors_use_json() -> None:
     """C5: group failures follow the same formatting policy as leaf commands."""
     factory = Mock(side_effect=AssertionError("parse failure must not prepare a project"))
-    custom = create_cli(
-        Dependencies(settings=make_settings(ai_agent="test-agent"), prepare_project=factory)
+    custom = build_cli(
+        Dependencies(settings=make_settings(ai_agent="test-agent"), open_project=factory)
     )
 
     unknown_command = runner.invoke(custom, ["task", "oops"])
@@ -422,7 +420,7 @@ def test_group_parser_errors_use_json() -> None:
 
 def test_group_parser_errors_use_text() -> None:
     dependencies = Dependencies(settings=make_settings(format_name="text"))
-    result = runner.invoke(create_cli(dependencies), ["task", "oops"])
+    result = runner.invoke(build_cli(dependencies), ["task", "oops"])
     assert result.exit_code == 2
     assert result.stdout == ""
     assert not result.stderr.startswith("{")
@@ -433,7 +431,7 @@ def test_group_parser_error_formatter_injection() -> None:
     dependencies = Dependencies(
         settings=make_settings(format_name="custom"), formatters={"custom": formatter}
     )
-    custom = create_cli(dependencies)
+    custom = build_cli(dependencies)
     result = runner.invoke(custom, ["task", "oops"])
     assert result.exit_code == 2
     assert result.stderr == "replacement\n"
@@ -443,7 +441,7 @@ def test_group_parser_error_formatter_injection() -> None:
 def test_group_help_still_prints() -> None:
     """C5 must not swallow the no-args help path for groups."""
     dependencies = Dependencies(settings=make_settings(format_name="json"))
-    result = runner.invoke(create_cli(dependencies), ["task"])
+    result = runner.invoke(build_cli(dependencies), ["task"])
     assert result.exit_code == 2
     # Click prints the no-args help for a group to stderr; the point is it is not swallowed.
     assert result.stderr

@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from machinate.models.operations import ErrorCode
 from machinate.services.errors import (
     InputError,
-    PlanSelectionError,
+    MissingTargetPlanError,
     ServiceError,
     invalid_document_detail,
 )
@@ -33,7 +33,7 @@ __all__ = [
     "EXIT_USAGE",
     "ErrorDetail",
     "InputError",
-    "PlanSelectionError",
+    "MissingTargetPlanError",
     "describe_error",
 ]
 

@@ -33,19 +33,19 @@ def test_selection_does_not_retarget_explicit_operations(service: PlanService) -
     service.create("alpha", StatusCreateInput[PlanStatus]())
     assert service.set_current("alpha") == ProjectState(project_name="demo", current_plan="alpha")
     service.create("beta", StatusCreateInput[PlanStatus]())
-    assert service.current_name() == "alpha"
+    assert service.find_current_plan() == "alpha"
     service.set_current("beta")
     service.document_store.write(
-        service.path("alpha"),
+        service.get_path("alpha"),
         ParsedDocument(metadata=service.get("alpha").record.metadata, body="only alpha"),
     )
     service.update("alpha", StatusUpdate[PlanStatus](status="done"))
     assert service.get("alpha").body == "only alpha"
     assert service.get("beta").body == ""
-    assert service.current_name() == "beta"
+    assert service.find_current_plan() == "beta"
     assert service.project_state_store.read().project_name == "demo"
     assert service.clear_current() == ProjectState(project_name="demo")
-    assert service.current_name() is None
+    assert service.find_current_plan() is None
 
 
 def test_missing_operations_and_dangling_selection(
@@ -58,11 +58,11 @@ def test_missing_operations_and_dangling_selection(
         service.update("missing", StatusUpdate[PlanStatus]())
     with pytest.raises(NotFoundError):
         service.update("missing", StatusUpdate[PlanStatus](status="done"))
-    assert service.current_name() is None
+    assert service.find_current_plan() is None
     state.write(ProjectState(project_name="demo", current_plan="missing"))
-    assert service.current_name() == "missing"
+    assert service.find_current_plan() == "missing"
     with pytest.raises(NotFoundError):
-        service.get(service.current_name() or "")
+        service.get(service.find_current_plan() or "")
 
 
 def test_plan_activity_matches_across_show_list_and_info(
@@ -79,7 +79,7 @@ def test_plan_activity_matches_across_show_list_and_info(
     )
     service.create("alpha", StatusCreateInput[PlanStatus]())
     service.document_store.create(
-        layout.task("alpha", "01-work"),
+        layout.task_path("alpha", "01-work"),
         ParsedDocument(
             metadata=TaskMetadata(created_at=datetime(2026, 9, 22, tzinfo=UTC)), body=""
         ),
@@ -92,6 +92,6 @@ def test_plan_activity_matches_across_show_list_and_info(
 
     shown = service.get("alpha").record.last_activity_at
     listed = service.list_records()[0].last_activity_at
-    info = overview.plan_overview("alpha").plan.last_activity_at
+    info = overview.get_plan_overview("alpha").plan.last_activity_at
 
     assert shown == listed == info == newest

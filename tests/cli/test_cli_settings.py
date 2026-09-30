@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import pytest
 from typer.testing import CliRunner
 
-from machinate.cli.cli import app, create_cli
+from machinate.cli.cli import app, build_cli
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import ErrorResult, PlanListResult
 from machinate.cli.settings import Settings
@@ -35,9 +35,9 @@ def test_explicit_format_overrides_invalid_env_format(
     assert result.stdout.startswith("{")
 
 
-def test_help_does_not_prepare_project(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_help_does_not_open_project(monkeypatch: pytest.MonkeyPatch) -> None:
     factory = Mock(side_effect=AssertionError("help must not prepare a project"))
-    custom = create_cli(Dependencies(prepare_project=factory))
+    custom = build_cli(Dependencies(open_project=factory))
     monkeypatch.setenv("MACHI_LOG_LEVEL", "invalid")
     for args in (["--help"], ["plan", "list", "--help"]):
         result = runner.invoke(custom, args)
@@ -49,7 +49,7 @@ def test_repeated_invocations_reload_settings(
     project: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    custom = create_cli()
+    custom = build_cli()
     args = ["plan", "list", "-P", str(project)]
     first = runner.invoke(custom, args)
     assert first.exit_code == 0

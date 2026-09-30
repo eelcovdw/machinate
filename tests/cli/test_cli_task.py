@@ -12,7 +12,7 @@ from machinate.cli.models import (
     TaskShowResult,
     TaskUpdateResult,
 )
-from machinate.cli.project_setup import prepare_project
+from machinate.cli.project_setup import open_project
 
 
 @pytest.fixture
@@ -60,7 +60,7 @@ def test_task_add_explicit_plan(auth_project: Path) -> None:
 
 
 def test_task_add_current_plan(auth_project: Path) -> None:
-    prepare_project(auth_project).plans.set_current("auth")
+    open_project(auth_project).plans.set_current("auth")
     parsed = cli.json(
         TaskAddResult,
         ["task", "add", "login", "-P", str(auth_project), "--format", "json"],
@@ -110,7 +110,7 @@ def test_task_add_batch_partial_success(auth_project: Path) -> None:
     )
     assert parsed.command == "task add"
     assert [task.name for task in parsed.batch.created] == ["new", "later"]
-    assert [error.name for error in parsed.batch.errors] == ["existing", "../bad"]
+    assert [error.name for error in parsed.batch.failures] == ["existing", "../bad"]
     assert (auth_project / ".machi/plans/auth/tasks/new.md").exists()
     assert (auth_project / ".machi/plans/auth/tasks/later.md").exists()
     assert (auth_project / ".machi/plans/auth/tasks/existing.md").exists()  # Not overwritten.
@@ -121,7 +121,7 @@ def test_task_add_batch_all_created_reports_no_errors(auth_project: Path) -> Non
         TaskAddResult,
         ["task", "add", "one", "two", "-p", "auth", "-P", str(auth_project), "--format", "json"],
     )
-    assert parsed.batch.errors == []
+    assert parsed.batch.failures == []
 
 
 def test_task_add_output(auth_project: Path) -> None:

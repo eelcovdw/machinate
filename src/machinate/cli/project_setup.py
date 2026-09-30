@@ -18,7 +18,7 @@ class ProjectError(Exception):
 
 
 @dataclass
-class ProjectContext:
+class ProjectServices:
     project: ProjectScope
     plans: PlanService
     tasks: TaskService
@@ -28,7 +28,7 @@ class ProjectContext:
     search: SearchService
 
 
-def select_project_directory(explicit: Path | None) -> Path:
+def discover_project_directory(explicit: Path | None) -> Path:
     start = (explicit if explicit is not None else Path.cwd()).absolute()
     candidates = (start,) if explicit is not None else (start, *start.parents)
     for directory in candidates:
@@ -70,8 +70,8 @@ def initialize_project(explicit: Path | None, project_name: str | None = None) -
     return ProjectScope(name=name, directory=target, store_directory=store_directory)
 
 
-def prepare_project(explicit: Path | None = None) -> ProjectContext:
-    directory = select_project_directory(explicit)
+def open_project(explicit: Path | None = None) -> ProjectServices:
+    directory = discover_project_directory(explicit)
     store_directory = directory / ".machi"
     state_store = ProjectStateStore(store_directory / "machinate.toml")
     state = state_store.read()
@@ -81,7 +81,7 @@ def prepare_project(explicit: Path | None = None) -> ProjectContext:
     tasks = TaskService(document_store, layout)
     contexts = ContextService(document_store, layout)
     docs = DocService(document_store, layout)
-    return ProjectContext(
+    return ProjectServices(
         project=ProjectScope(
             name=state.project_name, directory=directory, store_directory=store_directory
         ),

@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from machinate.models.documents import Name, RelativePath
 
 
-class FileMetadata(BaseModel):
+class FileStat(BaseModel):
     path: RelativePath
     modified_at: datetime
     kind: Literal["file", "directory"]

@@ -9,15 +9,15 @@ from harness import DEFAULT_DEPENDENCIES, seed
 from typer.testing import CliRunner
 
 from machinate.cli import formatting
-from machinate.cli.cli import create_cli
+from machinate.cli.cli import build_cli
 from machinate.cli.models import ErrorResult
-from machinate.cli.project_setup import prepare_project
+from machinate.cli.project_setup import open_project
 from machinate.cli.styles import status_style
 from machinate.models.documents import PlanStatus, TaskStatus
 from machinate.models.operations import StatusUpdate
 
 runner = CliRunner()
-app = create_cli(DEFAULT_DEPENDENCIES)
+app = build_cli(DEFAULT_DEPENDENCIES)
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
@@ -62,7 +62,7 @@ def test_no_color_when_not_a_terminal(auth_project: Path, monkeypatch: pytest.Mo
 
 
 def test_color_when_terminal(auth_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(formatting, "_use_color", lambda: True)
+    monkeypatch.setattr(formatting, "_is_color_enabled", lambda: True)
     monkeypatch.chdir(auth_project)
     result = runner.invoke(app, ["plan", "show", "-p", "auth"], color=True)
     assert result.exit_code == 0, result.output
@@ -86,7 +86,7 @@ def test_plan_list_no_group_by_keeps_sort_order(
     auth_project: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seed.plan(auth_project, "billing", summary="Billing")
-    application = prepare_project(auth_project)
+    application = open_project(auth_project)
     application.plans.update("auth", StatusUpdate[PlanStatus](status="active"))
     monkeypatch.chdir(auth_project)
     result = runner.invoke(app, ["plan", "list", "--no-group"])
@@ -101,7 +101,7 @@ def test_plan_list_no_group_by_keeps_sort_order(
 def test_task_list_groups_by_status(auth_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("t1", "t2"):
         seed.task(auth_project, "auth", name)
-    application = prepare_project(auth_project)
+    application = open_project(auth_project)
     application.tasks.update("auth", "t2", StatusUpdate[TaskStatus](status="in-progress"))
     monkeypatch.chdir(auth_project)
     result = runner.invoke(app, ["task", "list", "-p", "auth"])
@@ -117,7 +117,7 @@ def test_task_list_no_group_by_keeps_sort_order(
 ) -> None:
     for name in ("t1", "t2"):
         seed.task(auth_project, "auth", name)
-    application = prepare_project(auth_project)
+    application = open_project(auth_project)
     application.tasks.update("auth", "t2", StatusUpdate[TaskStatus](status="in-progress"))
     monkeypatch.chdir(auth_project)
     result = runner.invoke(app, ["task", "list", "-p", "auth", "--no-group"])

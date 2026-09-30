@@ -28,19 +28,19 @@ def build_update[M: BaseModel](model: type[M], options: UpdateOptions, *, hint: 
     Only the provided options become fields. ``hint`` names the options that would
     have an effect, for the error raised when nothing was passed.
     """
-    changes: dict[str, object] = {}
+    update: dict[str, object] = {}
     if options.summary is not None:
-        changes["summary"] = options.summary
+        update["summary"] = options.summary
     if options.status is not None:
-        changes["status"] = options.status
+        update["status"] = options.status
     if options.clear_tags:
         if options.tags is not None:
             msg = "--tag and --clear-tags are mutually exclusive."
             raise InputError(msg)
-        changes["tags"] = []
+        update["tags"] = []
     elif options.tags is not None:
-        changes["tags"] = options.tags
-    if not changes:
+        update["tags"] = options.tags
+    if not update:
         msg = f"Nothing to update; pass {hint}."
         raise InputError(msg)
-    return model.model_validate(changes)
+    return model.model_validate(update)

@@ -124,7 +124,7 @@ def _register(parent: typer.Typer, spec: CommandSpec) -> None:
         parent.command(spec.name, cls=Command)(spec.handler)
 
 
-def create_cli(dependencies: Dependencies | None = None) -> typer.Typer:
+def build_cli(dependencies: Dependencies | None = None) -> typer.Typer:
     cli = typer.Typer(
         no_args_is_help=True,
         cls=Group,
@@ -141,4 +141,4 @@ def create_cli(dependencies: Dependencies | None = None) -> typer.Typer:
     return cli
 
 
-app = create_cli()
+app = build_cli()

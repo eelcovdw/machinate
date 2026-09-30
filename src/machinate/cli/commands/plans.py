@@ -26,13 +26,13 @@ from machinate.cli.options import (
     SUMMARY,
     TAGS,
 )
-from machinate.cli.update_changes import UpdateOptions, build_update
+from machinate.cli.update_options import UpdateOptions, build_update
 from machinate.models.documents import PlanStatus
 from machinate.models.operations import PlanQuery, StatusCreateInput, StatusUpdate
 
 
-def add_plan(  # noqa: PLR0913
-    context: typer.Context,
+def plan_add_command(  # noqa: PLR0913
+    ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the plan to create.")],
     project_directory: PROJECT_DIR = None,
     tags: TAGS = None,
@@ -41,23 +41,23 @@ def add_plan(  # noqa: PLR0913
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create a plan."""
-    with execute(context, output_format) as run:
-        project_context = run.prepare(project_directory)
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
         create = StatusCreateInput[PlanStatus].model_validate(
             {"summary": summary, "tags": tags or [], "status": status}
         )
-        plan = project_context.plans.create(name, create)
+        plan = services.plans.create(name, create)
         run.render(
             PlanAddResult(
                 command="plan add",
-                project=project_context.project,
+                project=services.project,
                 plan=plan.record,
             )
         )
 
 
-def list_plans(  # noqa: PLR0913
-    context: typer.Context,
+def plan_list_command(  # noqa: PLR0913
+    ctx: typer.Context,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
     tags: TAGS = None,
@@ -68,7 +68,7 @@ def list_plans(  # noqa: PLR0913
     limit: LIMIT = None,
 ) -> None:
     """List plans in the project."""
-    with execute(context, output_format) as run:
+    with execute(ctx, output_format) as run:
         query = PlanQuery(
             tags=set(tags) if tags is not None else None,
             statuses=set(statuses) if statuses is not None else None,
@@ -76,39 +76,39 @@ def list_plans(  # noqa: PLR0913
             descending=descending,
             limit=limit,
         )
-        project_context = run.prepare(project_directory)
+        services = run.open_project(project_directory)
         run.render(
             PlanListResult(
                 command="plan list",
-                project=project_context.project,
-                plans=project_context.plans.list_records(query),
-                current_plan=project_context.plans.current_name(),
+                project=services.project,
+                plans=services.plans.list_records(query),
+                current_plan=services.plans.find_current_plan(),
                 group_by="status" if group else None,
             )
         )
 
 
 def plan_info_command(
-    context: typer.Context,
+    ctx: typer.Context,
     plan: PLAN = None,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show plan metadata and task progress."""
-    with execute(context, output_format) as run:
-        project_context = run.prepare(project_directory)
-        plan_name = run.determine_plan_name(project_context.plans, plan)
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
         run.render(
             PlanInfoResult(
                 command="plan info",
-                project=project_context.project,
-                overview=project_context.overviews.plan_overview(plan_name),
+                project=services.project,
+                overview=services.overviews.get_plan_overview(plan_name),
             )
         )
 
 
-def select_current_plan(
-    context: typer.Context,
+def plan_select_command(
+    ctx: typer.Context,
     name: Annotated[
         str,
         typer.Argument(help="Name of the plan to select as the current plan."),
@@ -117,40 +117,40 @@ def select_current_plan(
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Set the project's current plan; commands use it when -p is omitted."""
-    with execute(context, output_format) as run:
+    with execute(ctx, output_format) as run:
         run.require_human_session()
-        project_context = run.prepare(project_directory)
-        state = project_context.plans.set_current(name)
+        services = run.open_project(project_directory)
+        state = services.plans.set_current(name)
         run.render(
             PlanSelectResult(
                 command="plan select",
-                project=project_context.project,
+                project=services.project,
                 current_plan=state.current_plan,
             )
         )
 
 
-def unselect_plan(
-    context: typer.Context,
+def plan_unselect_command(
+    ctx: typer.Context,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Clear the current plan; does not change any plan's status."""
-    with execute(context, output_format) as run:
+    with execute(ctx, output_format) as run:
         run.require_human_session()
-        project_context = run.prepare(project_directory)
-        state = project_context.plans.clear_current()
+        services = run.open_project(project_directory)
+        state = services.plans.clear_current()
         run.render(
             PlanUnselectResult(
                 command="plan unselect",
-                project=project_context.project,
+                project=services.project,
                 current_plan=state.current_plan,
             )
         )
 
 
-def update_plan(  # noqa: PLR0913
-    context: typer.Context,
+def plan_update_command(  # noqa: PLR0913
+    ctx: typer.Context,
     plan: PLAN = None,
     project_directory: PROJECT_DIR = None,
     summary: SUMMARY = None,
@@ -160,53 +160,53 @@ def update_plan(  # noqa: PLR0913
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change plan status, summary, or tags."""
-    with execute(context, output_format) as run:
-        changes = build_update(
+    with execute(ctx, output_format) as run:
+        update = build_update(
             StatusUpdate[PlanStatus],
             UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
             hint="--summary, --status, --tag, or --clear-tags",
         )
-        project_context = run.prepare(project_directory)
-        plan_name = run.determine_plan_name(project_context.plans, plan)
-        updated = project_context.plans.update(plan_name, changes)
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
+        updated = services.plans.update(plan_name, update)
         run.render(
             PlanUpdateResult(
                 command="plan update",
-                project=project_context.project,
+                project=services.project,
                 plan=updated.record,
                 body=updated.body,
             )
         )
 
 
-def plan_path(
-    context: typer.Context,
+def plan_path_command(
+    ctx: typer.Context,
     plan: PLAN = None,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute editing path of a plan document."""
-    with execute(context, output_format) as run:
-        project_context = run.prepare(project_directory)
-        plan_name = run.determine_plan_name(project_context.plans, plan)
-        located = project_context.plans.locate(plan_name)
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        plan_name = run.determine_plan_name(services.plans, plan)
+        located = services.plans.locate(plan_name)
         run.render_path(command="plan path", plan_name=plan_name, located=located)
 
 
-def show_plan(
-    context: typer.Context,
+def plan_show_command(
+    ctx: typer.Context,
     plan: PLAN = None,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show plan metadata and body."""
-    with execute(context, output_format) as run:
-        project_context = run.prepare(project_directory)
-        selected = run.get_target_plan(project_context.plans, plan)
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        selected = run.get_target_plan(services.plans, plan)
         run.render(
             PlanShowResult(
                 command="plan show",
-                project=project_context.project,
+                project=services.project,
                 plan=selected.record,
                 body=selected.body,
             )

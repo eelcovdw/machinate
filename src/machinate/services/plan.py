@@ -36,7 +36,7 @@ class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):
                 kind="plan",
                 metadata_type=PlanMetadata,
                 storage=lambda _plan: layout.plan_collection(),
-                path=lambda _plan, name: layout.plan(name),
+                path=lambda _plan, name: layout.plan_path(name),
                 requires_plan=False,
                 directory_kind=None,
             ),
@@ -72,25 +72,25 @@ class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):
         return self._plan_loaded(self._create(None, name, create))
 
     @validate_call
-    def create_batch(
+    def create_many(
         self, names: list[str], create: StatusCreateInput[PlanStatus]
     ) -> BatchCreated[LoadedPlan]:
-        batch = self._create_batch(None, names, create)
+        batch = self._create_many(None, names, create)
         return BatchCreated(
             created=[self._plan_loaded(loaded) for loaded in batch.created],
-            errors=batch.errors,
+            failures=batch.failures,
         )
 
     @validate_call
-    def info(self, name: Name) -> PlanRecord:
+    def get_info(self, name: Name) -> PlanRecord:
         return self._plan_record(self._info(None, name))
 
     @validate_call
-    def path(self, name: Name) -> PurePosixPath:
+    def get_path(self, name: Name) -> PurePosixPath:
         return self._path(None, name)
 
     @validate_call
-    def directory(self) -> PurePosixPath:
+    def get_directory(self) -> PurePosixPath:
         return self._directory(None)
 
     @validate_call
@@ -102,8 +102,8 @@ class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):
         return self._plan_loaded(self._get(None, name))
 
     @validate_call
-    def update(self, name: Name, changes: StatusUpdate[PlanStatus]) -> LoadedPlan:
-        return self._plan_loaded(self._update(None, name, changes))
+    def update(self, name: Name, update: StatusUpdate[PlanStatus]) -> LoadedPlan:
+        return self._plan_loaded(self._update(None, name, update))
 
     @validate_call
     def list_records(self, query: PlanQuery | None = None) -> list[PlanRecord]:
@@ -123,6 +123,6 @@ class PlanService(DocumentService[PlanMetadata, StatusCreateInput[PlanStatus]]):
         self.project_state_store.write(state)
         return state
 
-    def current_name(self) -> str | None:
+    def find_current_plan(self) -> str | None:
         """Return the selected plan's name without loading its document."""
         return self.project_state_store.read().current_plan

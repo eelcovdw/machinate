@@ -4,11 +4,11 @@ import pytest
 from harness import cli, read_state, seed
 
 from machinate.cli.models import PlanSelectResult, PlanShowResult
-from machinate.cli.project_setup import prepare_project
+from machinate.cli.project_setup import open_project
 
 
 def set_current(project: Path, name: str) -> None:
-    prepare_project(project).plans.set_current(name)
+    open_project(project).plans.set_current(name)
 
 
 def test_select_explicit_plan(project: Path) -> None:

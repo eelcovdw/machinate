@@ -21,12 +21,12 @@ from machinate.cli.options import (
     SUMMARY,
     TAGS,
 )
-from machinate.cli.update_changes import UpdateOptions, build_update
+from machinate.cli.update_options import UpdateOptions, build_update
 from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery, DocumentUpdate
 
 
-def doc_add(  # noqa: PLR0913
-    context: typer.Context,
+def doc_add_command(  # noqa: PLR0913
+    ctx: typer.Context,
     names: Annotated[list[str], typer.Argument(help="Name(s) of the docs to create.")],
     project_directory: PROJECT_DIR = None,
     tags: TAGS = None,
@@ -34,21 +34,21 @@ def doc_add(  # noqa: PLR0913
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Create one or more project-level docs."""
-    with execute(context, output_format) as run:
-        project_context = run.prepare(project_directory)
-        batch = project_context.docs.create_batch(
-            names, CreateInput(tags=tags or [], summary=summary)
-        )
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        batch = services.docs.create_many(names, CreateInput(tags=tags or [], summary=summary))
         result = DocAddResult(
             command="doc add",
-            project=project_context.project,
-            batch=BatchCreated(created=[doc.record for doc in batch.created], errors=batch.errors),
+            project=services.project,
+            batch=BatchCreated(
+                created=[doc.record for doc in batch.created], failures=batch.failures
+            ),
         )
         run.render(result)
 
 
-def doc_list(  # noqa: PLR0913
-    context: typer.Context,
+def doc_list_command(  # noqa: PLR0913
+    ctx: typer.Context,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
     tags: MATCH_TAGS = None,
@@ -57,57 +57,57 @@ def doc_list(  # noqa: PLR0913
     limit: LIMIT = None,
 ) -> None:
     """List project-level docs."""
-    with execute(context, output_format) as run:
+    with execute(ctx, output_format) as run:
         query = DocumentQuery(
             tags=set(tags) if tags is not None else None,
             sort=sort,
             descending=descending,
             limit=limit,
         )
-        project_context = run.prepare(project_directory)
+        services = run.open_project(project_directory)
         result = DocListResult(
             command="doc list",
-            project=project_context.project,
-            docs=project_context.docs.list_records(query),
+            project=services.project,
+            docs=services.docs.list_records(query),
         )
         run.render(result)
 
 
-def doc_show(
-    context: typer.Context,
+def doc_show_command(
+    ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the doc to show.")],
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show doc metadata and body."""
-    with execute(context, output_format) as run:
-        project_context = run.prepare(project_directory)
-        document = project_context.docs.get(name)
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        document = services.docs.get(name)
         result = DocShowResult(
             command="doc show",
-            project=project_context.project,
+            project=services.project,
             doc=document.record,
             body=document.body,
         )
         run.render(result)
 
 
-def doc_info(
-    context: typer.Context,
+def doc_info_command(
+    ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the doc to inspect.")],
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show doc metadata."""
-    with execute(context, output_format) as run:
-        project_context = run.prepare(project_directory)
-        document = project_context.docs.info(name)
-        result = DocInfoResult(command="doc info", project=project_context.project, doc=document)
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        document = services.docs.get_info(name)
+        result = DocInfoResult(command="doc info", project=services.project, doc=document)
         run.render(result)
 
 
-def doc_path(
-    context: typer.Context,
+def doc_path_command(
+    ctx: typer.Context,
     name: Annotated[
         str | None,
         typer.Argument(help="Doc name; omit to print the docs directory."),
@@ -116,14 +116,14 @@ def doc_path(
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute path of a doc or the docs directory."""
-    with execute(context, output_format) as run:
-        project_context = run.prepare(project_directory)
-        located = project_context.docs.locate(name)
+    with execute(ctx, output_format) as run:
+        services = run.open_project(project_directory)
+        located = services.docs.locate(name)
         run.render_path(command="doc path", plan_name=None, located=located)
 
 
-def doc_update(  # noqa: PLR0913
-    context: typer.Context,
+def doc_update_command(  # noqa: PLR0913
+    ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the doc to update.")],
     project_directory: PROJECT_DIR = None,
     summary: SUMMARY = None,
@@ -132,17 +132,17 @@ def doc_update(  # noqa: PLR0913
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Change doc summary or tags."""
-    with execute(context, output_format) as run:
-        changes = build_update(
+    with execute(ctx, output_format) as run:
+        update = build_update(
             DocumentUpdate,
             UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
             hint="--summary, --tag, or --clear-tags",
         )
-        project_context = run.prepare(project_directory)
-        updated = project_context.docs.update(name, changes)
+        services = run.open_project(project_directory)
+        updated = services.docs.update(name, update)
         result = DocUpdateResult(
             command="doc update",
-            project=project_context.project,
+            project=services.project,
             doc=updated.record,
             body=updated.body,
         )

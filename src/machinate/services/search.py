@@ -22,7 +22,7 @@ class SearchMatches:
     """The effective globs, the entries a search produced, and the files it skipped."""
 
     globs: list[str]
-    entries: list[SearchMatch]
+    matches: list[SearchMatch]
     skipped: list[SearchSkip]
 
 
@@ -50,26 +50,26 @@ class SearchService:
         globs = query.globs or [DEFAULT_GLOB]
         base = PurePosixPath()
         if query.plan is not None:
-            plan_path = self.layout.plan(query.plan)
+            plan_path = self.layout.plan_path(query.plan)
             try:
                 self.document_store.read(plan_path, PlanMetadata)
             except MissingDocumentError as exc:
                 raise NotFoundError("plan", query.plan) from exc
             base = plan_path.parent
 
-        relatives = self.document_store.glob_files(base, globs)
+        relatives = self.document_store.list_files(base, globs)
         text = (query.query or "").strip()
         skipped: list[SearchSkip] = []
         if text:
-            entries = self._rank(query, text, relatives, skipped)
+            matches = self._rank(query, text, relatives, skipped)
         else:
-            entries = sorted(
-                (self._entry(relative, None) for relative in relatives),
-                key=lambda entry: entry.path.as_posix(),
+            matches = sorted(
+                (self._build_match(relative, None) for relative in relatives),
+                key=lambda match: match.path.as_posix(),
             )
         if query.limit is not None:
-            entries = entries[: query.limit]
-        return SearchMatches(entries=entries, globs=globs, skipped=skipped)
+            matches = matches[: query.limit]
+        return SearchMatches(matches=matches, globs=globs, skipped=skipped)
 
     def _rank(
         self,
@@ -80,10 +80,10 @@ class SearchService:
     ) -> list[SearchMatch]:
         if not relatives:
             return []
-        index = self._build(relatives, skipped)
+        index = self._build_index(relatives, skipped)
         searcher = index.searcher()
         fuzzy_fields: dict[str, tuple[bool, int, bool]] = (
-            {} if query.exact else dict.fromkeys(_TEXT_FIELDS, _FUZZY_FIELD)
+            {} if query.is_exact else dict.fromkeys(_TEXT_FIELDS, _FUZZY_FIELD)
         )
         try:
             parsed = index.parse_query(
@@ -91,7 +91,7 @@ class SearchService:
                 default_field_names=list(_TEXT_FIELDS),
                 field_boosts={"path": _PATH_BOOST},
                 fuzzy_fields=fuzzy_fields,
-                allow_regexes=query.regex,
+                allow_regexes=query.allow_regex,
             )
         except ValueError as exc:
             msg = f"Invalid search query: {exc}"
@@ -104,10 +104,12 @@ class SearchService:
         entries: list[SearchMatch] = []
         for score, address in hits:
             relative = relatives[_doc_id(searcher, address)]
-            entries.append(self._entry(relative, score))
+            entries.append(self._build_match(relative, score))
         return entries
 
-    def _build(self, relatives: list[PurePosixPath], skipped: list[SearchSkip]) -> tantivy.Index:
+    def _build_index(
+        self, relatives: list[PurePosixPath], skipped: list[SearchSkip]
+    ) -> tantivy.Index:
         builder = tantivy.SchemaBuilder()
         builder.add_text_field("path", stored=False)
         builder.add_text_field("body", stored=False)
@@ -119,7 +121,7 @@ class SearchService:
             writer.add_document(
                 tantivy.Document(
                     path=relative.as_posix(),
-                    body=self._read_text(relative, skipped),
+                    body=self._read_text_or_empty(relative, skipped),
                     doc_id=doc_id,
                 )
             )
@@ -127,8 +129,8 @@ class SearchService:
         index.reload()
         return index
 
-    def _entry(self, relative: PurePosixPath, score: float | None) -> SearchMatch:
-        membership = self.layout.resolve(relative)
+    def _build_match(self, relative: PurePosixPath, score: float | None) -> SearchMatch:
+        membership = self.layout.identify(relative)
         return SearchMatch(
             path=relative,
             kind=membership.kind,
@@ -137,7 +139,7 @@ class SearchService:
             score=score,
         )
 
-    def _read_text(self, relative: PurePosixPath, skipped: list[SearchSkip]) -> str:
+    def _read_text_or_empty(self, relative: PurePosixPath, skipped: list[SearchSkip]) -> str:
         """Raw text for indexing; unreadable files are reported and indexed by path only."""
         try:
             return self.document_store.read_text(relative)

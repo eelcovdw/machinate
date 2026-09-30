@@ -12,7 +12,7 @@ from typing import ClassVar, Literal, override
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator
 
 from .documents import (
-    DocumentMembership,
+    DocumentIdentity,
     Metadata,
     Name,
     ParsedDocument,
@@ -197,7 +197,8 @@ class SearchQuery(BaseModel):
 
     ``query`` is a tantivy query string: terms, ``"phrases"``, ``field:term``, ``+``/``-``,
     ``AND``/``OR``, ``^boost``, ranges and set terms. Fuzzy (one-typo, prefix) matching is
-    on by default; ``exact`` turns it off. Regex terms need ``regex`` and a field prefix.
+    on by default; ``is_exact`` turns it off. Regex terms need ``allow_regex`` and a field
+    prefix.
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -206,8 +207,8 @@ class SearchQuery(BaseModel):
     globs: list[str] = Field(default_factory=list)
     plan: Name | None = None
     limit: PositiveInt | None = None
-    regex: bool = False
-    exact: bool = False
+    allow_regex: bool = False
+    is_exact: bool = False
 
     @field_validator("globs")
     @classmethod
@@ -218,7 +219,7 @@ class SearchQuery(BaseModel):
         return globs
 
 
-class SearchMatch(DocumentMembership):
+class SearchMatch(DocumentIdentity):
     """A matched file with its store-relative path and plan/task/context membership.
 
     ``score`` is the tantivy BM25 relevance; it is only set for query searches and is
@@ -232,7 +233,7 @@ class SearchMatch(DocumentMembership):
 # --- Batch results ---------------------------------------------------------
 
 
-class BatchCreateError(BaseModel):
+class CreateFailure(BaseModel):
     """A name from a batch creation that was not created, with the machine reason."""
 
     name: str
@@ -244,12 +245,12 @@ class BatchCreated[T](BaseModel):
     """The outcome of a batch creation: created documents and per-name failures."""
 
     created: list[T]
-    errors: list[BatchCreateError]
+    failures: list[CreateFailure]
 
     @property
     def failed(self) -> bool:
         """Whether any name in the batch failed."""
-        return bool(self.errors)
+        return bool(self.failures)
 
 
 class SearchSkip(BaseModel):

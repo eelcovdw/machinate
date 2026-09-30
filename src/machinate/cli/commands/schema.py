@@ -12,12 +12,14 @@ from machinate.cli.models import ErrorResult
 
 
 def _result_models(specs: tuple[CommandSpec, ...]) -> list[type[BaseModel]]:
-    return [spec.result for _path, spec in leaves(specs) if spec.result is not None]
+    return [spec.result_model for _path, spec in leaves(specs) if spec.result_model is not None]
 
 
 def schema_results() -> dict[str, type[BaseModel]]:
     """Map every leaf command path to its result model, computed on demand."""
-    return {path: spec.result for path, spec in leaves(COMMANDS) if spec.result is not None}
+    return {
+        path: spec.result_model for path, spec in leaves(COMMANDS) if spec.result_model is not None
+    }
 
 
 class UnknownSchemaError(Exception):
@@ -49,8 +51,8 @@ def _command_tree(specs: tuple[CommandSpec, ...]) -> JsonSchemaValue:
     for spec in specs:
         if spec.children:
             tree[spec.name] = {"commands": _command_tree(spec.children)}
-        elif spec.result is not None:
-            tree[spec.name] = _ref(spec.result)
+        elif spec.result_model is not None:
+            tree[spec.name] = _ref(spec.result_model)
     return tree
 
 
@@ -64,7 +66,7 @@ def schema_bundle() -> JsonSchemaValue:
     }
 
 
-def _find(path: list[str]) -> CommandSpec:
+def _get_spec(path: list[str]) -> CommandSpec:
     specs = COMMANDS
     spec: CommandSpec | None = None
     for part in path:
@@ -84,11 +86,11 @@ def schema_payload(path: list[str]) -> JsonSchemaValue:
     """Return the JSON Schema for a command path (or the error envelope)."""
     if path == ["error"]:
         return ErrorResult.model_json_schema(mode="serialization")
-    spec = _find(path)
+    spec = _get_spec(path)
     if spec.children:
         return {"commands": _command_tree(spec.children), "$defs": _definitions(spec.children)}
-    if spec.result is not None:
-        return spec.result.model_json_schema(mode="serialization")
+    if spec.result_model is not None:
+        return spec.result_model.model_json_schema(mode="serialization")
     msg = f"Command {spec.name!r} has no result schema."
     raise UnknownSchemaError(msg)
 

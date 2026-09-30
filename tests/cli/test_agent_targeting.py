@@ -7,7 +7,7 @@ from harness import AGENT_DEPENDENCIES as AGENT
 from harness import cli, read_state, seed
 
 from machinate.cli.models import PlanShowResult
-from machinate.cli.project_setup import prepare_project
+from machinate.cli.project_setup import open_project
 from machinate.cli.settings import Settings
 
 PLAN_COMMANDS: list[list[str]] = [
@@ -65,7 +65,7 @@ def test_explicit_format_beats_agent_default() -> None:
 def test_agent_mode_requires_explicit_plan(project: Path, arguments: list[str]) -> None:
     """A current plan is set, but agent mode still refuses to use it without -p."""
     seed.plan(project, "auth")
-    prepare_project(project).plans.set_current("auth")
+    open_project(project).plans.set_current("auth")
     error = cli.error([*arguments, "-P", str(project)], dependencies=AGENT)
     assert error.command == " ".join(arguments[:2])
 
@@ -83,7 +83,7 @@ def test_agent_mode_allows_explicit_plan(project: Path) -> None:
 def test_agent_mode_rejects_plan_select(project: Path) -> None:
     seed.plan(project, "auth")
     seed.plan(project, "other")
-    prepare_project(project).plans.set_current("other")
+    open_project(project).plans.set_current("other")
     error = cli.error(["plan", "select", "auth", "-P", str(project)], dependencies=AGENT)
     assert error.command == "plan select"
     assert read_state(project).current_plan == "other"
@@ -91,7 +91,7 @@ def test_agent_mode_rejects_plan_select(project: Path) -> None:
 
 def test_agent_mode_rejects_plan_unselect(project: Path) -> None:
     seed.plan(project, "auth")
-    prepare_project(project).plans.set_current("auth")
+    open_project(project).plans.set_current("auth")
     error = cli.error(["plan", "unselect", "-P", str(project)], dependencies=AGENT)
     assert error.command == "plan unselect"
     assert read_state(project).current_plan == "auth"

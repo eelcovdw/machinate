@@ -4,16 +4,16 @@ import pytest
 from harness import cli, read_state, seed, snapshot
 
 from machinate.cli.models import PlanUpdateResult
-from machinate.cli.project_setup import prepare_project
+from machinate.cli.project_setup import open_project
 from machinate.models.documents import PlanMetadata
 
 
 def read_metadata(project: Path, name: str = "auth") -> PlanMetadata:
-    return prepare_project(project).plans.get(name).record.metadata
+    return open_project(project).plans.get(name).record.metadata
 
 
 def set_current(project: Path, name: str) -> None:
-    prepare_project(project).plans.set_current(name)
+    open_project(project).plans.set_current(name)
 
 
 def test_update_sets_status_explicit(project: Path) -> None:

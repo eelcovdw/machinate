@@ -163,6 +163,36 @@ which picks up source changes through the editable install.
   spot where a renamed or mistyped field slips through silently. A new field then needs new
   code, and that's the point: the change is visible and reviewed.
 
+### Simplicity and taste
+
+These are judgment calls, not rules to apply mechanically. Behind all of them are three
+questions to ask of any piece of code:
+
+- Would we miss it if it were gone?
+- Does it make future changes easier or harder?
+- Does it make the codebase easier or harder to understand and navigate?
+
+Code that fails these questions isn't worth keeping, however tidy it looks.
+
+- Explicit is not the same as ceremonious. Spelling out logic and field mappings is good;
+  wrapping them in extra layers, helpers, and boilerplate usually isn't.
+- Let abstractions earn their place. A `Protocol`, base class, generic, context manager, or
+  small wrapper type tends to pay off once there are several real users or it clearly
+  simplifies the callers. With one caller, inlining is often the better first version.
+- Be suspicious of code that only passes things along: a function that forwards to another,
+  a class that wraps one call, a config object for two parameters.
+- Use a pattern because this code needs it, not out of habit. `__all__` in internal modules,
+  `frozen`/`slots` on every dataclass, checks for states the types already rule out, and
+  `try`/`except` that re-raises unchanged are common examples of habit.
+- Weigh cost against benefit. A cosmetic gain rarely justifies a new code path, a slower
+  hot path, or a test that has to fake the environment.
+- Fewer, larger modules organized by concept usually read better than many small files. A
+  300-line module is fine; a 15-line module often belongs in its neighbor.
+- Keep prose short. Docstrings and comments say what isn't obvious from the code; module
+  docstrings are a line or two.
+- Tests follow the same taste: a plain, readable test beats a clever fixture setup, and
+  parametrizing only helps when the cases really share a shape.
+
 ### Errors
 
 - Raise specific exceptions from the owning layer's hierarchy (`StorageError` subclasses in

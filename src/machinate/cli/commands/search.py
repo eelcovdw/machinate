@@ -9,7 +9,7 @@ from machinate.models.operations import SearchQuery
 
 
 def search_command(  # noqa: PLR0913
-    context: typer.Context,
+    ctx: typer.Context,
     query: Annotated[
         str | None,
         typer.Argument(help="Tantivy query; omit to list glob matches by path."),
@@ -87,25 +87,25 @@ def search_command(  # noqa: PLR0913
     \b
     Results list matching paths only.
     """
-    with execute(context, output_format) as run:
+    with execute(ctx, output_format) as run:
         search_query = SearchQuery(
             query=query,
             globs=glob or [],
             plan=plan,
             limit=limit,
-            regex=regex,
-            exact=exact,
+            allow_regex=regex,
+            is_exact=exact,
         )
-        project_context = run.prepare(project_directory)
-        matches = project_context.search.search(search_query)
+        services = run.open_project(project_directory)
+        matches = services.search.search(search_query)
         run.render(
             SearchResult(
                 command="search",
-                project=project_context.project,
+                project=services.project,
                 plan_name=search_query.plan,
                 query=search_query.query,
                 globs=matches.globs,
-                matches=matches.entries,
+                matches=matches.matches,
                 skipped=matches.skipped,
             )
         )

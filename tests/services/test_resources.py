@@ -88,7 +88,7 @@ class ResourceAdapter:
     document_store: DocumentStore
     ensure_parent: Callable[[], None]
     create: Callable[..., LoadedDocument[Metadata]]
-    create_batch: Callable[..., BatchCreated[LoadedDocument[Metadata]]]
+    create_many: Callable[..., BatchCreated[LoadedDocument[Metadata]]]
     get: Callable[[str], LoadedDocument[Metadata]]
     info: Callable[[str], DocumentRecord[Metadata]]
     update: Callable[..., LoadedDocument[Metadata]]
@@ -116,14 +116,14 @@ def _plan_adapter(plans: PlanService) -> ResourceAdapter:
             )
         )
 
-    def create_batch(
+    def create_many(
         names: list[str], *, summary: str | None = None, tags: list[Tag] | None = None
     ) -> BatchCreated[LoadedDocument[Metadata]]:
-        batch = plans.create_batch(
+        batch = plans.create_many(
             names, StatusCreateInput[PlanStatus](summary=summary, tags=tags or [])
         )
         return BatchCreated(
-            created=[_flat_loaded(loaded) for loaded in batch.created], errors=batch.errors
+            created=[_flat_loaded(loaded) for loaded in batch.created], failures=batch.failures
         )
 
     def get(name: str) -> LoadedDocument[Metadata]:
@@ -158,12 +158,12 @@ def _plan_adapter(plans: PlanService) -> ResourceAdapter:
         document_store=plans.document_store,
         ensure_parent=ensure_parent,
         create=create,
-        create_batch=create_batch,
+        create_many=create_many,
         get=get,
-        info=lambda name: _flat_record(plans.info(name)),
+        info=lambda name: _flat_record(plans.get_info(name)),
         update=update,
         list_records=list_records,
-        path=plans.path,
+        path=plans.get_path,
         query_type=PlanQuery,
         write_body=write_body,
         count=None,
@@ -188,14 +188,14 @@ def _task_adapter(tasks: TaskService, plans: PlanService) -> ResourceAdapter:
             )
         )
 
-    def create_batch(
+    def create_many(
         names: list[str], *, summary: str | None = None, tags: list[Tag] | None = None
     ) -> BatchCreated[LoadedDocument[Metadata]]:
-        batch = tasks.create_batch(
+        batch = tasks.create_many(
             "alpha", names, StatusCreateInput[TaskStatus](summary=summary, tags=tags or [])
         )
         return BatchCreated(
-            created=[_flat_loaded(loaded) for loaded in batch.created], errors=batch.errors
+            created=[_flat_loaded(loaded) for loaded in batch.created], failures=batch.failures
         )
 
     def get(name: str) -> LoadedDocument[Metadata]:
@@ -234,12 +234,12 @@ def _task_adapter(tasks: TaskService, plans: PlanService) -> ResourceAdapter:
         document_store=tasks.document_store,
         ensure_parent=ensure_parent,
         create=create,
-        create_batch=create_batch,
+        create_many=create_many,
         get=get,
-        info=lambda name: _flat_record(tasks.info("alpha", name)),
+        info=lambda name: _flat_record(tasks.get_info("alpha", name)),
         update=update,
         list_records=list_records,
-        path=lambda name: tasks.path("alpha", name),
+        path=lambda name: tasks.get_path("alpha", name),
         query_type=TaskQuery,
         write_body=write_body,
         count=None,
@@ -256,12 +256,12 @@ def _context_adapter(contexts: ContextService, plans: PlanService) -> ResourceAd
             contexts.create("alpha", name, CreateInput(summary=summary, tags=tags or []))
         )
 
-    def create_batch(
+    def create_many(
         names: list[str], *, summary: str | None = None, tags: list[Tag] | None = None
     ) -> BatchCreated[LoadedDocument[Metadata]]:
-        batch = contexts.create_batch("alpha", names, CreateInput(summary=summary, tags=tags or []))
+        batch = contexts.create_many("alpha", names, CreateInput(summary=summary, tags=tags or []))
         return BatchCreated(
-            created=[_flat_loaded(loaded) for loaded in batch.created], errors=batch.errors
+            created=[_flat_loaded(loaded) for loaded in batch.created], failures=batch.failures
         )
 
     def get(name: str) -> LoadedDocument[Metadata]:
@@ -294,12 +294,12 @@ def _context_adapter(contexts: ContextService, plans: PlanService) -> ResourceAd
         document_store=contexts.document_store,
         ensure_parent=ensure_parent,
         create=create,
-        create_batch=create_batch,
+        create_many=create_many,
         get=get,
-        info=lambda name: _flat_record(contexts.info("alpha", name)),
+        info=lambda name: _flat_record(contexts.get_info("alpha", name)),
         update=update,
         list_records=list_records,
-        path=lambda name: contexts.path("alpha", name),
+        path=lambda name: contexts.get_path("alpha", name),
         query_type=DocumentQuery,
         write_body=write_body,
         count=lambda: contexts.count_documents("alpha"),
@@ -314,12 +314,12 @@ def _doc_adapter(docs: DocService) -> ResourceAdapter:
     ) -> LoadedDocument[Metadata]:
         return _flat_loaded(docs.create(name, CreateInput(summary=summary, tags=tags or [])))
 
-    def create_batch(
+    def create_many(
         names: list[str], *, summary: str | None = None, tags: list[Tag] | None = None
     ) -> BatchCreated[LoadedDocument[Metadata]]:
-        batch = docs.create_batch(names, CreateInput(summary=summary, tags=tags or []))
+        batch = docs.create_many(names, CreateInput(summary=summary, tags=tags or []))
         return BatchCreated(
-            created=[_flat_loaded(loaded) for loaded in batch.created], errors=batch.errors
+            created=[_flat_loaded(loaded) for loaded in batch.created], failures=batch.failures
         )
 
     def get(name: str) -> LoadedDocument[Metadata]:
@@ -350,12 +350,12 @@ def _doc_adapter(docs: DocService) -> ResourceAdapter:
         document_store=docs.document_store,
         ensure_parent=ensure_parent,
         create=create,
-        create_batch=create_batch,
+        create_many=create_many,
         get=get,
-        info=lambda name: _flat_record(docs.info(name)),
+        info=lambda name: _flat_record(docs.get_info(name)),
         update=update,
         list_records=list_records,
-        path=docs.path,
+        path=docs.get_path,
         query_type=DocumentQuery,
         write_body=write_body,
         count=docs.count_documents,
@@ -423,11 +423,11 @@ def test_create_get_path_duplicate_and_suffix(adapter: ResourceAdapter) -> None:
 
 
 @ADAPTER_CASES
-def test_create_batch(adapter: ResourceAdapter) -> None:
+def test_create_many(adapter: ResourceAdapter) -> None:
     adapter.ensure_parent()
-    batch = adapter.create_batch(["one", "two"])
+    batch = adapter.create_many(["one", "two"])
     assert [loaded.record.name for loaded in batch.created] == ["one", "two"]
-    assert batch.errors == []
+    assert batch.failures == []
 
 
 @ADAPTER_CASES

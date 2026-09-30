@@ -4,41 +4,41 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 
 from machinate.cli.commands.contexts import (
-    context_add,
-    context_info,
-    context_list,
-    context_path,
-    context_show,
-    context_update,
+    context_add_command,
+    context_info_command,
+    context_list_command,
+    context_path_command,
+    context_show_command,
+    context_update_command,
 )
 from machinate.cli.commands.docs import (
-    doc_add,
-    doc_info,
-    doc_list,
-    doc_path,
-    doc_show,
-    doc_update,
+    doc_add_command,
+    doc_info_command,
+    doc_list_command,
+    doc_path_command,
+    doc_show_command,
+    doc_update_command,
 )
 from machinate.cli.commands.instructions import instructions_command
 from machinate.cli.commands.plans import (
-    add_plan,
-    list_plans,
+    plan_add_command,
     plan_info_command,
-    plan_path,
-    select_current_plan,
-    show_plan,
-    unselect_plan,
-    update_plan,
+    plan_list_command,
+    plan_path_command,
+    plan_select_command,
+    plan_show_command,
+    plan_unselect_command,
+    plan_update_command,
 )
-from machinate.cli.commands.projects import info_command, init_project
+from machinate.cli.commands.projects import info_command, init_command
 from machinate.cli.commands.search import search_command
 from machinate.cli.commands.tasks import (
-    task_add,
-    task_info,
-    task_list,
-    task_path,
-    task_show,
-    update_task,
+    task_add_command,
+    task_info_command,
+    task_list_command,
+    task_path_command,
+    task_show_command,
+    task_update_command,
 )
 from machinate.cli.models import (
     ContextAddResult,
@@ -77,7 +77,7 @@ class CommandSpec:
 
     name: str
     handler: Callable[..., None] | None = None
-    result: type[BaseModel] | None = None
+    result_model: type[BaseModel] | None = None
     children: tuple[CommandSpec, ...] = ()
     help: str | None = None
 
@@ -85,13 +85,13 @@ class CommandSpec:
         if bool(self.children) == (self.handler is not None):
             msg = f"{self.name!r}: define exactly one of handler or children"
             raise ValueError(msg)
-        if self.handler is not None and self.result is None:
+        if self.handler is not None and self.result_model is None:
             msg = f"{self.name!r}: a command handler requires a result model"
             raise ValueError(msg)
 
 
 COMMANDS: tuple[CommandSpec, ...] = (
-    CommandSpec("init", init_project, InitResult),
+    CommandSpec("init", init_command, InitResult),
     CommandSpec("info", info_command, InfoResult),
     CommandSpec("instructions", instructions_command, InstructionsResult),
     CommandSpec("search", search_command, SearchResult),
@@ -99,57 +99,57 @@ COMMANDS: tuple[CommandSpec, ...] = (
         "plan",
         help="Manage plans; plan select sets the current plan used when -p is omitted.",
         children=(
-            CommandSpec("add", add_plan, PlanAddResult),
+            CommandSpec("add", plan_add_command, PlanAddResult),
             CommandSpec("info", plan_info_command, PlanInfoResult),
-            CommandSpec("path", plan_path, PathResult),
-            CommandSpec("list", list_plans, PlanListResult),
-            CommandSpec("show", show_plan, PlanShowResult),
-            CommandSpec("select", select_current_plan, PlanSelectResult),
-            CommandSpec("unselect", unselect_plan, PlanUnselectResult),
-            CommandSpec("update", update_plan, PlanUpdateResult),
+            CommandSpec("path", plan_path_command, PathResult),
+            CommandSpec("list", plan_list_command, PlanListResult),
+            CommandSpec("show", plan_show_command, PlanShowResult),
+            CommandSpec("select", plan_select_command, PlanSelectResult),
+            CommandSpec("unselect", plan_unselect_command, PlanUnselectResult),
+            CommandSpec("update", plan_update_command, PlanUpdateResult),
         ),
     ),
     CommandSpec(
         "task",
         help="Manage tasks in a plan.",
         children=(
-            CommandSpec("add", task_add, TaskAddResult),
-            CommandSpec("info", task_info, TaskInfoResult),
-            CommandSpec("path", task_path, PathResult),
-            CommandSpec("list", task_list, TaskListResult),
-            CommandSpec("show", task_show, TaskShowResult),
-            CommandSpec("update", update_task, TaskUpdateResult),
+            CommandSpec("add", task_add_command, TaskAddResult),
+            CommandSpec("info", task_info_command, TaskInfoResult),
+            CommandSpec("path", task_path_command, PathResult),
+            CommandSpec("list", task_list_command, TaskListResult),
+            CommandSpec("show", task_show_command, TaskShowResult),
+            CommandSpec("update", task_update_command, TaskUpdateResult),
         ),
     ),
     CommandSpec(
         "context",
         help="Manage context in a plan.",
         children=(
-            CommandSpec("add", context_add, ContextAddResult),
-            CommandSpec("info", context_info, ContextInfoResult),
-            CommandSpec("path", context_path, PathResult),
-            CommandSpec("list", context_list, ContextListResult),
-            CommandSpec("show", context_show, ContextShowResult),
-            CommandSpec("update", context_update, ContextUpdateResult),
+            CommandSpec("add", context_add_command, ContextAddResult),
+            CommandSpec("info", context_info_command, ContextInfoResult),
+            CommandSpec("path", context_path_command, PathResult),
+            CommandSpec("list", context_list_command, ContextListResult),
+            CommandSpec("show", context_show_command, ContextShowResult),
+            CommandSpec("update", context_update_command, ContextUpdateResult),
         ),
     ),
     CommandSpec(
         "doc",
         help="Manage project-level docs.",
         children=(
-            CommandSpec("add", doc_add, DocAddResult),
-            CommandSpec("info", doc_info, DocInfoResult),
-            CommandSpec("path", doc_path, PathResult),
-            CommandSpec("list", doc_list, DocListResult),
-            CommandSpec("show", doc_show, DocShowResult),
-            CommandSpec("update", doc_update, DocUpdateResult),
+            CommandSpec("add", doc_add_command, DocAddResult),
+            CommandSpec("info", doc_info_command, DocInfoResult),
+            CommandSpec("path", doc_path_command, PathResult),
+            CommandSpec("list", doc_list_command, DocListResult),
+            CommandSpec("show", doc_show_command, DocShowResult),
+            CommandSpec("update", doc_update_command, DocUpdateResult),
         ),
     ),
 )
 
 # Hidden top-level conveniences that reuse an existing handler. Kept out of COMMANDS
 # so they are neither listed in help nor emitted in the schema bundle.
-ALIASES: tuple[CommandSpec, ...] = (CommandSpec("list", list_plans, PlanListResult),)
+ALIASES: tuple[CommandSpec, ...] = (CommandSpec("list", plan_list_command, PlanListResult),)
 
 
 def leaves(

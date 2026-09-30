@@ -32,7 +32,7 @@ class ContextService(DocumentService[ContextMetadata]):
                 kind="context",
                 metadata_type=ContextMetadata,
                 storage=lambda plan: layout.context_collection(ensure_plan(plan)),
-                path=lambda plan, name: layout.context(ensure_plan(plan), name),
+                path=lambda plan, name: layout.context_path(ensure_plan(plan), name),
                 requires_plan=True,
                 directory_kind="context_directory",
             ),
@@ -51,25 +51,25 @@ class ContextService(DocumentService[ContextMetadata]):
         return self._create(plan, name, create)
 
     @validate_call
-    def create_batch(
+    def create_many(
         self, plan: Name, names: list[str], create: CreateInput
     ) -> BatchCreated[LoadedDocument[ContextMetadata]]:
-        return self._create_batch(plan, names, create)
+        return self._create_many(plan, names, create)
 
     @validate_call
     def get(self, plan: Name, name: NestedName) -> LoadedDocument[ContextMetadata]:
         return self._get(plan, name)
 
     @validate_call
-    def info(self, plan: Name, name: NestedName) -> DocumentRecord[ContextMetadata]:
+    def get_info(self, plan: Name, name: NestedName) -> DocumentRecord[ContextMetadata]:
         return self._info(plan, name)
 
     @validate_call
-    def directory(self, plan: Name) -> PurePosixPath:
+    def get_directory(self, plan: Name) -> PurePosixPath:
         return self._directory(plan)
 
     @validate_call
-    def path(self, plan: Name, name: NestedName) -> PurePosixPath:
+    def get_path(self, plan: Name, name: NestedName) -> PurePosixPath:
         return self._path(plan, name)
 
     @validate_call
@@ -78,9 +78,9 @@ class ContextService(DocumentService[ContextMetadata]):
 
     @validate_call
     def update(
-        self, plan: Name, name: NestedName, changes: DocumentUpdate
+        self, plan: Name, name: NestedName, update: DocumentUpdate
     ) -> LoadedDocument[ContextMetadata]:
-        return self._update(plan, name, changes)
+        return self._update(plan, name, update)
 
     @validate_call
     def list_records(

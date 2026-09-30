@@ -30,8 +30,8 @@ class DocService(DocumentService[DocMetadata]):
             Collection(
                 kind="doc",
                 metadata_type=DocMetadata,
-                storage=lambda _plan: layout.docs_collection(),
-                path=lambda _plan, name: layout.doc(name),
+                storage=lambda _plan: layout.doc_collection(),
+                path=lambda _plan, name: layout.doc_path(name),
                 requires_plan=False,
                 directory_kind="doc_directory",
             ),
@@ -48,25 +48,25 @@ class DocService(DocumentService[DocMetadata]):
         return self._create(None, name, create)
 
     @validate_call
-    def create_batch(
+    def create_many(
         self, names: list[str], create: CreateInput
     ) -> BatchCreated[LoadedDocument[DocMetadata]]:
-        return self._create_batch(None, names, create)
+        return self._create_many(None, names, create)
 
     @validate_call
     def get(self, name: NestedName) -> LoadedDocument[DocMetadata]:
         return self._get(None, name)
 
     @validate_call
-    def info(self, name: NestedName) -> DocumentRecord[DocMetadata]:
+    def get_info(self, name: NestedName) -> DocumentRecord[DocMetadata]:
         return self._info(None, name)
 
     @validate_call
-    def directory(self) -> PurePosixPath:
+    def get_directory(self) -> PurePosixPath:
         return self._directory(None)
 
     @validate_call
-    def path(self, name: NestedName) -> PurePosixPath:
+    def get_path(self, name: NestedName) -> PurePosixPath:
         return self._path(None, name)
 
     @validate_call
@@ -74,8 +74,8 @@ class DocService(DocumentService[DocMetadata]):
         return self._locate(None, name)
 
     @validate_call
-    def update(self, name: NestedName, changes: DocumentUpdate) -> LoadedDocument[DocMetadata]:
-        return self._update(None, name, changes)
+    def update(self, name: NestedName, update: DocumentUpdate) -> LoadedDocument[DocMetadata]:
+        return self._update(None, name, update)
 
     @validate_call
     def list_records(self, query: DocumentQuery | None = None) -> list[DocumentRecord[DocMetadata]]:

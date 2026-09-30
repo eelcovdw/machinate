@@ -33,16 +33,16 @@ class OverviewService:
             counts[task.metadata.status] += 1
         return counts
 
-    def plan_overview(self, plan: Name) -> PlanOverview:
+    def get_plan_overview(self, plan: Name) -> PlanOverview:
         loaded = self.plans.get(plan)
         return PlanOverview(
-            is_current=self.plans.current_name() == plan,
+            is_current=self.plans.find_current_plan() == plan,
             plan=loaded.record,
             tasks_by_status=self._tasks_by_status(plan),
             context_count=self.contexts.count_documents(plan),
         )
 
-    def project_overview(self) -> ProjectOverview:
+    def get_project_overview(self) -> ProjectOverview:
         plans = self.plans.list_records()
         plans_by_status: dict[PlanStatus, int] = dict.fromkeys(_PLAN_STATUSES, 0)
         tasks_by_status: dict[TaskStatus, int] = dict.fromkeys(_TASK_STATUSES, 0)
@@ -52,7 +52,7 @@ class OverviewService:
             context_count += self.contexts.count_documents(plan.name)
             for status, count in self._tasks_by_status(plan.name).items():
                 tasks_by_status[status] += count
-        current = self.plans.current_name()
+        current = self.plans.find_current_plan()
         names = {plan.name for plan in plans}
         return ProjectOverview(
             current_plan=current,

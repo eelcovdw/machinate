@@ -14,7 +14,7 @@ from machinate.cli.models import (
     ContextShowResult,
     ContextUpdateResult,
 )
-from machinate.cli.project_setup import prepare_project
+from machinate.cli.project_setup import open_project
 
 CONTEXT_INVOCATIONS = {
     "add": ["context", "add", "spec"],
@@ -58,7 +58,7 @@ def test_context_add_explicit_plan(project: Path) -> None:
 
 def test_context_add_current_plan(project: Path) -> None:
     seed.plan(project, "auth")
-    prepare_project(project).plans.set_current("auth")
+    open_project(project).plans.set_current("auth")
     parsed = cli.json(
         ContextAddResult, ["context", "add", "spec", "-P", str(project)], dependencies=JSON
     )
@@ -97,7 +97,7 @@ def test_context_add_batch_partial_success(project: Path) -> None:
         expect=1,
     )
     assert [context.name for context in parsed.batch.created] == ["new", "later"]
-    assert [error.name for error in parsed.batch.errors] == ["existing", "../bad"]
+    assert [error.name for error in parsed.batch.failures] == ["existing", "../bad"]
     assert (project / ".machi/plans/auth/context/new.md").exists()
     assert (project / ".machi/plans/auth/context/later.md").exists()
     assert (project / ".machi/plans/auth/context/existing.md").exists()  # Not overwritten.

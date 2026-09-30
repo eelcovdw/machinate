@@ -4,7 +4,7 @@ import pytest
 from harness import cli, read_state, seed
 
 from machinate.cli.models import PlanAddResult
-from machinate.cli.project_setup import prepare_project
+from machinate.cli.project_setup import open_project
 
 
 def test_add_explicit_project(project: Path) -> None:
@@ -52,7 +52,7 @@ def test_add_sets_summary_and_status(project: Path) -> None:
 
 def test_add_never_changes_selection(project: Path) -> None:
     seed.plan(project, "existing")
-    prepare_project(project).plans.set_current("existing")
+    open_project(project).plans.set_current("existing")
     cli.json(PlanAddResult, ["plan", "add", "alpha", "-P", str(project), "--format", "json"])
     assert read_state(project).current_plan == "existing"
 

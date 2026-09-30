@@ -28,7 +28,7 @@ from machinate.models.operations import (
     CreateInput,
     DocumentQuery,
 )
-from machinate.services.batch import create_documents
+from machinate.services.batch import create_many
 from machinate.services.errors import (
     ExistsError,
     InputError,
@@ -123,7 +123,7 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
             return
         plan_name = ensure_plan(plan)
         with _translate_errors("plan", plan_name):
-            self.document_store.metadata(self.layout.plan(plan_name))
+            self.document_store.stat(self.layout.plan_path(plan_name))
 
     def _directory(self, plan: Name | None) -> PurePosixPath:
         return self.collection.storage(plan).path
@@ -152,7 +152,7 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
         self._require_plan(plan)
         target = self.collection.path(plan, name)
         with _translate_errors(self.collection.kind, name):
-            self.document_store.metadata(target)
+            self.document_store.stat(target)
         return target
 
     def _count(self, plan: Name | None) -> int:
@@ -172,7 +172,7 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
             document,
             name=name,
             path=path,
-            modified_at=self.document_store.metadata(path).modified_at,
+            modified_at=self.document_store.stat(path).modified_at,
         )
 
     def _loaded(
@@ -188,7 +188,9 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
 
     # --- operations ---------------------------------------------------------
 
-    def _write(self, plan: Name | None, name: NestedName, metadata: M) -> LoadedDocument[M]:
+    def _create_document(
+        self, plan: Name | None, name: NestedName, metadata: M
+    ) -> LoadedDocument[M]:
         path = self.collection.path(plan, name)
         document = ParsedDocument(metadata=metadata, body="")
         with _translate_errors(self.collection.kind, name):
@@ -197,19 +199,19 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
 
     def _create(self, plan: Name | None, name: NestedName, create: C) -> LoadedDocument[M]:
         self._require_plan(plan)
-        return self._write(plan, name, self._build_metadata(create))
+        return self._create_document(plan, name, self._build_metadata(create))
 
-    def _create_batch(
+    def _create_many(
         self, plan: Name | None, names: list[str], create: C
     ) -> BatchCreated[LoadedDocument[M]]:
         self._require_plan(plan)
         metadata = self._build_metadata(create)
-        return create_documents(
+        return create_many(
             names=names,
             document_store=self.document_store,
             validate_name=NESTED_NAME_ADAPTER.validate_python,
             path_for=lambda name: self.collection.path(plan, name),
-            create=lambda name: self._write(plan, name, metadata),
+            create=lambda name: self._create_document(plan, name, metadata),
         )
 
     def _get(self, plan: Name | None, name: NestedName) -> LoadedDocument[M]:
@@ -223,11 +225,11 @@ class DocumentService[M: Metadata, C: CreateInput = CreateInput](ABC):
         return self._record(path, name, document)
 
     def _update(
-        self, plan: Name | None, name: NestedName, changes: DocumentChanges
+        self, plan: Name | None, name: NestedName, update: DocumentChanges
     ) -> LoadedDocument[M]:
         self._require_plan(plan)
         path, document = self._read(plan, name)
-        updated = changes.apply_to(document)
+        updated = update.apply_to(document)
         if updated is not None:
             self.document_store.write(path, updated)
             document = updated

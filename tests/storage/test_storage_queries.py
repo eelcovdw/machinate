@@ -24,7 +24,7 @@ def store(tmp_path: Path) -> DocumentStore:
         ("beta", 2, "draft", "Other\n\nOAuth body", 200, ["backend", "v2"]),
         ("gamma", 2, "done", "OAuth", 200, ["frontend", "v2"]),
     ]:
-        path = Layout().plan(name)
+        path = Layout().plan_path(name)
         store.create(
             path,
             ParsedDocument(
@@ -78,7 +78,7 @@ def test_created_sort_uses_time_of_day(store: DocumentStore) -> None:
         ("gamma", "2026-09-22T12:00:00.123457Z"),
     ]:
         store.write(
-            Layout().plan(name),
+            Layout().plan_path(name),
             ParsedDocument(metadata=PlanMetadata.model_validate({"created_at": stamp}), body=""),
         )
     assert names(store, PlanQuery(sort="created_at")) == ["beta", "alpha", "gamma"]
@@ -255,7 +255,7 @@ def test_task_status_queries(store: DocumentStore, query: TaskQuery, expected: l
         ("beta", "in-progress", 2, None, "OAuth body", 200),
         ("nested/gamma", "done", 2, "OAuth", "", 200),
     ]:
-        path = Layout().task("alpha", name)
+        path = Layout().task_path("alpha", name)
         store.create(
             path,
             ParsedDocument(

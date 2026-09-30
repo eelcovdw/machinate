@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from .formatting import Formatter, JsonFormatter, TextFormatter
 from .models import ProjectScope
-from .project_setup import ProjectContext, initialize_project, prepare_project
+from .project_setup import ProjectServices, initialize_project, open_project
 from .settings import Settings
 
 
@@ -20,7 +20,7 @@ def default_formatters() -> dict[str, Formatter]:
 @dataclass(frozen=True)
 class Dependencies:
     formatters: Mapping[str, Formatter] = field(default_factory=default_formatters)
-    prepare_project: Callable[[Path | None], ProjectContext] = prepare_project
+    open_project: Callable[[Path | None], ProjectServices] = open_project
     initialize_project: Callable[[Path | None, str | None], ProjectScope] = initialize_project
     settings: Settings | None = None
 

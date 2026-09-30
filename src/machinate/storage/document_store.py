@@ -19,7 +19,7 @@ from .errors import (
     StorageError,
     SymbolicLinkError,
 )
-from .models import DocumentCollection, DocumentScope, FileMetadata
+from .models import DocumentCollection, DocumentScope, FileStat
 
 
 class DocumentStore:
@@ -71,7 +71,7 @@ class DocumentStore:
             data = {"created_at": datetime.fromtimestamp(modified, UTC)}
         return ParsedDocument[metadata_type](metadata=metadata_type.model_validate(data), body=body)
 
-    def glob_files(self, path: str | PurePosixPath, patterns: list[str]) -> list[PurePosixPath]:
+    def list_files(self, path: str | PurePosixPath, patterns: list[str]) -> list[PurePosixPath]:
         """Return store-relative regular files under path matching any GLOBSTAR pattern."""
         relative = RELATIVE_PATH_ADAPTER.validate_python(path)
         directory = self.root / relative
@@ -170,13 +170,13 @@ class DocumentStore:
         except OSError as exc:
             raise StorageError(relative, exc) from exc
 
-    def metadata(self, path: str | PurePosixPath) -> FileMetadata:
+    def stat(self, path: str | PurePosixPath) -> FileStat:
         relative = RELATIVE_PATH_ADAPTER.validate_python(path)
         try:
             info = (self.root / relative).stat()
             if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
                 raise ValueError("Expected a regular file or directory")  # noqa: TRY301
-            return FileMetadata(
+            return FileStat(
                 path=relative,
                 modified_at=datetime.fromtimestamp(info.st_mtime, UTC),
                 kind="directory" if stat.S_ISDIR(info.st_mode) else "file",
@@ -194,7 +194,7 @@ class DocumentStore:
         """Report whether a store-relative path is an existing directory."""
         return (self.root / RELATIVE_PATH_ADAPTER.validate_python(path)).is_dir()
 
-    def _find_matching_files(self, scope: DocumentScope) -> list[FileMetadata]:
+    def _list_collection_files(self, scope: DocumentScope) -> list[FileStat]:
         try:
             directory = self.root / scope.path
             if not directory.exists():
@@ -202,7 +202,7 @@ class DocumentStore:
             if not directory.is_dir():
                 raise NotADirectoryError(str(directory))
             return [
-                self.metadata(PurePosixPath(match.relative_to(self.root).as_posix()))
+                self.stat(PurePosixPath(match.relative_to(self.root).as_posix()))
                 for match in _glob_regular_files(
                     directory, [str(scope.pattern)], include_dotfiles=False
                 )
@@ -214,10 +214,10 @@ class DocumentStore:
         self, path: str | PurePosixPath, activity_scopes: tuple[DocumentScope, ...] = ()
     ) -> datetime:
         """Read activity timestamps without loading descendant documents."""
-        record = self.metadata(path)
+        record = self.stat(path)
         last_activity_at = record.modified_at
         for scope in activity_scopes:
-            for child in self._find_matching_files(
+            for child in self._list_collection_files(
                 DocumentScope(path=record.path.parent / scope.path, pattern=scope.pattern)
             ):
                 last_activity_at = max(last_activity_at, child.modified_at)
@@ -231,7 +231,7 @@ class DocumentStore:
     ) -> list[DocumentRecord[M]]:
         query = query or DocumentQuery()
         matching_documents: list[DocumentRecord[M]] = []
-        for file_metadata in self._find_matching_files(collection):
+        for file_metadata in self._list_collection_files(collection):
             document = self.read(file_metadata.path, metadata_type)
             name = (
                 file_metadata.path.parent.name
@@ -268,7 +268,7 @@ class DocumentStore:
 
     def count_files(self, collection: DocumentCollection) -> int:
         """Count a collection's files without parsing any of them."""
-        return len(self._find_matching_files(collection))
+        return len(self._list_collection_files(collection))
 
 
 def _glob_regular_files(

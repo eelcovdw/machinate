@@ -19,8 +19,8 @@ from machinate.services.plan import PlanService
 from machinate.storage.errors import StorageError
 
 from .dependencies import Dependencies, get_dependencies, get_settings
-from .errors import EXIT_ERROR, PlanSelectionError, describe_error
-from .formatting import Formatter, JsonFormatter, UnknownFormatError, select_formatter
+from .errors import EXIT_ERROR, MissingTargetPlanError, describe_error
+from .formatting import Formatter, JsonFormatter, UnknownFormatError, get_formatter
 from .models import (
     CommandResult,
     ContextAddResult,
@@ -30,10 +30,10 @@ from .models import (
     ProjectScope,
     TaskAddResult,
 )
-from .project_setup import ProjectContext, ProjectError
+from .project_setup import ProjectError, ProjectServices
 from .settings import Settings
 
-DEFAULT_ERRORS: tuple[type[Exception], ...] = (
+REPORTED_ERRORS: tuple[type[Exception], ...] = (
     ServiceError,
     ProjectError,
     UnknownFormatError,
@@ -62,7 +62,7 @@ def resolve_formatter(
     override: str | None, settings: Settings, dependencies: Dependencies
 ) -> Formatter:
     """Resolve the effective formatter (--format, then settings, then default)."""
-    return select_formatter(override or settings.format, dependencies.formatters)
+    return get_formatter(override or settings.format, dependencies.formatters)
 
 
 @dataclass
@@ -75,13 +75,13 @@ class Execution:
     command: str
     project: ProjectScope | None = None
 
-    def prepare(self, project_directory: Path | None) -> ProjectContext:
+    def open_project(self, project_directory: Path | None) -> ProjectServices:
         """Load the project, recording its scope for later error output."""
-        project_context = self.dependencies.prepare_project(project_directory)
-        self.project = project_context.project
-        return project_context
+        services = self.dependencies.open_project(project_directory)
+        self.project = services.project
+        return services
 
-    def report(self, exc: Exception) -> NoReturn:
+    def fail(self, exc: Exception) -> NoReturn:
         """Render an error through the resolved formatter and exit with the error code."""
         detail = describe_error(exc)
         typer.echo(
@@ -100,7 +100,7 @@ class Execution:
     def render(self, result: CommandResult) -> None:
         """Render a command result, failing the batch commands when any name failed."""
         typer.echo(self.formatter.format(result))
-        if isinstance(result, _ADD_RESULTS_WITH_BATCH) and result.batch.errors:
+        if isinstance(result, _ADD_RESULTS_WITH_BATCH) and result.batch.failures:
             raise typer.Exit(EXIT_ERROR)
 
     def render_path(
@@ -136,16 +136,16 @@ class Execution:
             return name
         if self.settings.is_agent_mode:
             msg = "Agent mode requires an explicit plan; use -p NAME."
-            raise PlanSelectionError(msg)
-        current = plans.current_name()
+            raise MissingTargetPlanError(msg)
+        current = plans.find_current_plan()
         if current is None:
             msg = "No current plan is selected; use -p NAME."
-            raise PlanSelectionError(msg)
+            raise MissingTargetPlanError(msg)
         try:
-            plans.path(current)
+            plans.get_path(current)
         except NotFoundError as err:
             msg = f"Current plan {current!r} no longer exists; use -p NAME or plan select."
-            raise PlanSelectionError(msg) from err
+            raise MissingTargetPlanError(msg) from err
         return current
 
     def get_target_plan(self, plans: PlanService, name: str | None) -> LoadedPlan:
@@ -156,33 +156,33 @@ class Execution:
         """Reject session-mutating plan selection commands in agent mode."""
         if self.settings.is_agent_mode:
             msg = "Plan selection is unavailable in agent mode."
-            raise PlanSelectionError(msg)
+            raise MissingTargetPlanError(msg)
 
 
 @contextmanager
 def execute(
-    context: click.Context,
+    ctx: click.Context,
     output_format: str | None,
 ) -> Generator[Execution]:
     """Resolve settings and formatter, and route failures to structured error output."""
-    dependencies = get_dependencies(context)
+    dependencies = get_dependencies(ctx)
     execution = Execution(
         dependencies=dependencies,
         settings=Settings.model_construct(),  # Replaced below, once settings resolve.
         formatter=JsonFormatter(),  # Structured fallback if settings/format selection fails.
-        command=command_label(context),
+        command=command_label(ctx),
     )
     try:
-        execution.settings = get_settings(context)
+        execution.settings = get_settings(ctx)
         execution.formatter = resolve_formatter(output_format, execution.settings, dependencies)
     except (ValidationError, UnknownFormatError) as exc:
-        execution.report(exc)
+        execution.fail(exc)
     try:
         yield execution
     except BrokenPipeError:
         _exit_broken_pipe()
-    except DEFAULT_ERRORS as exc:
-        execution.report(exc)
+    except REPORTED_ERRORS as exc:
+        execution.fail(exc)
 
 
 def _exit_broken_pipe() -> NoReturn:

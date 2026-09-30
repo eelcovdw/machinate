@@ -23,7 +23,7 @@ class InputError(ServiceError):
     code: ClassVar[ErrorCode] = "input"
 
 
-class PlanSelectionError(InputError):
+class MissingTargetPlanError(InputError):
     """A command needs a plan but none was given, selected, or still exists."""
 
     code: ClassVar[ErrorCode] = "input"

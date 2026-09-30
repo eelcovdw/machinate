@@ -29,10 +29,10 @@ def _overview(tmp_path: Path) -> OverviewService:
     )
 
 
-def test_plan_overview_counts_and_ignores_malformed(tmp_path: Path) -> None:
+def test_get_plan_overview_counts_and_ignores_malformed(tmp_path: Path) -> None:
     overview = _overview(tmp_path)
     overview.plans.create("alpha", StatusCreateInput[PlanStatus]())
-    empty = overview.plan_overview("alpha")
+    empty = overview.get_plan_overview("alpha")
     assert empty.tasks_by_status == {"todo": 0, "in-progress": 0, "done": 0}
     assert empty.context_count == 0
     for name, status in [
@@ -51,7 +51,7 @@ def test_plan_overview_counts_and_ignores_malformed(tmp_path: Path) -> None:
             ),
         )
     overview.contexts.create("alpha", "nested/note", CreateInput())
-    info = overview.plan_overview("alpha")
+    info = overview.get_plan_overview("alpha")
     assert info.tasks_by_status == {"todo": 2, "in-progress": 1, "done": 1}
     assert info.context_count == 1
     assert info.plan == overview.plans.list_records()[0]
@@ -60,10 +60,10 @@ def test_plan_overview_counts_and_ignores_malformed(tmp_path: Path) -> None:
     bad.write_text("---\nsummary: missing date\n---\n")
     assert len(overview.plans.list_records()) == 1
     with pytest.raises(InvalidDocumentError):
-        overview.plan_overview("alpha")
+        overview.get_plan_overview("alpha")
 
 
-def test_project_overview_counts_plans_tasks_contexts_and_docs(tmp_path: Path) -> None:
+def test_get_project_overview_counts_plans_tasks_contexts_and_docs(tmp_path: Path) -> None:
     overview = _overview(tmp_path)
     overview.plans.create("alpha", StatusCreateInput[PlanStatus]())
     overview.plans.create("beta", StatusCreateInput[PlanStatus](status="active"))
@@ -71,7 +71,7 @@ def test_project_overview_counts_plans_tasks_contexts_and_docs(tmp_path: Path) -
     overview.contexts.create("alpha", "note", CreateInput())
     overview.docs.create("guide", CreateInput())
 
-    project = overview.project_overview()
+    project = overview.get_project_overview()
     assert project.plan_count == 2
     assert project.plans_by_status == {"draft": 1, "active": 1, "done": 0}
     assert project.tasks_by_status == {"todo": 0, "in-progress": 0, "done": 1}

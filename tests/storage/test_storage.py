@@ -135,24 +135,24 @@ def test_invalid_documents(store: DocumentStore, tmp_path: Path, content: str) -
     assert error.value.__cause__ is error.value.reason
 
 
-def test_glob_files_matches_regular_files_only(store: DocumentStore, tmp_path: Path) -> None:
+def test_list_files_matches_regular_files_only(store: DocumentStore, tmp_path: Path) -> None:
     (tmp_path / "a").mkdir()
     (tmp_path / "a" / "one.md").write_text("one")
     (tmp_path / "a" / "two.txt").write_text("two")
     (tmp_path / "a" / "sub").mkdir()
     (tmp_path / "a" / "sub" / "three.md").write_text("three")
-    assert sorted(store.glob_files(PurePosixPath("a"), ["**/*.md"])) == [
+    assert sorted(store.list_files(PurePosixPath("a"), ["**/*.md"])) == [
         PurePosixPath("a/one.md"),
         PurePosixPath("a/sub/three.md"),
     ]
-    assert store.glob_files(PurePosixPath("missing"), ["**/*.md"]) == []
+    assert store.list_files(PurePosixPath("missing"), ["**/*.md"]) == []
 
 
-def test_glob_files_includes_dot_prefixed_files(store: DocumentStore, tmp_path: Path) -> None:
+def test_list_files_includes_dot_prefixed_files(store: DocumentStore, tmp_path: Path) -> None:
     (tmp_path / "a").mkdir()
     (tmp_path / "a" / ".hidden.md").write_text("hidden")
     (tmp_path / "a" / "visible.md").write_text("visible")
-    assert sorted(store.glob_files(PurePosixPath("a"), ["**/*.md"])) == [
+    assert sorted(store.list_files(PurePosixPath("a"), ["**/*.md"])) == [
         PurePosixPath("a/.hidden.md"),
         PurePosixPath("a/visible.md"),
     ]
@@ -244,18 +244,18 @@ def test_scalar_and_non_string_frontmatter_values_are_coerced(
     assert store.read("tags.md", TaskMetadata).metadata.tags == ["v2", "2026"]
 
 
-def test_glob_files_skips_dangling_symlinks(store: DocumentStore, tmp_path: Path) -> None:
+def test_list_files_skips_dangling_symlinks(store: DocumentStore, tmp_path: Path) -> None:
     directory = tmp_path / "a"
     directory.mkdir()
     (directory / "one.md").write_text("one")
     (directory / ".#one.md").symlink_to(directory / "missing.md")
-    assert store.glob_files(PurePosixPath("a"), ["**/*.md"]) == [PurePosixPath("a/one.md")]
+    assert store.list_files(PurePosixPath("a"), ["**/*.md"]) == [PurePosixPath("a/one.md")]
 
 
-def test_glob_files_drops_parent_escape(store: DocumentStore, tmp_path: Path) -> None:
+def test_list_files_drops_parent_escape(store: DocumentStore, tmp_path: Path) -> None:
     (tmp_path / "a").mkdir()
     (tmp_path / "outside.md").write_text("outside")
-    assert store.glob_files(PurePosixPath("a"), ["../*.md"]) == []
+    assert store.list_files(PurePosixPath("a"), ["../*.md"]) == []
 
 
 @pytest.mark.parametrize(
@@ -273,9 +273,11 @@ def test_names_reject_invalid_values(name: str) -> None:
 
 def test_layout() -> None:
     layout = Layout()
-    assert layout.plan("auth") == PurePosixPath("plans/auth/plan.md")
-    assert layout.task("auth", "login") == PurePosixPath("plans/auth/tasks/login.md")
-    assert layout.context("auth", "research") == PurePosixPath("plans/auth/context/research.md")
+    assert layout.plan_path("auth") == PurePosixPath("plans/auth/plan.md")
+    assert layout.task_path("auth", "login") == PurePosixPath("plans/auth/tasks/login.md")
+    assert layout.context_path("auth", "research") == PurePosixPath(
+        "plans/auth/context/research.md"
+    )
 
 
 @pytest.mark.parametrize(
@@ -291,7 +293,7 @@ def test_storage_path_boundaries(
     with pytest.raises(ValidationError):
         store.read(path, TaskMetadata)
     with pytest.raises(ValidationError):
-        store.metadata(path)
+        store.stat(path)
 
 
 def test_case_only_duplicate_create_is_rejected(

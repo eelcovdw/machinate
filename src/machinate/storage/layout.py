@@ -1,6 +1,6 @@
 from pathlib import PurePosixPath
 
-from machinate.models.documents import DocumentKind, DocumentMembership, Name, NestedName
+from machinate.models.documents import DocumentIdentity, DocumentKind, Name, NestedName
 
 from .models import DocumentCollection, DocumentScope
 
@@ -17,19 +17,31 @@ _COLLECTION_KINDS: dict[str, DocumentKind] = {
 
 
 class Layout:
-    def plan(self, name: Name) -> PurePosixPath:
+    def plan_path(self, name: Name) -> PurePosixPath:
         return _PLANS_DIRECTORY / name / _PLAN_DOCUMENT
 
-    def task(self, plan: Name, name: NestedName) -> PurePosixPath:
-        return self.plan(plan).parent / _TASKS_DIRECTORY / f"{name}.md"
+    def task_path(self, plan: Name, name: NestedName) -> PurePosixPath:
+        return self.plan_path(plan).parent / _TASKS_DIRECTORY / f"{name}.md"
 
-    def context(self, plan: Name, name: NestedName) -> PurePosixPath:
-        return self.plan(plan).parent / _CONTEXT_DIRECTORY / f"{name}.md"
+    def context_path(self, plan: Name, name: NestedName) -> PurePosixPath:
+        return self.plan_path(plan).parent / _CONTEXT_DIRECTORY / f"{name}.md"
 
-    def doc(self, name: NestedName) -> PurePosixPath:
+    def doc_path(self, name: NestedName) -> PurePosixPath:
         return _DOCS_DIRECTORY / f"{name}.md"
 
-    def resolve(self, path: PurePosixPath) -> DocumentMembership:
+    def plan_directory(self) -> PurePosixPath:
+        return _PLANS_DIRECTORY
+
+    def task_directory(self, plan: Name) -> PurePosixPath:
+        return self.plan_path(plan).parent / _TASKS_DIRECTORY
+
+    def context_directory(self, plan: Name) -> PurePosixPath:
+        return self.plan_path(plan).parent / _CONTEXT_DIRECTORY
+
+    def doc_directory(self) -> PurePosixPath:
+        return _DOCS_DIRECTORY
+
+    def identify(self, path: PurePosixPath) -> DocumentIdentity:
         """Reverse a store-relative path to its kind and owning plan/name.
 
         Mirrors the forward conventions: plans live at ``plans/{plan}/plan.md`` and are
@@ -40,26 +52,26 @@ class Layout:
         parts = path.parts
         if parts[:1] == (_DOCS_DIRECTORY.name,) and len(parts) > 1 and path.suffix == ".md":
             name = PurePosixPath(*parts[1:]).with_suffix("").as_posix()
-            return DocumentMembership(kind="doc", name=name)
+            return DocumentIdentity(kind="doc", name=name)
         if parts[:1] != (_PLANS_DIRECTORY.name,):
-            return DocumentMembership(kind="unknown")
+            return DocumentIdentity(kind="unknown")
 
         rest = parts[1:]
         if not rest:
-            return DocumentMembership(kind="unknown")
+            return DocumentIdentity(kind="unknown")
 
         plan, *tail = rest
         if tail == [_PLAN_DOCUMENT.name]:
-            return DocumentMembership(kind="plan", plan_name=plan, name=plan)
+            return DocumentIdentity(kind="plan", plan_name=plan, name=plan)
 
         kind = _COLLECTION_KINDS.get(tail[0]) if tail else None
         if kind is not None and path.suffix == ".md":
             name_parts = tail[1:]
             if name_parts:
                 name = PurePosixPath(*name_parts).with_suffix("").as_posix()
-                return DocumentMembership(kind=kind, plan_name=plan, name=name)
+                return DocumentIdentity(kind=kind, plan_name=plan, name=name)
 
-        return DocumentMembership(kind="unknown")
+        return DocumentIdentity(kind="unknown")
 
     def plan_collection(self) -> DocumentCollection:
         # Activity scopes are relative to each plan document's directory.
@@ -74,14 +86,12 @@ class Layout:
         )
 
     def task_collection(self, plan: Name) -> DocumentCollection:
-        return DocumentCollection(
-            path=self.plan(plan).parent / _TASKS_DIRECTORY, pattern=PurePosixPath("**/*.md")
-        )
+        return DocumentCollection(path=self.task_directory(plan), pattern=PurePosixPath("**/*.md"))
 
     def context_collection(self, plan: Name) -> DocumentCollection:
         return DocumentCollection(
-            path=self.plan(plan).parent / _CONTEXT_DIRECTORY, pattern=PurePosixPath("**/*.md")
+            path=self.context_directory(plan), pattern=PurePosixPath("**/*.md")
         )
 
-    def docs_collection(self) -> DocumentCollection:
-        return DocumentCollection(path=_DOCS_DIRECTORY, pattern=PurePosixPath("**/*.md"))
+    def doc_collection(self) -> DocumentCollection:
+        return DocumentCollection(path=self.doc_directory(), pattern=PurePosixPath("**/*.md"))
