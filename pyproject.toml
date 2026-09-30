@@ -1,6 +1,6 @@
 [project]
 name = "machinate"
-version = "0.1.0"
+version = "0.2.0"
 description = "File-based project planning CLI for coding agents."
 readme = "README.md"
 license = "MIT"
@@ -9,11 +9,15 @@ authors = [
     { name = "Eelco van der Wel", email = "eelcovdw@gmail.com" }
 ]
 requires-python = ">=3.14"
+keywords = ["cli", "planning", "agents", "llm", "markdown", "claude-code"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3.14",
-    "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development",
 ]
 dependencies = [
     # Direct click use: cli.py subclasses Group/Command and catches NoArgsIsHelpError.

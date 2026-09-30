@@ -10,13 +10,15 @@ your project, which holds four kinds of plain Markdown documents:
 
 One state file (`.machi/machinate.toml`) records project settings and the current
 plan. There is no server or database: documents stay editable by hand, and search
-(`machi search`) runs locally through Tantivy.
+(`machi search`) runs locally through [Tantivy](https://github.com/quickwit-oss/tantivy).
 
 ## Install
 
 ```bash
-uv tool install git+https://github.com/eelcovdw/machinate.git
+uv tool install machinate   # or: pipx install machinate
 ```
+
+Requires Python 3.14.
 
 ## Usage
 
@@ -42,7 +44,7 @@ That leaves this tree on disk:
     └── auth/
         ├── plan.md            machi plan add auth
         ├── tasks/
-        │   ├── 01-login.md    machi task add login logout
+        │   ├── 01-login.md    machi task add 01-login 02-logout
         │   └── 02-logout.md
         └── context/
             └── spec.md        machi context add spec
@@ -63,13 +65,20 @@ Plan commands take the plan name positionally (`machi plan show auth`). `-p PLAN
 narrows tasks, context, or search to one plan; `-P PROJECT_DIR` a project, `--format json`
 for agents.
 
-## Development
+## Use with coding agents
 
-Python 3.14 and [`uv`](https://docs.astral.sh/uv/). A Makefile wraps the usual
-commands:
+Add the agent instructions to your project, so agents know how to use machinate:
 
 ```bash
-make setup   # uv sync
-make lint    # ruff check, ruff format --check, basedpyright
-make test    # pytest
+machi instructions >> AGENTS.md
 ```
+
+When `AI_AGENT` (set by Claude Code and other agents that follow that convention) or
+`MACHI_AI_AGENT` is set, machinate runs in agent mode: plan-scoped commands need an
+explicit plan, `plan select` is disabled so parallel sessions can't retarget each other,
+and output defaults to JSON. Errors carry a machine-readable `code`, and
+`machi schema <command>` prints the JSON shape of each result.
+
+## Development
+
+See [CONTRIBUTING.md](https://github.com/eelcovdw/machinate/blob/main/CONTRIBUTING.md) for setup, checks, and releasing.
