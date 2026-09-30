@@ -22,7 +22,7 @@ from machinate.cli.options import (
     PLAN_SORT,
     PLAN_STATUS,
     PLAN_STATUS_FILTER,
-    PROJECT,
+    PROJECT_DIR,
     SUMMARY,
     TAGS,
 )
@@ -34,7 +34,7 @@ from machinate.models.operations import PlanQuery, StatusCreateInput, StatusUpda
 def add_plan(  # noqa: PLR0913
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the plan to create.")],
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     tags: TAGS = None,
     summary: SUMMARY = None,
     status: PLAN_STATUS = None,
@@ -42,7 +42,7 @@ def add_plan(  # noqa: PLR0913
 ) -> None:
     """Create a plan."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         create = StatusCreateInput[PlanStatus].model_validate(
             {"summary": summary, "tags": tags or [], "status": status}
         )
@@ -58,7 +58,7 @@ def add_plan(  # noqa: PLR0913
 
 def list_plans(  # noqa: PLR0913
     context: typer.Context,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
     tags: TAGS = None,
     statuses: PLAN_STATUS_FILTER = None,
@@ -76,7 +76,7 @@ def list_plans(  # noqa: PLR0913
             descending=descending,
             limit=limit,
         )
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         run.render(
             PlanListResult(
                 command="plan list",
@@ -91,12 +91,12 @@ def list_plans(  # noqa: PLR0913
 def plan_info_command(
     context: typer.Context,
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show plan metadata and task progress."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         run.render(
             PlanInfoResult(
@@ -113,13 +113,13 @@ def select_current_plan(
         str,
         typer.Argument(help="Name of the plan to select as the current plan."),
     ],
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Set the project's current plan; commands use it when -p is omitted."""
     with execute(context, output_format) as run:
         run.require_human_session()
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         state = project_context.plans.set_current(name)
         run.render(
             PlanSelectResult(
@@ -132,13 +132,13 @@ def select_current_plan(
 
 def unselect_plan(
     context: typer.Context,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Clear the current plan; does not change any plan's status."""
     with execute(context, output_format) as run:
         run.require_human_session()
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         state = project_context.plans.clear_current()
         run.render(
             PlanUnselectResult(
@@ -152,7 +152,7 @@ def unselect_plan(
 def update_plan(  # noqa: PLR0913
     context: typer.Context,
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     summary: SUMMARY = None,
     status: PLAN_STATUS = None,
     tags: TAGS = None,
@@ -166,7 +166,7 @@ def update_plan(  # noqa: PLR0913
             UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
             hint="--summary, --status, --tag, or --clear-tags",
         )
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.plans.update(plan_name, changes)
         run.render(
@@ -182,26 +182,26 @@ def update_plan(  # noqa: PLR0913
 def plan_path(
     context: typer.Context,
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute editing path of a plan document."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         located = project_context.plans.locate(plan_name)
-        run.render_path(command="plan path", plan=plan_name, located=located)
+        run.render_path(command="plan path", plan_name=plan_name, located=located)
 
 
 def show_plan(
     context: typer.Context,
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show plan metadata and body."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         selected = run.get_target_plan(project_context.plans, plan)
         run.render(
             PlanShowResult(

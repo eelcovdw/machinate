@@ -13,7 +13,7 @@ def test_add_explicit_project(project: Path) -> None:
     )
     assert parsed.project.name == "example"
     assert parsed.project.directory == project
-    assert parsed.project.storage == project / ".machi"
+    assert parsed.project.store_directory == project / ".machi"
     assert parsed.plan.name == "alpha"
     assert parsed.plan.path.as_posix() == "plans/alpha/plan.md"
     assert parsed.plan.metadata.status == "draft"

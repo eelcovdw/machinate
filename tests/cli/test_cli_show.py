@@ -19,7 +19,7 @@ def test_show_explicit_plan(project: Path) -> None:
     )
     assert parsed.project.name == "example"
     assert parsed.project.directory == project
-    assert parsed.project.storage == project / ".machi"
+    assert parsed.project.store_directory == project / ".machi"
     assert parsed.plan.name == "auth"
     assert parsed.plan.path.as_posix() == "plans/auth/plan.md"
     assert parsed.plan.metadata.status == "draft"

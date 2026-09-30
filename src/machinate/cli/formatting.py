@@ -18,7 +18,7 @@ from machinate.models.documents import (
     PlanStatus,
     TaskStatus,
 )
-from machinate.models.operations import BatchCreateError, FindEntry
+from machinate.models.operations import BatchCreateError, SearchMatch
 
 from .models import (
     CommandResult,
@@ -33,7 +33,6 @@ from .models import (
     DocShowResult,
     DocUpdateResult,
     ErrorResult,
-    FindResult,
     InfoResult,
     InitResult,
     InstructionsResult,
@@ -45,6 +44,7 @@ from .models import (
     PlanShowResult,
     PlanUnselectResult,
     PlanUpdateResult,
+    SearchResult,
     TaskAddResult,
     TaskInfoResult,
     TaskListResult,
@@ -258,12 +258,12 @@ def _add[M: Metadata](
     *,
     heading: str,
     records: Sequence[DocumentRecord[M] | PlanRecord],
-    storage: str,
+    store: str,
     errors: Sequence[BatchCreateError],
 ) -> str:
     """Render a batch creation heading, one bullet per record, and rejected names."""
     lines: list[RenderableType] = [Text(heading, style=HEADING)]
-    lines.extend(_bullet(record.name, f"{storage}/{record.path}") for record in records)
+    lines.extend(_bullet(record.name, f"{store}/{record.path}") for record in records)
     lines.extend(_not_created(errors))
     return _render(lines)
 
@@ -381,8 +381,8 @@ def render_text(result: CommandResult) -> str:  # noqa: C901, PLR0911, PLR0912
             return render_doc_update(result)
         case PathResult():
             return render_path(result)
-        case FindResult():
-            return render_find(result)
+        case SearchResult():
+            return render_search(result)
         case InfoResult():
             return render_info(result)
         case InitResult():
@@ -403,7 +403,7 @@ def render_plan_add(result: PlanAddResult) -> str:
     return _add(
         heading=f"Created plan {result.plan.name} in {result.project.name}",
         records=[result.plan],
-        storage=str(result.project.storage),
+        store=str(result.project.store_directory),
         errors=[],
     )
 
@@ -414,7 +414,7 @@ def render_plan_info(result: PlanInfoResult) -> str:
         kind="Plan",
         record=overview.plan,
         location=f"{result.project.name} — {result.project.directory}",
-        path=str(result.project.storage / overview.plan.path),
+        path=str(result.project.store_directory / overview.plan.path),
         status=overview.plan.metadata.status,
         modified_label="Last activity",
         modified=overview.plan.last_activity_at,
@@ -424,11 +424,11 @@ def render_plan_info(result: PlanInfoResult) -> str:
 def render_info(result: InfoResult) -> str:
     overview = result.overview
     current = overview.current_plan
-    if current is not None and not overview.selection_valid:
+    if current is not None and not overview.current_plan_exists:
         current = f"{current} (missing)"
     lines: list[RenderableType] = [
         Text(f"Project {result.project.name} — {result.project.directory}", style=PROJECT),
-        _field("Storage", str(result.project.storage), style=PATH),
+        _field("Store", str(result.project.store_directory), style=PATH),
         _field("Current plan", current or "(none)", style="" if current else MUTED),
         _field("Plans", f"{overview.plan_count} ({_counts(overview.plans_by_status)})"),
         _field(
@@ -455,7 +455,7 @@ def render_info(result: InfoResult) -> str:
 def render_plan_list(result: PlanListResult) -> str:
     header: list[RenderableType] = [
         Text(f"{result.project.name} — {result.project.directory}", style=PROJECT),
-        _field("Storage", str(result.project.storage), style=PATH),
+        _field("Store", str(result.project.store_directory), style=PATH),
     ]
     return _list(
         header=header,
@@ -477,7 +477,7 @@ def render_plan_show(result: PlanShowResult) -> str:
         kind="Plan",
         record=result.plan,
         location=f"{result.project.name} — {result.project.directory}",
-        path=str(result.project.storage / result.plan.path),
+        path=str(result.project.store_directory / result.plan.path),
         status=result.plan.metadata.status,
         body=result.body,
     )
@@ -499,11 +499,11 @@ def render_plan_update(result: PlanUpdateResult) -> str:
 
 
 def render_task_add(result: TaskAddResult) -> str:
-    location = f"{result.project.name}/{result.plan}"
+    location = f"{result.project.name}/{result.plan_name}"
     return _add(
         heading=f"Created {len(result.batch.created)} task(s) in {location}",
         records=result.batch.created,
-        storage=str(result.project.storage),
+        store=str(result.project.store_directory),
         errors=result.batch.errors,
     )
 
@@ -512,14 +512,14 @@ def render_task_info(result: TaskInfoResult) -> str:
     return _show(
         kind="Task",
         record=result.task,
-        location=f"{result.project.name} / {result.plan}",
-        path=str(result.project.storage / result.task.path),
+        location=f"{result.project.name} / {result.plan_name}",
+        path=str(result.project.store_directory / result.task.path),
         status=result.task.metadata.status,
     )
 
 
 def render_task_list(result: TaskListResult) -> str:
-    header = [Text(f"{result.project.name} / {result.plan}", style=PROJECT)]
+    header = [Text(f"{result.project.name} / {result.plan_name}", style=PROJECT)]
     return _list(
         header=header,
         records=result.tasks,
@@ -535,8 +535,8 @@ def render_task_show(result: TaskShowResult) -> str:
     return _show(
         kind="Task",
         record=result.task,
-        location=f"{result.project.name} / {result.plan}",
-        path=str(result.project.storage / result.task.path),
+        location=f"{result.project.name} / {result.plan_name}",
+        path=str(result.project.store_directory / result.task.path),
         status=result.task.metadata.status,
         body=result.body,
     )
@@ -546,17 +546,17 @@ def render_task_update(result: TaskUpdateResult) -> str:
     return _update(
         kind="task",
         name=result.task.name,
-        location=f"{result.project.name}/{result.plan}",
+        location=f"{result.project.name}/{result.plan_name}",
         status=result.task.metadata.status,
     )
 
 
 def render_context_add(result: ContextAddResult) -> str:
-    location = f"{result.project.name}/{result.plan}"
+    location = f"{result.project.name}/{result.plan_name}"
     return _add(
-        heading=f"Created {len(result.batch.created)} context document(s) in {location}",
+        heading=f"Created {len(result.batch.created)} context(s) in {location}",
         records=result.batch.created,
-        storage=str(result.project.storage),
+        store=str(result.project.store_directory),
         errors=result.batch.errors,
     )
 
@@ -565,13 +565,13 @@ def render_context_info(result: ContextInfoResult) -> str:
     return _show(
         kind="Context",
         record=result.context,
-        location=f"{result.project.name} / {result.plan}",
-        path=str(result.project.storage / result.context.path),
+        location=f"{result.project.name} / {result.plan_name}",
+        path=str(result.project.store_directory / result.context.path),
     )
 
 
 def render_context_list(result: ContextListResult) -> str:
-    header = [Text(f"{result.project.name} / {result.plan}", style=PROJECT)]
+    header = [Text(f"{result.project.name} / {result.plan_name}", style=PROJECT)]
     return _list(
         header=header,
         records=result.contexts,
@@ -583,8 +583,8 @@ def render_context_show(result: ContextShowResult) -> str:
     return _show(
         kind="Context",
         record=result.context,
-        location=f"{result.project.name} / {result.plan}",
-        path=str(result.project.storage / result.context.path),
+        location=f"{result.project.name} / {result.plan_name}",
+        path=str(result.project.store_directory / result.context.path),
         body=result.body,
     )
 
@@ -593,15 +593,15 @@ def render_context_update(result: ContextUpdateResult) -> str:
     return _update(
         kind="context",
         name=result.context.name,
-        location=f"{result.project.name}/{result.plan}",
+        location=f"{result.project.name}/{result.plan_name}",
     )
 
 
 def render_doc_add(result: DocAddResult) -> str:
     return _add(
-        heading=f"Created {len(result.batch.created)} document(s) in {result.project.name}",
+        heading=f"Created {len(result.batch.created)} doc(s) in {result.project.name}",
         records=result.batch.created,
-        storage=str(result.project.storage),
+        store=str(result.project.store_directory),
         errors=result.batch.errors,
     )
 
@@ -611,7 +611,7 @@ def render_doc_info(result: DocInfoResult) -> str:
         kind="Doc",
         record=result.doc,
         location=result.project.name,
-        path=str(result.project.storage / result.doc.path),
+        path=str(result.project.store_directory / result.doc.path),
     )
 
 
@@ -620,7 +620,7 @@ def render_doc_list(result: DocListResult) -> str:
     return _list(
         header=header,
         records=result.docs,
-        empty_message="No documents found.",
+        empty_message="No docs found.",
     )
 
 
@@ -629,7 +629,7 @@ def render_doc_show(result: DocShowResult) -> str:
         kind="Doc",
         record=result.doc,
         location=result.project.name,
-        path=str(result.project.storage / result.doc.path),
+        path=str(result.project.store_directory / result.doc.path),
         body=result.body,
     )
 
@@ -639,35 +639,35 @@ def render_doc_update(result: DocUpdateResult) -> str:
 
 
 def render_path(result: PathResult) -> str:
-    return str(result.path)
+    return str(result.absolute_path)
 
 
-def _find_locator(entry: FindEntry) -> str:
-    return entry.path.as_posix()
+def _match_path(match: SearchMatch) -> str:
+    return match.path.as_posix()
 
 
-def _find_owner(entry: FindEntry) -> str:
-    return f"[{entry.kind}{f' {entry.plan}' if entry.plan is not None else ''}]"
+def _match_owner(match: SearchMatch) -> str:
+    return f"[{match.kind}{f' {match.plan_name}' if match.plan_name is not None else ''}]"
 
 
-def render_find(result: FindResult) -> str:
-    scope = result.plan if result.plan is not None else "all plans"
+def render_search(result: SearchResult) -> str:
+    scope = result.plan_name if result.plan_name is not None else "all plans"
     lines: list[RenderableType] = [Text(f"{result.project.name} / {scope}", style=PROJECT)]
-    if not result.entries:
+    if not result.matches:
         lines.append(Text("No matches found.", style=MUTED))
         return _render(lines)
-    ranked = any(entry.score is not None for entry in result.entries)
+    ranked = any(match.score is not None for match in result.matches)
     lines.append(Text())
     table = Table.grid(padding=(0, 2))
     if ranked:
         table.add_column(justify="right", no_wrap=True, style=MUTED)
     table.add_column()
-    for entry in result.entries:
+    for match in result.matches:
         block = Text()
-        block.append(_find_locator(entry), style=PATH)
+        block.append(_match_path(match), style=PATH)
         block.append("  ")
-        block.append(_find_owner(entry), style=MUTED)
-        score = f"{entry.score:.1f}" if entry.score is not None else ""
+        block.append(_match_owner(match), style=MUTED)
+        score = f"{match.score:.1f}" if match.score is not None else ""
         if ranked:
             table.add_row(score, block)
         else:
@@ -683,7 +683,7 @@ def render_instructions(result: InstructionsResult) -> str:
 def render_init(result: InitResult) -> str:
     lines: list[RenderableType] = [
         Text(f"Initialized {result.project.name} at {result.project.directory}", style=HEADING),
-        _field("Storage", str(result.project.storage), style=PATH),
+        _field("Store", str(result.project.store_directory), style=PATH),
     ]
     return _render(lines)
 

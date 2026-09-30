@@ -54,7 +54,7 @@ def test_explicit_and_upward(project: Path, monkeypatch: pytest.MonkeyPatch) -> 
         assert result.exit_code == 0, result.output
         parsed = PlanListResult.model_validate_json(result.stdout)
         assert parsed.project.directory == project
-        assert parsed.project.storage == project / ".machi"
+        assert parsed.project.store_directory == project / ".machi"
         assert parsed.project.name == "example"
         assert [plan.name for plan in parsed.plans] == ["alpha", "beta"]
 
@@ -152,7 +152,7 @@ def test_symlinked_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
         assert result.exit_code == 0, result.output
         parsed = PlanListResult.model_validate_json(result.stdout)
         assert parsed.project.name == "linked"
-        assert parsed.project.storage == linked / ".machi"
+        assert parsed.project.store_directory == linked / ".machi"
 
 
 def test_query_delegation(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:

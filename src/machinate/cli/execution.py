@@ -75,9 +75,9 @@ class Execution:
     command: str
     project: ProjectScope | None = None
 
-    def prepare(self, directory: Path | None) -> ProjectContext:
+    def prepare(self, project_directory: Path | None) -> ProjectContext:
         """Load the project, recording its scope for later error output."""
-        project_context = self.dependencies.prepare_project(directory)
+        project_context = self.dependencies.prepare_project(project_directory)
         self.project = project_context.project
         return project_context
 
@@ -107,7 +107,7 @@ class Execution:
         self,
         *,
         command: PathCommand,
-        plan: str | None,
+        plan_name: str | None,
         located: LocatedPath,
     ) -> None:
         """Render the absolute path, kind, and existence of a document or directory."""
@@ -115,10 +115,11 @@ class Execution:
             PathResult(
                 command=command,
                 project=self.require_project(),
-                plan=plan,
-                path=located.path,
+                plan_name=plan_name,
+                absolute_path=located.path,
                 kind=located.kind,
-                exists=located.exists,
+                # Only directory kinds report existence; document paths are validated.
+                exists=located.exists if located.kind.endswith("_directory") else None,
             )
         )
 

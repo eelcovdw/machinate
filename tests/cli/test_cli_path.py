@@ -13,11 +13,11 @@ def test_plan_path_explicit(project: Path) -> None:
     )
     assert parsed.command == "plan path"
     assert parsed.project.name == "example"
-    assert parsed.project.storage == project / ".machi"
-    assert parsed.plan == "auth"
-    assert parsed.path == project / ".machi/plans/auth/plan.md"
+    assert parsed.project.store_directory == project / ".machi"
+    assert parsed.plan_name == "auth"
+    assert parsed.absolute_path == project / ".machi/plans/auth/plan.md"
     assert parsed.kind == "plan"
-    assert parsed.exists is True
+    assert parsed.exists is None
     assert read_state(project).current_plan is None
 
 
@@ -33,7 +33,7 @@ def test_plan_path_current_plan(project: Path) -> None:
     seed.plan(project, "billing")
     prepare_project(project).plans.set_current("auth")
     parsed = cli.json(PathResult, ["plan", "path", "-P", str(project), "--format", "json"])
-    assert parsed.plan == "auth"
+    assert parsed.plan_name == "auth"
 
 
 def test_plan_path_does_not_change_selection(project: Path) -> None:
@@ -58,8 +58,8 @@ def test_task_path_document(project: Path) -> None:
     )
     assert parsed.command == "task path"
     assert parsed.kind == "task"
-    assert parsed.path == project / ".machi/plans/auth/tasks/login.md"
-    assert parsed.exists is True
+    assert parsed.absolute_path == project / ".machi/plans/auth/tasks/login.md"
+    assert parsed.exists is None
 
 
 def test_task_path_directory_absent(project: Path) -> None:
@@ -67,8 +67,8 @@ def test_task_path_directory_absent(project: Path) -> None:
     parsed = cli.json(
         PathResult, ["task", "path", "-p", "auth", "-P", str(project), "--format", "json"]
     )
-    assert parsed.kind == "tasks_directory"
-    assert parsed.path == project / ".machi/plans/auth/tasks"
+    assert parsed.kind == "task_directory"
+    assert parsed.absolute_path == project / ".machi/plans/auth/tasks"
     assert parsed.exists is False
 
 
@@ -78,7 +78,7 @@ def test_task_path_directory_exists(project: Path) -> None:
     parsed = cli.json(
         PathResult, ["task", "path", "-p", "auth", "-P", str(project), "--format", "json"]
     )
-    assert parsed.kind == "tasks_directory"
+    assert parsed.kind == "task_directory"
     assert parsed.exists is True
 
 
@@ -97,8 +97,8 @@ def test_context_path_document(project: Path) -> None:
     )
     assert parsed.command == "context path"
     assert parsed.kind == "context"
-    assert parsed.path == project / ".machi/plans/auth/context/spec.md"
-    assert parsed.exists is True
+    assert parsed.absolute_path == project / ".machi/plans/auth/context/spec.md"
+    assert parsed.exists is None
 
 
 def test_context_path_directory_absent(project: Path) -> None:
@@ -108,7 +108,7 @@ def test_context_path_directory_absent(project: Path) -> None:
         ["context", "path", "-p", "auth", "-P", str(project), "--format", "json"],
     )
     assert parsed.kind == "context_directory"
-    assert parsed.path == project / ".machi/plans/auth/context"
+    assert parsed.absolute_path == project / ".machi/plans/auth/context"
     assert parsed.exists is False
 
 
@@ -128,8 +128,8 @@ def test_plan_path_ignores_malformed_contents(project: Path) -> None:
     parsed = cli.json(
         PathResult, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"]
     )
-    assert parsed.path == project / ".machi/plans/auth/plan.md"
-    assert parsed.exists is True
+    assert parsed.absolute_path == project / ".machi/plans/auth/plan.md"
+    assert parsed.exists is None
 
 
 def test_task_path_ignores_malformed_contents(project: Path) -> None:
@@ -141,8 +141,8 @@ def test_task_path_ignores_malformed_contents(project: Path) -> None:
         PathResult,
         ["task", "path", "login", "-p", "auth", "-P", str(project), "--format", "json"],
     )
-    assert parsed.path == target
-    assert parsed.exists is True
+    assert parsed.absolute_path == target
+    assert parsed.exists is None
 
 
 def test_context_path_ignores_malformed_contents(project: Path) -> None:
@@ -154,5 +154,5 @@ def test_context_path_ignores_malformed_contents(project: Path) -> None:
         PathResult,
         ["context", "path", "spec", "-p", "auth", "-P", str(project), "--format", "json"],
     )
-    assert parsed.path == target
-    assert parsed.exists is True
+    assert parsed.absolute_path == target
+    assert parsed.exists is None

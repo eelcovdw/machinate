@@ -23,7 +23,7 @@ def test_init_current_directory(
     assert parsed.command == "init"
     assert parsed.project.name == target.name
     assert parsed.project.directory == target
-    assert parsed.project.storage == target / ".machi"
+    assert parsed.project.store_directory == target / ".machi"
     state = read_state(target)
     assert state.project_name == target.name
     assert state.current_plan is None

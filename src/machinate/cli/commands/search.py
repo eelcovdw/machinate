@@ -3,12 +3,12 @@ from typing import Annotated
 import typer
 
 from machinate.cli.execution import execute
-from machinate.cli.models import FindResult
-from machinate.cli.options import LIMIT, OUTPUT_FORMAT, PLAN, PROJECT
-from machinate.models.operations import FindQuery
+from machinate.cli.models import SearchResult
+from machinate.cli.options import LIMIT, OUTPUT_FORMAT, PLAN, PROJECT_DIR
+from machinate.models.operations import SearchQuery
 
 
-def find_command(  # noqa: PLR0913
+def search_command(  # noqa: PLR0913
     context: typer.Context,
     query: Annotated[
         str | None,
@@ -21,7 +21,7 @@ def find_command(  # noqa: PLR0913
         ),
     ] = None,
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     regex: Annotated[
         bool,
         typer.Option("--regex", help="Allow field-scoped regexes, e.g. path:/conf.*/."),
@@ -42,7 +42,7 @@ def find_command(  # noqa: PLR0913
 
     \b
       By default every plan in the project is searched. --plan narrows the
-      search to one plan; --project targets an exact project directory
+      search to one plan; --project-dir targets an exact project directory
       instead of discovering one upward.
 
     \b
@@ -61,12 +61,12 @@ def find_command(  # noqa: PLR0913
     Examples
 
     \b
-      machi find auth
-      machi find '"auth token"'
-      machi find body:config --plan v2
-      machi find --glob 'plans/*/tasks/**/*.md'
-      machi find --plan v2 --glob 'tasks/**/*.md'
-      machi find 'path:/conf.*/' --regex
+      machi search auth
+      machi search '"auth token"'
+      machi search body:config --plan v2
+      machi search --glob 'plans/*/tasks/**/*.md'
+      machi search --plan v2 --glob 'tasks/**/*.md'
+      machi search 'path:/conf.*/' --regex
 
     \b
     QUERY uses the tantivy query language:
@@ -88,7 +88,7 @@ def find_command(  # noqa: PLR0913
     Results list matching paths only.
     """
     with execute(context, output_format) as run:
-        find_query = FindQuery(
+        search_query = SearchQuery(
             query=query,
             globs=glob or [],
             plan=plan,
@@ -96,16 +96,16 @@ def find_command(  # noqa: PLR0913
             regex=regex,
             exact=exact,
         )
-        project_context = run.prepare(project)
-        matches = project_context.search.find(find_query)
+        project_context = run.prepare(project_directory)
+        matches = project_context.search.search(search_query)
         run.render(
-            FindResult(
-                command="find",
+            SearchResult(
+                command="search",
                 project=project_context.project,
-                plan=find_query.plan,
-                query=find_query.query,
+                plan_name=search_query.plan,
+                query=search_query.query,
                 globs=matches.globs,
-                entries=matches.entries,
+                matches=matches.entries,
                 skipped=matches.skipped,
             )
         )

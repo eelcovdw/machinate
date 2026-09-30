@@ -192,7 +192,7 @@ class TaskQuery(StatusQuery[TaskStatus]):
 DEFAULT_GLOB = "**/*.md"
 
 
-class FindQuery(BaseModel):
+class SearchQuery(BaseModel):
     """Criteria for a filesystem-level search under the project store.
 
     ``query`` is a tantivy query string: terms, ``"phrases"``, ``field:term``, ``+``/``-``,
@@ -218,8 +218,8 @@ class FindQuery(BaseModel):
         return globs
 
 
-class FindEntry(DocumentMembership):
-    """A matched file with its storage-relative path and plan/task/context membership.
+class SearchMatch(DocumentMembership):
+    """A matched file with its store-relative path and plan/task/context membership.
 
     ``score`` is the tantivy BM25 relevance; it is only set for query searches and is
     meaningful relative to the other entries of the same query, not as an absolute score.
@@ -265,7 +265,7 @@ class SearchSkip(BaseModel):
 class PlanOverview(BaseModel):
     """Plan-level overview for `machi plan info [-p NAME]`."""
 
-    current: bool
+    is_current: bool
     plan: PlanRecord
     tasks_by_status: dict[TaskStatus, int]
     context_count: int
@@ -275,7 +275,7 @@ class ProjectOverview(BaseModel):
     """Project-wide aggregates for `machi info` without an explicit plan."""
 
     current_plan: Name | None
-    selection_valid: bool
+    current_plan_exists: bool
     plan_count: int
     plans_by_status: dict[PlanStatus, int]
     tasks_by_status: dict[TaskStatus, int]

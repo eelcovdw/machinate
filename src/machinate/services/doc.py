@@ -33,7 +33,7 @@ class DocService(DocumentService[DocMetadata]):
                 storage=lambda _plan: layout.docs_collection(),
                 path=lambda _plan, name: layout.doc(name),
                 requires_plan=False,
-                directory_kind="docs_directory",
+                directory_kind="doc_directory",
             ),
         )
 

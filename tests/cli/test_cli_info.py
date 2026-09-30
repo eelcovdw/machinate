@@ -18,11 +18,11 @@ def test_info_project_overview(project: Path) -> None:
     assert parsed.command == "info"
     assert parsed.project.name == "example"
     assert parsed.project.directory == project
-    assert parsed.project.storage == project / ".machi"
+    assert parsed.project.store_directory == project / ".machi"
     assert isinstance(parsed.overview, ProjectOverview)
     overview = parsed.overview
     assert overview.current_plan is None
-    assert overview.selection_valid is True
+    assert overview.current_plan_exists is True
     assert overview.plan_count == 2
     assert overview.plans_by_status == {"draft": 1, "active": 1, "done": 0}
     assert overview.tasks_by_status == {"todo": 1, "in-progress": 0, "done": 1}
@@ -39,7 +39,7 @@ def test_info_project_overview_current_plan(project: Path) -> None:
     overview = cli.json(InfoResult, ["info", "-P", str(project), "--format", "json"]).overview
     assert isinstance(overview, ProjectOverview)
     assert overview.current_plan == "auth"
-    assert overview.selection_valid is True
+    assert overview.current_plan_exists is True
 
 
 def test_info_project_overview_stale_selection(project: Path) -> None:
@@ -49,7 +49,7 @@ def test_info_project_overview_stale_selection(project: Path) -> None:
     overview = cli.json(InfoResult, ["info", "-P", str(project), "--format", "json"]).overview
     assert isinstance(overview, ProjectOverview)
     assert overview.current_plan == "ghost"
-    assert overview.selection_valid is False
+    assert overview.current_plan_exists is False
 
 
 def test_info_project_overview_limits_recent_plans(tmp_path: Path) -> None:
@@ -98,7 +98,7 @@ def test_plan_info_overview(project: Path) -> None:
     assert parsed.command == "plan info"
     assert isinstance(parsed.overview, PlanOverview)
     overview = parsed.overview
-    assert overview.current is False
+    assert overview.is_current is False
     assert overview.plan.name == "auth"
     assert overview.tasks_by_status == {"todo": 1, "in-progress": 0, "done": 1}
     assert overview.context_count == 1
@@ -113,7 +113,7 @@ def test_plan_info_overview_current(project: Path) -> None:
         PlanInfoResult, ["plan", "info", "-p", "auth", "-P", str(project), "--format", "json"]
     ).overview
     assert isinstance(overview, PlanOverview)
-    assert overview.current is True
+    assert overview.is_current is True
 
 
 def test_plan_info_uses_current_plan_without_flag(project: Path) -> None:

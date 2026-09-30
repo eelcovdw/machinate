@@ -16,7 +16,7 @@ from machinate.cli.options import (
     LIMIT,
     MATCH_TAGS,
     OUTPUT_FORMAT,
-    PROJECT,
+    PROJECT_DIR,
     SORT,
     SUMMARY,
     TAGS,
@@ -27,15 +27,15 @@ from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery
 
 def doc_add(  # noqa: PLR0913
     context: typer.Context,
-    names: Annotated[list[str], typer.Argument(help="Name(s) of the document(s) to create.")],
-    project: PROJECT = None,
+    names: Annotated[list[str], typer.Argument(help="Name(s) of the docs to create.")],
+    project_directory: PROJECT_DIR = None,
     tags: TAGS = None,
     summary: SUMMARY = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    """Create one or more project-level documents."""
+    """Create one or more project-level docs."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         batch = project_context.docs.create_batch(
             names, CreateInput(tags=tags or [], summary=summary)
         )
@@ -49,14 +49,14 @@ def doc_add(  # noqa: PLR0913
 
 def doc_list(  # noqa: PLR0913
     context: typer.Context,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
     tags: MATCH_TAGS = None,
     sort: SORT = "name",
     descending: DESCENDING = False,
     limit: LIMIT = None,
 ) -> None:
-    """List project-level documents."""
+    """List project-level docs."""
     with execute(context, output_format) as run:
         query = DocumentQuery(
             tags=set(tags) if tags is not None else None,
@@ -64,7 +64,7 @@ def doc_list(  # noqa: PLR0913
             descending=descending,
             limit=limit,
         )
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         result = DocListResult(
             command="doc list",
             project=project_context.project,
@@ -75,13 +75,13 @@ def doc_list(  # noqa: PLR0913
 
 def doc_show(
     context: typer.Context,
-    name: Annotated[str, typer.Argument(help="Name of the document to show.")],
-    project: PROJECT = None,
+    name: Annotated[str, typer.Argument(help="Name of the doc to show.")],
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    """Show document metadata and body."""
+    """Show doc metadata and body."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         document = project_context.docs.get(name)
         result = DocShowResult(
             command="doc show",
@@ -94,13 +94,13 @@ def doc_show(
 
 def doc_info(
     context: typer.Context,
-    name: Annotated[str, typer.Argument(help="Name of the document to inspect.")],
-    project: PROJECT = None,
+    name: Annotated[str, typer.Argument(help="Name of the doc to inspect.")],
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    """Show document metadata."""
+    """Show doc metadata."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         document = project_context.docs.info(name)
         result = DocInfoResult(command="doc info", project=project_context.project, doc=document)
         run.render(result)
@@ -110,35 +110,35 @@ def doc_path(
     context: typer.Context,
     name: Annotated[
         str | None,
-        typer.Argument(help="Document name; omit to print the docs directory."),
+        typer.Argument(help="Doc name; omit to print the docs directory."),
     ] = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    """Print the absolute path of a document or the docs directory."""
+    """Print the absolute path of a doc or the docs directory."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         located = project_context.docs.locate(name)
-        run.render_path(command="doc path", plan=None, located=located)
+        run.render_path(command="doc path", plan_name=None, located=located)
 
 
 def doc_update(  # noqa: PLR0913
     context: typer.Context,
-    name: Annotated[str, typer.Argument(help="Name of the document to update.")],
-    project: PROJECT = None,
+    name: Annotated[str, typer.Argument(help="Name of the doc to update.")],
+    project_directory: PROJECT_DIR = None,
     summary: SUMMARY = None,
     tags: TAGS = None,
     clear_tags: CLEAR_TAGS = False,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    """Change document summary or tags."""
+    """Change doc summary or tags."""
     with execute(context, output_format) as run:
         changes = build_update(
             DocumentUpdate,
             UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
             hint="--summary, --tag, or --clear-tags",
         )
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         updated = project_context.docs.update(name, changes)
         result = DocUpdateResult(
             command="doc update",

@@ -48,8 +48,8 @@ def test_task_add_explicit_plan(auth_project: Path) -> None:
     )
     assert parsed.project.name == "example"
     assert parsed.project.directory == auth_project
-    assert parsed.project.storage == auth_project / ".machi"
-    assert parsed.plan == "auth"
+    assert parsed.project.store_directory == auth_project / ".machi"
+    assert parsed.plan_name == "auth"
     task = parsed.batch.created[0]
     assert task.name == "login"
     assert task.path.as_posix() == "plans/auth/tasks/login.md"
@@ -65,7 +65,7 @@ def test_task_add_current_plan(auth_project: Path) -> None:
         TaskAddResult,
         ["task", "add", "login", "-P", str(auth_project), "--format", "json"],
     )
-    assert parsed.plan == "auth"
+    assert parsed.plan_name == "auth"
 
 
 def test_task_add_multiple(auth_project: Path) -> None:
@@ -138,8 +138,8 @@ def test_task_list_explicit_plan(auth_project: Path) -> None:
         ["task", "list", "-p", "auth", "-P", str(auth_project), "--format", "json"],
     )
     assert parsed.project.name == "example"
-    assert parsed.project.storage == auth_project / ".machi"
-    assert parsed.plan == "auth"
+    assert parsed.project.store_directory == auth_project / ".machi"
+    assert parsed.plan_name == "auth"
     assert [task.name for task in parsed.tasks] == ["login", "logout"]
     assert parsed.tasks[0].path.as_posix() == "plans/auth/tasks/login.md"
     assert parsed.tasks[0].summary == "Sign in"
@@ -169,8 +169,8 @@ def test_task_show_explicit_plan(auth_project: Path) -> None:
         ["task", "show", "login", "-p", "auth", "-P", str(auth_project), "--format", "json"],
     )
     assert parsed.project.name == "example"
-    assert parsed.project.storage == auth_project / ".machi"
-    assert parsed.plan == "auth"
+    assert parsed.project.store_directory == auth_project / ".machi"
+    assert parsed.plan_name == "auth"
     assert parsed.task.name == "login"
     assert parsed.task.path.as_posix() == "plans/auth/tasks/login.md"
     assert parsed.task.summary == "Sign in"
@@ -192,8 +192,8 @@ def test_task_info_explicit_plan(auth_project: Path) -> None:
         ["task", "info", "login", "-p", "auth", "-P", str(auth_project), "--format", "json"],
     )
     assert parsed.project.name == "example"
-    assert parsed.project.storage == auth_project / ".machi"
-    assert parsed.plan == "auth"
+    assert parsed.project.store_directory == auth_project / ".machi"
+    assert parsed.plan_name == "auth"
     assert parsed.task.name == "login"
     assert parsed.task.path.as_posix() == "plans/auth/tasks/login.md"
     assert parsed.task.summary == "Sign in"

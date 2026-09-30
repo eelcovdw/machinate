@@ -39,9 +39,9 @@ OUTPUT_FORMAT = Annotated[
     ),
 ]
 
-PROJECT = Annotated[
+PROJECT_DIR = Annotated[
     Path | None,
-    typer.Option("--project", "-P", help="Exact project directory; otherwise discover upward."),
+    typer.Option("--project-dir", "-P", help="Exact project directory; otherwise discover upward."),
 ]
 
 PLAN = Annotated[

@@ -6,7 +6,7 @@ import tantivy
 from pydantic import validate_call
 
 from machinate.models.documents import PlanMetadata
-from machinate.models.operations import DEFAULT_GLOB, FindEntry, FindQuery, SearchSkip
+from machinate.models.operations import DEFAULT_GLOB, SearchMatch, SearchQuery, SearchSkip
 from machinate.services.errors import NotFoundError, SearchQueryError
 from machinate.storage import DocumentStore, Layout, StorageError
 from machinate.storage.errors import MissingDocumentError
@@ -22,7 +22,7 @@ class SearchMatches:
     """The effective globs, the entries a search produced, and the files it skipped."""
 
     globs: list[str]
-    entries: list[FindEntry]
+    entries: list[SearchMatch]
     skipped: list[SearchSkip]
 
 
@@ -45,8 +45,8 @@ class SearchService:
         self.layout: Layout = layout
 
     @validate_call
-    def find(self, query: FindQuery | None = None) -> SearchMatches:
-        query = query or FindQuery()
+    def search(self, query: SearchQuery | None = None) -> SearchMatches:
+        query = query or SearchQuery()
         globs = query.globs or [DEFAULT_GLOB]
         base = PurePosixPath()
         if query.plan is not None:
@@ -73,11 +73,11 @@ class SearchService:
 
     def _rank(
         self,
-        query: FindQuery,
+        query: SearchQuery,
         text: str,
         relatives: list[PurePosixPath],
         skipped: list[SearchSkip],
-    ) -> list[FindEntry]:
+    ) -> list[SearchMatch]:
         if not relatives:
             return []
         index = self._build(relatives, skipped)
@@ -101,7 +101,7 @@ class SearchService:
             "list[tuple[float, tantivy.DocAddress]]",
             searcher.search(parsed, limit).hits,
         )
-        entries: list[FindEntry] = []
+        entries: list[SearchMatch] = []
         for score, address in hits:
             relative = relatives[_doc_id(searcher, address)]
             entries.append(self._entry(relative, score))
@@ -127,12 +127,12 @@ class SearchService:
         index.reload()
         return index
 
-    def _entry(self, relative: PurePosixPath, score: float | None) -> FindEntry:
+    def _entry(self, relative: PurePosixPath, score: float | None) -> SearchMatch:
         membership = self.layout.resolve(relative)
-        return FindEntry(
+        return SearchMatch(
             path=relative,
             kind=membership.kind,
-            plan=membership.plan,
+            plan_name=membership.plan_name,
             name=membership.name,
             score=score,
         )

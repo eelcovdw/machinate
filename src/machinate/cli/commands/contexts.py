@@ -17,7 +17,7 @@ from machinate.cli.options import (
     MATCH_TAGS,
     OUTPUT_FORMAT,
     PLAN,
-    PROJECT,
+    PROJECT_DIR,
     SORT,
     SUMMARY,
     TAGS,
@@ -28,18 +28,16 @@ from machinate.models.operations import BatchCreated, CreateInput, DocumentQuery
 
 def context_add(  # noqa: PLR0913
     context: typer.Context,
-    names: Annotated[
-        list[str], typer.Argument(help="Name(s) of the context document(s) to create.")
-    ],
+    names: Annotated[list[str], typer.Argument(help="Name(s) of the contexts to create.")],
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     tags: TAGS = None,
     summary: SUMMARY = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    """Create one or more context documents in a plan."""
+    """Create one or more contexts in a plan."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         batch = project_context.contexts.create_batch(
             plan_name, names, CreateInput(tags=tags or [], summary=summary)
@@ -47,7 +45,7 @@ def context_add(  # noqa: PLR0913
         result = ContextAddResult(
             command="context add",
             project=project_context.project,
-            plan=plan_name,
+            plan_name=plan_name,
             batch=BatchCreated(
                 created=[context.record for context in batch.created], errors=batch.errors
             ),
@@ -58,14 +56,14 @@ def context_add(  # noqa: PLR0913
 def context_list(  # noqa: PLR0913
     context: typer.Context,
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
     tags: MATCH_TAGS = None,
     sort: SORT = "name",
     descending: DESCENDING = False,
     limit: LIMIT = None,
 ) -> None:
-    """List context documents in a plan."""
+    """List contexts in a plan."""
     with execute(context, output_format) as run:
         query = DocumentQuery(
             tags=set(tags) if tags is not None else None,
@@ -73,12 +71,12 @@ def context_list(  # noqa: PLR0913
             descending=descending,
             limit=limit,
         )
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         result = ContextListResult(
             command="context list",
             project=project_context.project,
-            plan=plan_name,
+            plan_name=plan_name,
             contexts=project_context.contexts.list_records(plan_name, query),
         )
         run.render(result)
@@ -86,20 +84,20 @@ def context_list(  # noqa: PLR0913
 
 def context_show(
     context: typer.Context,
-    name: Annotated[str, typer.Argument(help="Name of the context document to show.")],
+    name: Annotated[str, typer.Argument(help="Name of the context to show.")],
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show context metadata and body."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         document = project_context.contexts.get(plan_name, name)
         result = ContextShowResult(
             command="context show",
             project=project_context.project,
-            plan=plan_name,
+            plan_name=plan_name,
             context=document.record,
             body=document.body,
         )
@@ -108,20 +106,20 @@ def context_show(
 
 def context_info(
     context: typer.Context,
-    name: Annotated[str, typer.Argument(help="Name of the context document to inspect.")],
+    name: Annotated[str, typer.Argument(help="Name of the context to inspect.")],
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show context metadata."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         document = project_context.contexts.info(plan_name, name)
         result = ContextInfoResult(
             command="context info",
             project=project_context.project,
-            plan=plan_name,
+            plan_name=plan_name,
             context=document,
         )
         run.render(result)
@@ -129,9 +127,9 @@ def context_info(
 
 def context_update(  # noqa: PLR0913
     context: typer.Context,
-    name: Annotated[str, typer.Argument(help="Name of the context document to update.")],
+    name: Annotated[str, typer.Argument(help="Name of the context to update.")],
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     summary: SUMMARY = None,
     tags: TAGS = None,
     clear_tags: CLEAR_TAGS = False,
@@ -144,13 +142,13 @@ def context_update(  # noqa: PLR0913
             UpdateOptions(summary=summary, tags=tags, clear_tags=clear_tags),
             hint="--summary, --tag, or --clear-tags",
         )
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.contexts.update(plan_name, name, changes)
         result = ContextUpdateResult(
             command="context update",
             project=project_context.project,
-            plan=plan_name,
+            plan_name=plan_name,
             context=updated.record,
             body=updated.body,
         )
@@ -164,12 +162,12 @@ def context_path(
         typer.Argument(help="Context name; omit to print the plan's context directory."),
     ] = None,
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
-    """Print the absolute path of a context document or the context directory."""
+    """Print the absolute path of a context or the context directory."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         located = project_context.contexts.locate(plan_name, name)
-        run.render_path(command="context path", plan=plan_name, located=located)
+        run.render_path(command="context path", plan_name=plan_name, located=located)

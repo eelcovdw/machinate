@@ -19,7 +19,6 @@ from machinate.cli.commands.docs import (
     doc_show,
     doc_update,
 )
-from machinate.cli.commands.find import find_command
 from machinate.cli.commands.instructions import instructions_command
 from machinate.cli.commands.plans import (
     add_plan,
@@ -32,6 +31,7 @@ from machinate.cli.commands.plans import (
     update_plan,
 )
 from machinate.cli.commands.projects import info_command, init_project
+from machinate.cli.commands.search import search_command
 from machinate.cli.commands.tasks import (
     task_add,
     task_info,
@@ -51,7 +51,6 @@ from machinate.cli.models import (
     DocListResult,
     DocShowResult,
     DocUpdateResult,
-    FindResult,
     InfoResult,
     InitResult,
     InstructionsResult,
@@ -63,6 +62,7 @@ from machinate.cli.models import (
     PlanShowResult,
     PlanUnselectResult,
     PlanUpdateResult,
+    SearchResult,
     TaskAddResult,
     TaskInfoResult,
     TaskListResult,
@@ -94,7 +94,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("init", init_project, InitResult),
     CommandSpec("info", info_command, InfoResult),
     CommandSpec("instructions", instructions_command, InstructionsResult),
-    CommandSpec("find", find_command, FindResult),
+    CommandSpec("search", search_command, SearchResult),
     CommandSpec(
         "plan",
         help="Manage plans; plan select sets the current plan used when -p is omitted.",
@@ -123,7 +123,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         "context",
-        help="Manage context documents in a plan.",
+        help="Manage context in a plan.",
         children=(
             CommandSpec("add", context_add, ContextAddResult),
             CommandSpec("info", context_info, ContextInfoResult),
@@ -135,7 +135,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         "doc",
-        help="Manage project-level documents.",
+        help="Manage project-level docs.",
         children=(
             CommandSpec("add", doc_add, DocAddResult),
             CommandSpec("info", doc_info, DocInfoResult),

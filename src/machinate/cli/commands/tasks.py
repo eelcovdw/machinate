@@ -18,7 +18,7 @@ from machinate.cli.options import (
     MATCH_TAGS,
     OUTPUT_FORMAT,
     PLAN,
-    PROJECT,
+    PROJECT_DIR,
     SORT,
     SUMMARY,
     TAGS,
@@ -34,7 +34,7 @@ def task_add(  # noqa: PLR0913
     context: typer.Context,
     names: Annotated[list[str], typer.Argument(help="Name(s) of the task(s) to create.")],
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     tags: TAGS = None,
     summary: SUMMARY = None,
     status: TASK_STATUS = None,
@@ -42,7 +42,7 @@ def task_add(  # noqa: PLR0913
 ) -> None:
     """Create one or more tasks in a plan."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         batch = project_context.tasks.create_batch(
             plan_name,
@@ -52,7 +52,7 @@ def task_add(  # noqa: PLR0913
         result = TaskAddResult(
             command="task add",
             project=project_context.project,
-            plan=plan_name,
+            plan_name=plan_name,
             batch=BatchCreated(
                 created=[task.record for task in batch.created], errors=batch.errors
             ),
@@ -63,7 +63,7 @@ def task_add(  # noqa: PLR0913
 def task_list(  # noqa: PLR0913
     context: typer.Context,
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
     tags: MATCH_TAGS = None,
     statuses: TASK_STATUS_FILTER = None,
@@ -81,12 +81,12 @@ def task_list(  # noqa: PLR0913
             descending=descending,
             limit=limit,
         )
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         result = TaskListResult(
             command="task list",
             project=project_context.project,
-            plan=plan_name,
+            plan_name=plan_name,
             tasks=project_context.tasks.list_records(plan_name, query),
             group_by="status" if group else None,
         )
@@ -97,18 +97,18 @@ def task_show(
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the task to show.")],
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show task metadata and body."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         task = project_context.tasks.get(plan_name, name)
         result = TaskShowResult(
             command="task show",
             project=project_context.project,
-            plan=plan_name,
+            plan_name=plan_name,
             task=task.record,
             body=task.body,
         )
@@ -119,16 +119,16 @@ def task_info(
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the task to inspect.")],
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show task metadata."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         task = project_context.tasks.info(plan_name, name)
         result = TaskInfoResult(
-            command="task info", project=project_context.project, plan=plan_name, task=task
+            command="task info", project=project_context.project, plan_name=plan_name, task=task
         )
         run.render(result)
 
@@ -137,7 +137,7 @@ def update_task(  # noqa: PLR0913
     context: typer.Context,
     name: Annotated[str, typer.Argument(help="Name of the task to update.")],
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     summary: SUMMARY = None,
     status: TASK_STATUS = None,
     tags: TAGS = None,
@@ -151,13 +151,13 @@ def update_task(  # noqa: PLR0913
             UpdateOptions(summary=summary, status=status, tags=tags, clear_tags=clear_tags),
             hint="--summary, --status, --tag, or --clear-tags",
         )
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         updated = project_context.tasks.update(plan_name, name, changes)
         result = TaskUpdateResult(
             command="task update",
             project=project_context.project,
-            plan=plan_name,
+            plan_name=plan_name,
             task=updated.record,
             body=updated.body,
         )
@@ -171,12 +171,12 @@ def task_path(
         typer.Argument(help="Task name; omit to print the plan's tasks directory."),
     ] = None,
     plan: PLAN = None,
-    project: PROJECT = None,
+    project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute path of a task document or the tasks directory."""
     with execute(context, output_format) as run:
-        project_context = run.prepare(project)
+        project_context = run.prepare(project_directory)
         plan_name = run.determine_plan_name(project_context.plans, plan)
         located = project_context.tasks.locate(plan_name, name)
-        run.render_path(command="task path", plan=plan_name, located=located)
+        run.render_path(command="task path", plan_name=plan_name, located=located)

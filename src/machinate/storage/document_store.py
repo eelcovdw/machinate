@@ -72,7 +72,7 @@ class DocumentStore:
         return ParsedDocument[metadata_type](metadata=metadata_type.model_validate(data), body=body)
 
     def glob_files(self, path: str | PurePosixPath, patterns: list[str]) -> list[PurePosixPath]:
-        """Return project-relative regular files under path matching any GLOBSTAR pattern."""
+        """Return store-relative regular files under path matching any GLOBSTAR pattern."""
         relative = RELATIVE_PATH_ADAPTER.validate_python(path)
         directory = self.root / relative
         if not directory.is_dir():

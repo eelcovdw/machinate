@@ -30,7 +30,7 @@ class Layout:
         return _DOCS_DIRECTORY / f"{name}.md"
 
     def resolve(self, path: PurePosixPath) -> DocumentMembership:
-        """Reverse a storage-relative path to its kind and owning plan/name.
+        """Reverse a store-relative path to its kind and owning plan/name.
 
         Mirrors the forward conventions: plans live at ``plans/{plan}/plan.md`` and are
         flat, while tasks and context may be nested and keep their collection-relative
@@ -50,14 +50,14 @@ class Layout:
 
         plan, *tail = rest
         if tail == [_PLAN_DOCUMENT.name]:
-            return DocumentMembership(kind="plan", plan=plan, name=plan)
+            return DocumentMembership(kind="plan", plan_name=plan, name=plan)
 
         kind = _COLLECTION_KINDS.get(tail[0]) if tail else None
         if kind is not None and path.suffix == ".md":
             name_parts = tail[1:]
             if name_parts:
                 name = PurePosixPath(*name_parts).with_suffix("").as_posix()
-                return DocumentMembership(kind=kind, plan=plan, name=name)
+                return DocumentMembership(kind=kind, plan_name=plan, name=name)
 
         return DocumentMembership(kind="unknown")
 

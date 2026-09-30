@@ -45,8 +45,8 @@ def test_context_add_explicit_plan(project: Path) -> None:
     )
     assert parsed.project.name == "example"
     assert parsed.project.directory == project
-    assert parsed.project.storage == project / ".machi"
-    assert parsed.plan == "auth"
+    assert parsed.project.store_directory == project / ".machi"
+    assert parsed.plan_name == "auth"
     context = parsed.batch.created[0]
     assert context.name == "spec"
     assert context.path.as_posix() == "plans/auth/context/spec.md"
@@ -62,7 +62,7 @@ def test_context_add_current_plan(project: Path) -> None:
     parsed = cli.json(
         ContextAddResult, ["context", "add", "spec", "-P", str(project)], dependencies=JSON
     )
-    assert parsed.plan == "auth"
+    assert parsed.plan_name == "auth"
 
 
 def test_context_add_multiple(project: Path) -> None:
@@ -126,7 +126,7 @@ def test_context_list_explicit_plan(project: Path) -> None:
         dependencies=JSON,
     )
     assert parsed.project.name == "example"
-    assert parsed.plan == "auth"
+    assert parsed.plan_name == "auth"
     assert [context.name for context in parsed.contexts] == ["notes", "spec"]
     assert read_state(project).current_plan is None
 
@@ -168,7 +168,7 @@ def test_context_show_explicit_plan(project: Path) -> None:
         dependencies=JSON,
     )
     assert parsed.project.name == "example"
-    assert parsed.plan == "auth"
+    assert parsed.plan_name == "auth"
     assert parsed.context.name == "spec"
     assert parsed.context.path.as_posix() == "plans/auth/context/spec.md"
     assert parsed.context.summary == "Details."
@@ -204,7 +204,7 @@ def test_context_info_explicit_plan(project: Path) -> None:
         dependencies=JSON,
     )
     assert parsed.project.name == "example"
-    assert parsed.plan == "auth"
+    assert parsed.plan_name == "auth"
     assert parsed.context.name == "spec"
     assert parsed.context.path.as_posix() == "plans/auth/context/spec.md"
     assert parsed.context.summary == "Details."
@@ -251,7 +251,7 @@ def test_context_update_explicit_plan(project: Path) -> None:
         ["context", "update", "spec", "--summary", "New", "-p", "auth", "-P", str(project)],
         dependencies=JSON,
     )
-    assert parsed.plan == "auth"
+    assert parsed.plan_name == "auth"
     assert parsed.context.name == "spec"
     assert parsed.context.summary == "New"
 

@@ -268,19 +268,19 @@ type PathKind = Literal[
     "task",
     "context",
     "doc",
-    "tasks_directory",
+    "task_directory",
     "context_directory",
-    "docs_directory",
+    "doc_directory",
 ]
 
 
 class DocumentMembership(BaseModel):
-    """Kind and owning plan/name for a storage-relative path."""
+    """Kind and owning plan/name for a store-relative path."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     kind: DocumentKind
-    plan: Name | None = None
+    plan_name: Name | None = None
     name: NestedName | None = None
 
 

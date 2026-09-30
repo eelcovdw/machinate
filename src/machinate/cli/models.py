@@ -14,9 +14,9 @@ from machinate.models.documents import (
 from machinate.models.operations import (
     BatchCreated,
     ErrorCode,
-    FindEntry,
     PlanOverview,
     ProjectOverview,
+    SearchMatch,
     SearchSkip,
 )
 
@@ -24,7 +24,7 @@ from machinate.models.operations import (
 class ProjectScope(BaseModel):
     name: str
     directory: Path
-    storage: Path
+    store_directory: Path
 
 
 class InitResult(BaseModel):
@@ -81,14 +81,14 @@ class PlanInfoResult(BaseModel):
 class TaskAddResult(BaseModel):
     command: Literal["task add"]
     project: ProjectScope
-    plan: str
+    plan_name: str
     batch: BatchCreated[DocumentRecord[TaskMetadata]]
 
 
 class TaskListResult(BaseModel):
     command: Literal["task list"]
     project: ProjectScope
-    plan: str
+    plan_name: str
     tasks: list[DocumentRecord[TaskMetadata]]
     group_by: Literal["status"] | None = None
 
@@ -96,7 +96,7 @@ class TaskListResult(BaseModel):
 class TaskShowResult(BaseModel):
     command: Literal["task show"]
     project: ProjectScope
-    plan: str
+    plan_name: str
     task: DocumentRecord[TaskMetadata]
     body: str
 
@@ -104,14 +104,14 @@ class TaskShowResult(BaseModel):
 class TaskInfoResult(BaseModel):
     command: Literal["task info"]
     project: ProjectScope
-    plan: str
+    plan_name: str
     task: DocumentRecord[TaskMetadata]
 
 
 class TaskUpdateResult(BaseModel):
     command: Literal["task update"]
     project: ProjectScope
-    plan: str
+    plan_name: str
     task: DocumentRecord[TaskMetadata]
     body: str
 
@@ -119,21 +119,21 @@ class TaskUpdateResult(BaseModel):
 class ContextAddResult(BaseModel):
     command: Literal["context add"]
     project: ProjectScope
-    plan: str
+    plan_name: str
     batch: BatchCreated[DocumentRecord[ContextMetadata]]
 
 
 class ContextListResult(BaseModel):
     command: Literal["context list"]
     project: ProjectScope
-    plan: str
+    plan_name: str
     contexts: list[DocumentRecord[ContextMetadata]]
 
 
 class ContextShowResult(BaseModel):
     command: Literal["context show"]
     project: ProjectScope
-    plan: str
+    plan_name: str
     context: DocumentRecord[ContextMetadata]
     body: str
 
@@ -141,14 +141,14 @@ class ContextShowResult(BaseModel):
 class ContextInfoResult(BaseModel):
     command: Literal["context info"]
     project: ProjectScope
-    plan: str
+    plan_name: str
     context: DocumentRecord[ContextMetadata]
 
 
 class ContextUpdateResult(BaseModel):
     command: Literal["context update"]
     project: ProjectScope
-    plan: str
+    plan_name: str
     context: DocumentRecord[ContextMetadata]
     body: str
 
@@ -188,28 +188,28 @@ class DocUpdateResult(BaseModel):
 class PathResult(BaseModel):
     command: Literal["plan path", "task path", "context path", "doc path"]
     project: ProjectScope
-    plan: str | None = None
-    path: Path
+    plan_name: str | None = None
+    absolute_path: Path
     kind: Literal[
         "plan",
         "task",
         "context",
-        "tasks_directory",
+        "task_directory",
         "context_directory",
         "doc",
-        "docs_directory",
+        "doc_directory",
     ]
     # Only meaningful for directory kinds; document paths are validated before rendering.
     exists: bool | None = None
 
 
-class FindResult(BaseModel):
-    command: Literal["find"]
+class SearchResult(BaseModel):
+    command: Literal["search"]
     project: ProjectScope
-    plan: str | None = None
+    plan_name: str | None = None
     query: str | None = None
     globs: list[str]
-    entries: list[FindEntry]
+    matches: list[SearchMatch]
     skipped: list[SearchSkip] = Field(default_factory=list)
 
 
@@ -239,7 +239,7 @@ type CommandResult = (
     | PlanShowResult
     | PlanUnselectResult
     | PlanUpdateResult
-    | FindResult
+    | SearchResult
     | InfoResult
     | InitResult
     | InstructionsResult

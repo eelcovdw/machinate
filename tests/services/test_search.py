@@ -11,7 +11,7 @@ from machinate.models.documents import (
     PlanMetadata,
     TaskMetadata,
 )
-from machinate.models.operations import FindQuery
+from machinate.models.operations import SearchQuery
 from machinate.services.errors import NotFoundError, SearchQueryError
 from machinate.services.search import SearchService
 from machinate.storage import DocumentStore, Layout
@@ -45,12 +45,12 @@ def search(tmp_path: Path) -> SearchService:
     return SearchService(store, layout)
 
 
-def paths(search: SearchService, query: FindQuery | None = None) -> list[str]:
-    return [entry.path.as_posix() for entry in search.find(query).entries]
+def paths(search: SearchService, query: SearchQuery | None = None) -> list[str]:
+    return [entry.path.as_posix() for entry in search.search(query).entries]
 
 
 def test_default_listing_is_sorted_and_excludes_non_markdown(search: SearchService) -> None:
-    assert paths(search, FindQuery()) == [
+    assert paths(search, SearchQuery()) == [
         "misc/random.md",
         "plans/auth/context/oauth.md",
         "plans/auth/plan.md",
@@ -61,7 +61,7 @@ def test_default_listing_is_sorted_and_excludes_non_markdown(search: SearchServi
 
 
 def test_listing_has_no_scores(search: SearchService) -> None:
-    entries = search.find(FindQuery()).entries
+    entries = search.search(SearchQuery()).entries
     assert all(entry.score is None for entry in entries)
 
 
@@ -70,111 +70,111 @@ def test_dot_prefixed_document_is_listed_and_searchable(search: SearchService) -
         search.layout.task("auth", ".hidden"),
         _doc(TaskMetadata(created_at=_NOW), "quokka hidden note"),
     )
-    assert "plans/auth/tasks/.hidden.md" in paths(search, FindQuery())
-    assert paths(search, FindQuery(query="quokka")) == ["plans/auth/tasks/.hidden.md"]
+    assert "plans/auth/tasks/.hidden.md" in paths(search, SearchQuery())
+    assert paths(search, SearchQuery(query="quokka")) == ["plans/auth/tasks/.hidden.md"]
 
 
 def test_symlinked_file_is_indexed_and_dangling_symlink_is_skipped(search: SearchService) -> None:
     root = search.document_store.root
     (root / "link.md").symlink_to(root / "plans" / "auth" / "plan.md")
     (root / ".#lock.md").symlink_to(root / "missing.md")
-    found = paths(search, FindQuery())
+    found = paths(search, SearchQuery())
     assert "link.md" in found
     assert ".#lock.md" not in found
 
 
 def test_membership_is_derived_from_path(search: SearchService) -> None:
-    by_path = {entry.path.as_posix(): entry for entry in search.find(FindQuery()).entries}
+    by_path = {entry.path.as_posix(): entry for entry in search.search(SearchQuery()).entries}
     assert (by_path["plans/auth/plan.md"].kind, by_path["plans/auth/plan.md"].name) == (
         "plan",
         "auth",
     )
     nested = by_path["plans/auth/tasks/abcd/efg/h.md"]
-    assert (nested.kind, nested.plan, nested.name) == ("task", "auth", "abcd/efg/h")
+    assert (nested.kind, nested.plan_name, nested.name) == ("task", "auth", "abcd/efg/h")
     context = by_path["plans/auth/context/oauth.md"]
-    assert (context.kind, context.plan, context.name) == ("context", "auth", "oauth")
+    assert (context.kind, context.plan_name, context.name) == ("context", "auth", "oauth")
     assert by_path["misc/random.md"].kind == "unknown"
-    assert by_path["misc/random.md"].plan is None
+    assert by_path["misc/random.md"].plan_name is None
 
 
 def test_single_star_does_not_cross_slash(search: SearchService) -> None:
-    assert paths(search, FindQuery(globs=["plans/*/*.md"])) == [
+    assert paths(search, SearchQuery(globs=["plans/*/*.md"])) == [
         "plans/auth/plan.md",
         "plans/billing/plan.md",
     ]
 
 
 def test_multiple_patterns_are_an_or(search: SearchService) -> None:
-    assert paths(search, FindQuery(globs=["plans/*/tasks/*.md", "plans/*/context/*.md"])) == [
+    assert paths(search, SearchQuery(globs=["plans/*/tasks/*.md", "plans/*/context/*.md"])) == [
         "plans/auth/context/oauth.md",
         "plans/auth/tasks/login.md",
     ]
 
 
 def test_explicit_pattern_selects_other_extensions(search: SearchService) -> None:
-    assert paths(search, FindQuery(globs=["**/*.txt"])) == ["notes.txt"]
+    assert paths(search, SearchQuery(globs=["**/*.txt"])) == ["notes.txt"]
 
 
 def test_content_match_returns_file(search: SearchService) -> None:
-    result = paths(search, FindQuery(query="kangaroo"))
+    result = paths(search, SearchQuery(query="kangaroo"))
     assert result == ["plans/auth/tasks/login.md"]
 
 
 def test_short_prefix_query_matches_tokens(search: SearchService) -> None:
     # Fuzzy matching treats a term as a prefix: "kang" finds the "kangaroo" token.
-    assert paths(search, FindQuery(query="kang")) == ["plans/auth/tasks/login.md"]
+    assert paths(search, SearchQuery(query="kang")) == ["plans/auth/tasks/login.md"]
 
 
 def test_exact_disables_prefix_and_typo_matching(search: SearchService) -> None:
-    assert paths(search, FindQuery(query="kang", exact=True)) == []
+    assert paths(search, SearchQuery(query="kang", exact=True)) == []
 
 
 def test_short_body_tokens_do_not_false_positive(search: SearchService) -> None:
     # "auth" is a path token; editing it into "authoring" is beyond the fuzzy distance.
-    assert paths(search, FindQuery(query="authoring")) == []
+    assert paths(search, SearchQuery(query="authoring")) == []
 
 
 def test_edit_similarity_is_discounted(search: SearchService) -> None:
     # A coincidental overlap ("author" vs "auto") must not match at distance one.
     auto = search.document_store.root / "auto.md"
     auto.write_text("auto store")
-    assert "auto.md" not in paths(search, FindQuery(query="author"))
+    assert "auto.md" not in paths(search, SearchQuery(query="author"))
 
 
 def test_multi_word_query_matches_scattered_terms(search: SearchService) -> None:
     # "login" is a path token while "kangaroo" only appears in the body.
-    assert paths(search, FindQuery(query="kangaroo login")) == ["plans/auth/tasks/login.md"]
+    assert paths(search, SearchQuery(query="kangaroo login")) == ["plans/auth/tasks/login.md"]
 
 
 def test_regex_needs_opt_in_and_a_field(search: SearchService) -> None:
-    assert paths(search, FindQuery(query="path:/.*oauth.*/", regex=True)) == [
+    assert paths(search, SearchQuery(query="path:/.*oauth.*/", regex=True)) == [
         "plans/auth/context/oauth.md"
     ]
     with pytest.raises(SearchQueryError):
-        _ = search.find(FindQuery(query="path:/.*oauth.*/")).entries
+        _ = search.search(SearchQuery(query="path:/.*oauth.*/")).entries
 
 
 def test_limit_applies_after_ranking(search: SearchService) -> None:
-    assert len(search.find(FindQuery(query="plan", limit=2)).entries) == 2
-    assert paths(search, FindQuery(limit=1)) == ["misc/random.md"]
+    assert len(search.search(SearchQuery(query="plan", limit=2)).entries) == 2
+    assert paths(search, SearchQuery(limit=1)) == ["misc/random.md"]
 
 
 def test_plan_scope_narrows_results(search: SearchService) -> None:
-    entries = search.find(FindQuery(plan="auth")).entries
+    entries = search.search(SearchQuery(plan="auth")).entries
     assert entries
-    assert all(entry.plan == "auth" for entry in entries)
+    assert all(entry.plan_name == "auth" for entry in entries)
     assert all(entry.path.as_posix().startswith("plans/auth/") for entry in entries)
 
 
 def test_missing_plan_raises(search: SearchService) -> None:
     with pytest.raises(NotFoundError):
-        search.find(FindQuery(plan="nope"))
+        search.search(SearchQuery(plan="nope"))
 
 
 def test_malformed_frontmatter_does_not_raise(search: SearchService) -> None:
     broken = search.document_store.root / "broken.md"
     broken.write_text("---\ncreated_at: [unterminated\n---\nbody zebra text\n")
-    result = paths(search, FindQuery(query="zebra"))
+    result = paths(search, SearchQuery(query="zebra"))
     assert "broken.md" in result
 
 
@@ -189,7 +189,7 @@ def test_unreadable_document_is_skipped_but_still_path_searchable(
 ) -> None:
     broken = search.document_store.root / "binary.md"
     broken.write_bytes(b"\xff\xfe\x00bad")
-    result = search.find(FindQuery(query="binary"))
+    result = search.search(SearchQuery(query="binary"))
     # Path text is indexed even when the body cannot be read.
     assert [entry.path.as_posix() for entry in result.entries] == ["binary.md"]
     assert [skip.path.as_posix() for skip in result.skipped] == ["binary.md"]
@@ -198,11 +198,11 @@ def test_unreadable_document_is_skipped_but_still_path_searchable(
 def test_frontmatter_is_indexed(search: SearchService) -> None:
     tagged = search.document_store.root / "tagged.md"
     tagged.write_text("---\nsummary: aardvark\n---\nplain body\n")
-    assert "tagged.md" in paths(search, FindQuery(query="aardvark"))
-    assert "tagged.md" in paths(search, FindQuery(query="plain body"))
+    assert "tagged.md" in paths(search, SearchQuery(query="aardvark"))
+    assert "tagged.md" in paths(search, SearchQuery(query="plain body"))
 
 
 @pytest.mark.parametrize("globs", [["../*.md"], ["/etc/*.md"], ["a\\b"], [""]])
 def test_find_query_rejects_escaping_globs(globs: list[str]) -> None:
     with pytest.raises(ValidationError):
-        FindQuery(globs=globs)
+        SearchQuery(globs=globs)

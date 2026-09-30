@@ -29,9 +29,9 @@ def test_doc_path_reports_project_paths(project: Path) -> None:
         ["doc", "path", "-P", str(project)],
         dependencies=JSON,
     )
-    assert folder.kind == "docs_directory"
-    assert folder.plan is None
-    assert folder.path == project / ".machi/docs"
+    assert folder.kind == "doc_directory"
+    assert folder.plan_name is None
+    assert folder.absolute_path == project / ".machi/docs"
 
     target = cli.json(
         PathResult,
@@ -39,5 +39,5 @@ def test_doc_path_reports_project_paths(project: Path) -> None:
         dependencies=JSON,
     )
     assert target.kind == "doc"
-    assert target.plan is None
-    assert target.path == project / ".machi/docs/spec.md"
+    assert target.plan_name is None
+    assert target.absolute_path == project / ".machi/docs/spec.md"
