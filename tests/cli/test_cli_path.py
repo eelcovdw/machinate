@@ -29,9 +29,7 @@ def directory_args(resource: str) -> list[str]:
 
 def test_plan_path_explicit(project: Path) -> None:
     seed_plan(project, "auth")
-    parsed = cli.json(
-        PathResult, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
+    parsed = cli.json(PathResult, ["plan", "path", "auth", "-P", str(project), "--format", "json"])
     assert parsed.command == "plan path"
     assert parsed.project.name == "example"
     assert parsed.project.store_directory == project / ".machi"
@@ -87,9 +85,7 @@ def test_directory_paths(project: Path, resource: str, kind: str, relative: str,
 def test_plan_path_ignores_malformed_contents(project: Path) -> None:
     seed_plan(project, "auth")
     (project / ".machi/plans/auth/plan.md").write_text("---\nnot: [valid\n---\nbody\n")
-    parsed = cli.json(
-        PathResult, ["plan", "path", "-p", "auth", "-P", str(project), "--format", "json"]
-    )
+    parsed = cli.json(PathResult, ["plan", "path", "auth", "-P", str(project), "--format", "json"])
     assert parsed.absolute_path == project / ".machi/plans/auth/plan.md"
     assert parsed.exists is None
 

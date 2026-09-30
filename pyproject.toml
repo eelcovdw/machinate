@@ -97,6 +97,14 @@ reportUnusedCallResult = false
 root = "tests"
 reportPrivateUsage = false
 
+[[tool.basedpyright.executionEnvironments]]
+# The eval runner reads argparse Namespace and pi JSON, so values are untyped.
+root = "evals"
+reportAny = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportImplicitStringConcatenation = false
+
 [tool.pytest.ini_options]
 filterwarnings = ["error"]
 pythonpath = ["tests"]

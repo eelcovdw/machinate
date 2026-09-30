@@ -98,7 +98,7 @@ COMMANDS: tuple[CommandEntry, ...] = (
     Command("search", search_command, SearchResult),
     CommandGroup(
         "plan",
-        help="Manage plans; plan select sets the current plan used when -p is omitted.",
+        help="Manage plans; plan select sets the current plan used when the name is omitted.",
         children=(
             Command("add", plan_add_command, PlanAddResult),
             Command("info", plan_info_command, PlanInfoResult),

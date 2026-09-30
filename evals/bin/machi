@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Stand-in `machi` for agent evals: runs the working tree's machi and logs each call.
+
+Put `evals/bin` first on the agent's PATH. When MACHI_EVAL_LOG names a file, every call
+(including ones inside pipes and subshells) appends one JSON line with its arguments,
+exit code, timing, and output. Output is passed through unchanged.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+
+REAL_MACHI = Path(__file__).resolve().parents[2] / ".venv" / "bin" / "machi"
+# Enough to see what the agent saw; bodies beyond this are rarely needed for analysis.
+MAX_LOGGED_CHARS = 20_000
+LOGGED_ENV = ("AI_AGENT", "MACHI_AI_AGENT", "MACHI_FORMAT")
+
+
+def main() -> int:
+    log_path = os.environ.get("MACHI_EVAL_LOG")
+    if not log_path:
+        os.execv(REAL_MACHI, [str(REAL_MACHI), *sys.argv[1:]])  # noqa: S606 - fixed binary
+
+    started_at = datetime.now(UTC)
+    start = time.monotonic()
+    completed = subprocess.run(  # noqa: S603 - runs the fixed working-tree machi
+        [REAL_MACHI, *sys.argv[1:]], stdin=sys.stdin, capture_output=True, check=False
+    )
+    duration_ms = round((time.monotonic() - start) * 1000)
+
+    stdout = completed.stdout.decode(errors="replace")
+    stderr = completed.stderr.decode(errors="replace")
+    entry = {
+        "started_at": started_at.isoformat(),
+        "duration_ms": duration_ms,
+        "argv": sys.argv[1:],
+        "cwd": str(Path.cwd()),
+        "env": {name: os.environ[name] for name in LOGGED_ENV if name in os.environ},
+        "exit_code": completed.returncode,
+        "stdout_chars": len(stdout),
+        "stdout": stdout[:MAX_LOGGED_CHARS],
+        "stderr": stderr[:MAX_LOGGED_CHARS],
+    }
+    with Path(log_path).open("a", encoding="utf-8") as log:
+        log.write(json.dumps(entry) + "\n")
+
+    try:
+        sys.stdout.buffer.write(completed.stdout)
+        sys.stdout.buffer.flush()
+        sys.stderr.buffer.write(completed.stderr)
+        sys.stderr.buffer.flush()
+    except BrokenPipeError:
+        # The reader (e.g. `head`) closed the pipe; that's not a machi failure.
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+    return completed.returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main())

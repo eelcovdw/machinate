@@ -118,21 +118,23 @@ class Execution:
             raise RuntimeError(msg)
         return self.project
 
-    def determine_plan_name(self, plans: PlanService, name: str | None) -> str:
+    def determine_plan_name(
+        self, plans: PlanService, name: str | None, *, usage: str = "-p NAME"
+    ) -> str:
         """Determine the explicit or current plan name, enforcing agent targeting."""
         if name is not None:
             return name
         if self.settings.is_agent_mode:
-            msg = "Agent mode requires an explicit plan; use -p NAME."
+            msg = f"Agent mode requires an explicit plan; use {usage}."
             raise InputError(msg)
         current = plans.find_current_plan()
         if current is None:
-            msg = "No current plan is selected; use -p NAME."
+            msg = f"No current plan is selected; use {usage}."
             raise InputError(msg)
         try:
             plans.require_plan(current)
         except NotFoundError as err:
-            msg = f"Current plan {current!r} no longer exists; use -p NAME or plan select."
+            msg = f"Current plan {current!r} no longer exists; use {usage} or plan select."
             raise InputError(msg) from err
         return current
 

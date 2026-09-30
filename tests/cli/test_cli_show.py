@@ -14,7 +14,7 @@ def set_current(project: Path, name: str) -> None:
 def test_show_explicit_plan(project: Path) -> None:
     seed_plan(project, "auth", body="# Auth\n\nDetails")
     parsed = cli.json(
-        PlanShowResult, ["plan", "show", "-p", "auth", "-P", str(project), "--format", "json"]
+        PlanShowResult, ["plan", "show", "auth", "-P", str(project), "--format", "json"]
     )
     assert parsed.project.name == "example"
     assert parsed.project.directory == project

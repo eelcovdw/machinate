@@ -19,7 +19,6 @@ from machinate.cli.options import (
     LIMIT,
     MATCH_TAGS,
     OUTPUT_FORMAT,
-    PLAN,
     PLAN_SORT,
     PLAN_STATUS,
     PLAN_STATUS_FILTER,
@@ -30,6 +29,11 @@ from machinate.cli.options import (
 )
 from machinate.models.documents import PlanStatus
 from machinate.models.operations import PlanQuery, StatusCreateInput, StatusUpdate
+
+PLAN_ARG = Annotated[
+    str | None,
+    typer.Argument(help="Name of the plan; omit to use the current plan (human mode only)."),
+]
 
 
 def plan_add_command(
@@ -89,14 +93,14 @@ def plan_list_command(
 
 def plan_info_command(
     ctx: typer.Context,
-    plan: PLAN = None,
+    name: PLAN_ARG = None,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show plan metadata and task progress."""
     with execute(ctx, output_format) as run:
         services = run.open_project(project_directory)
-        plan_name = run.determine_plan_name(services.plans, plan)
+        plan_name = run.determine_plan_name(services.plans, name, usage="plan NAME")
         run.emit(
             PlanInfoResult(
                 command="plan info",
@@ -150,7 +154,7 @@ def plan_unselect_command(
 
 def plan_update_command(
     ctx: typer.Context,
-    plan: PLAN = None,
+    name: PLAN_ARG = None,
     project_directory: PROJECT_DIR = None,
     summary: SUMMARY = None,
     status: PLAN_STATUS = None,
@@ -169,7 +173,7 @@ def plan_update_command(
             hint="--summary, --status, --tag, or --clear-tags",
         )
         services = run.open_project(project_directory)
-        plan_name = run.determine_plan_name(services.plans, plan)
+        plan_name = run.determine_plan_name(services.plans, name, usage="plan NAME")
         updated = services.plans.update(plan_name, update)
         run.emit(
             PlanUpdateResult(
@@ -183,28 +187,28 @@ def plan_update_command(
 
 def plan_path_command(
     ctx: typer.Context,
-    plan: PLAN = None,
+    name: PLAN_ARG = None,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Print the absolute editing path of a plan document."""
     with execute(ctx, output_format) as run:
         services = run.open_project(project_directory)
-        plan_name = run.determine_plan_name(services.plans, plan)
+        plan_name = run.determine_plan_name(services.plans, name, usage="plan NAME")
         located = services.plans.locate(plan_name)
         run.render_path(command="plan path", plan_name=plan_name, located=located)
 
 
 def plan_show_command(
     ctx: typer.Context,
-    plan: PLAN = None,
+    name: PLAN_ARG = None,
     project_directory: PROJECT_DIR = None,
     output_format: OUTPUT_FORMAT = None,
 ) -> None:
     """Show plan metadata and body."""
     with execute(ctx, output_format) as run:
         services = run.open_project(project_directory)
-        plan_name = run.determine_plan_name(services.plans, plan)
+        plan_name = run.determine_plan_name(services.plans, name, usage="plan NAME")
         selected = services.plans.get(plan_name)
         run.emit(
             PlanShowResult(

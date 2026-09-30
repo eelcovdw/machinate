@@ -273,7 +273,7 @@ class SearchSkip(BaseModel):
 
 
 class PlanOverview(BaseModel):
-    """Plan-level overview for `machi plan info [-p NAME]`."""
+    """Plan-level overview for `machi plan info [NAME]`."""
 
     is_current: bool
     plan: PlanRecord

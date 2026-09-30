@@ -211,5 +211,8 @@ __marimo__/
 .machi/
 .dev-docs/
 
+# Agent eval run artifacts
+evals/runs/
+
 # pi-lens editor tool config
 .pi-lens.json

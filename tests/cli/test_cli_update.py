@@ -27,7 +27,6 @@ def test_update_status_summary_and_tags(project: Path) -> None:
         [
             "plan",
             "update",
-            "-p",
             "auth",
             "-P",
             str(project),
@@ -55,7 +54,7 @@ def test_update_clear_tags_success(project: Path) -> None:
     add_tags(project, "auth", "frontend", "v2")
     cli.json(
         PlanUpdateResult,
-        ["plan", "update", "-p", "auth", "-P", str(project), "--clear-tags", "--format", "json"],
+        ["plan", "update", "auth", "-P", str(project), "--clear-tags", "--format", "json"],
     )
     assert read_metadata(project).tags == []
 
@@ -67,7 +66,6 @@ def test_update_tag_and_clear_tags_conflict(project: Path) -> None:
         [
             "plan",
             "update",
-            "-p",
             "auth",
             "-P",
             str(project),
@@ -90,7 +88,6 @@ def test_update_missing_plan_preserves_state(project: Path) -> None:
         [
             "plan",
             "update",
-            "-p",
             "absent",
             "-P",
             str(project),
@@ -115,7 +112,6 @@ def test_update_does_not_change_selection(project: Path) -> None:
         [
             "plan",
             "update",
-            "-p",
             "auth",
             "-P",
             str(project),

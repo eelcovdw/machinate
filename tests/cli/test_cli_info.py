@@ -59,7 +59,7 @@ def test_plan_info_overview(project: Path) -> None:
     seed_context(project, "auth", "spec")
 
     parsed = cli.json(
-        PlanInfoResult, ["plan", "info", "-p", "auth", "-P", str(project), "--format", "json"]
+        PlanInfoResult, ["plan", "info", "auth", "-P", str(project), "--format", "json"]
     )
     assert parsed.command == "plan info"
     assert isinstance(parsed.overview, PlanOverview)
@@ -76,7 +76,7 @@ def test_plan_info_overview_current(project: Path) -> None:
         ProjectState(project_name="example", current_plan="auth")
     )
     overview = cli.json(
-        PlanInfoResult, ["plan", "info", "-p", "auth", "-P", str(project), "--format", "json"]
+        PlanInfoResult, ["plan", "info", "auth", "-P", str(project), "--format", "json"]
     ).overview
     assert isinstance(overview, PlanOverview)
     assert overview.is_current is True

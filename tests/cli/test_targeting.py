@@ -56,7 +56,7 @@ def test_agent_mode_allows_explicit_plan(project: Path) -> None:
     seed_plan(project, "auth")
     parsed = cli.json(
         PlanShowResult,
-        ["plan", "show", "-p", "auth", "-P", str(project)],
+        ["plan", "show", "auth", "-P", str(project)],
         dependencies=AGENT,
     )
     assert parsed.plan.name == "auth"
