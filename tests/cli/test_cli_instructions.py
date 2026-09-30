@@ -31,3 +31,10 @@ def test_instructions_json_default_in_agent_mode() -> None:
         dependencies=AGENT,
     )
     assert payload.command == "instructions"
+
+
+def test_agents_md_machinate_section_matches_instructions() -> None:
+    payload = cli.json(InstructionsResult, ["instructions", "--format", "json"])
+    agents = (Path(__file__).resolve().parents[2] / "AGENTS.md").read_text()
+    section = agents[agents.index("## Machinate") :]
+    assert section.strip() == payload.text.strip()

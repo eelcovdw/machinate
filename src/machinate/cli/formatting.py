@@ -652,7 +652,7 @@ def _match_owner(match: SearchMatch) -> str:
 
 
 def render_search(result: SearchResult) -> str:
-    scope = result.plan_name if result.plan_name is not None else "all plans"
+    scope = result.plan_name if result.plan_name is not None else "all plans and docs"
     lines: list[RenderableType] = [Text(f"{result.project.name} / {scope}", style=PROJECT)]
     if not result.matches:
         lines.append(Text("No matches found.", style=MUTED))

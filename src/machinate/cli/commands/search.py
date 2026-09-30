@@ -41,7 +41,7 @@ def search_command(  # noqa: PLR0913
     Scope
 
     \b
-      By default every plan in the project is searched. --plan narrows the
+      By default every plan and all docs are searched. --plan narrows the
       search to one plan; --project-dir targets an exact project directory
       instead of discovering one upward.
 
