@@ -7,9 +7,15 @@ from harness import cli
 
 from machinate.cli.dependencies import Dependencies
 from machinate.cli.models import InitResult, PlanListResult
-from machinate.cli.project_setup import ProjectError, open_project
+from machinate.cli.project_setup import ProjectError, initialize_redirect, open_project
 from machinate.cli.settings import Settings
-from machinate.storage import InvalidDocumentError, ProjectState, ProjectStateStore, StorageError
+from machinate.storage import (
+    InvalidDocumentError,
+    ProjectState,
+    ProjectStateStore,
+    StorageError,
+)
+from machinate.storage.models import ProjectRedirect
 
 
 def init_project(directory: Path) -> Path:
@@ -168,6 +174,129 @@ def test_init_ignores_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     assert parsed.project.directory == target
     assert parsed.project.store_directory == target / ".machi"
+
+
+def stored_redirect(repo: Path) -> ProjectRedirect:
+    entry = ProjectStateStore(repo / ".machi" / "machinate.toml").read_entry()
+    assert isinstance(entry, ProjectRedirect)
+    return entry
+
+
+def test_redirect_init_is_followed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    shared = init_project(tmp_path / "planning")
+    repo = tmp_path / "repo-a"
+    repo.mkdir()
+    monkeypatch.chdir(repo)
+
+    initialized = initialize_redirect(None, Path("../planning"))
+
+    assert initialized.redirected_from == repo
+    assert initialized.project.directory == shared
+    assert stored_redirect(repo).project_dir == Path("../planning")
+    assert open_project(repo).project.directory == shared
+
+
+def test_relative_redirect_is_stored_relative_to_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    init_project(tmp_path / "planning")
+    repo = tmp_path / "repo-a"
+    nested = repo / "sub"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+
+    initialize_redirect(repo, Path("../../planning"))
+
+    assert stored_redirect(repo).project_dir == Path("../planning")
+
+
+def test_absolute_redirect_stays_absolute(tmp_path: Path) -> None:
+    shared = init_project(tmp_path / "planning")
+    repo = tmp_path / "repo-a"
+    repo.mkdir()
+
+    initialize_redirect(repo, shared)
+
+    assert stored_redirect(repo).project_dir == shared
+
+
+def test_home_relative_redirect_is_stored_as_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    shared = init_project(tmp_path / "planning")
+    repo = tmp_path / "work" / "repo-a"
+    repo.mkdir(parents=True)
+
+    initialize_redirect(repo, Path("~/planning"))
+
+    assert stored_redirect(repo).project_dir == Path("~/planning")
+    assert open_project(repo).project.directory == shared
+
+
+@pytest.mark.parametrize("kind", ["missing", "uninitialized", "redirect", "nonempty"])
+def test_redirect_init_refuses_bad_target(tmp_path: Path, kind: str) -> None:
+    shared = init_project(tmp_path / "planning")
+    repo = tmp_path / "repo-a"
+    repo.mkdir()
+    if kind == "missing":
+        redirect = tmp_path / "nowhere"
+    elif kind == "uninitialized":
+        redirect = tmp_path / "empty"
+        redirect.mkdir()
+    elif kind == "redirect":
+        redirect = make_redirect(tmp_path / "repo-b", "../planning")
+    else:
+        redirect = shared
+        (repo / ".machi").mkdir()
+        (repo / ".machi" / "keep").write_text("")
+
+    with pytest.raises(ProjectError):
+        initialize_redirect(repo, redirect)
+
+    if kind == "nonempty":
+        assert (repo / ".machi" / "keep").exists()
+    else:
+        assert not (repo / ".machi").exists()
+
+
+def test_redirect_init_rejects_project_name(tmp_path: Path) -> None:
+    shared = init_project(tmp_path / "planning")
+    repo = tmp_path / "repo-a"
+    repo.mkdir()
+
+    cli.error(
+        [
+            "init",
+            "-P",
+            str(repo),
+            "--redirect",
+            str(shared),
+            "--project-name",
+            "custom",
+            "--format",
+            "json",
+        ],
+        code="input",
+    )
+
+    assert not (repo / ".machi").exists()
+
+
+def test_redirect_init_wiring(tmp_path: Path) -> None:
+    shared = init_project(tmp_path / "planning")
+    repo = tmp_path / "repo-a"
+    repo.mkdir()
+
+    parsed = cli.json(
+        InitResult,
+        ["init", "-P", str(repo), "--redirect", str(shared), "--format", "json"],
+    )
+
+    assert parsed.project.directory == shared
+    assert parsed.project.store_directory == shared / ".machi"
+    assert parsed.redirected_from == repo
+    assert open_project(repo).project.directory == shared
 
 
 def test_env_var_failure_names_its_source(tmp_path: Path) -> None:

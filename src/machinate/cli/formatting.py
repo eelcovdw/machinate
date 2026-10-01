@@ -723,8 +723,16 @@ def render_instructions(result: InstructionsResult) -> str:
 
 
 def render_init(result: InitResult) -> str:
+    project = result.project
+    if result.redirected_from is not None:
+        heading = Text(
+            f"Redirected {result.redirected_from} to {project.name} at {project.directory}",
+            style=HEADING,
+        )
+    else:
+        heading = Text(f"Initialized {project.name} at {project.directory}", style=HEADING)
     lines: list[RenderableType] = [
-        Text(f"Initialized {result.project.name} at {result.project.directory}", style=HEADING),
-        _field("Store", str(result.project.store_directory), style=PATH),
+        heading,
+        _field("Store", str(project.store_directory), style=PATH),
     ]
     return _render(lines)

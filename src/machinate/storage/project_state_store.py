@@ -39,9 +39,11 @@ class ProjectStateStore:
         except ValidationError as exc:
             raise InvalidDocumentError(self.path, exc) from exc
 
-    def write(self, state: ProjectState) -> None:
+    def write(self, entry: ProjectEntry) -> None:
         try:
-            content = tomli_w.dumps(state.model_dump(exclude_none=True)).encode("utf-8")
+            content = tomli_w.dumps(entry.model_dump(exclude_none=True, mode="json")).encode(
+                "utf-8"
+            )
             self.path.parent.mkdir(parents=True, exist_ok=True)
             # Preserve permissions on update; fresh files use the umask default like
             # documents, so the state file is not a special owner-only case.
