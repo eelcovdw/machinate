@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,15 +10,25 @@ from machinate.services.plan import PlanService
 from machinate.services.search import SearchService
 from machinate.services.task import TaskService
 from machinate.storage.document_store import DocumentStore
+from machinate.storage.errors import StorageError
 from machinate.storage.layout import Layout
-from machinate.storage.models import ProjectState
+from machinate.storage.models import ProjectEntry, ProjectRedirect, ProjectState
 from machinate.storage.project_state_store import ProjectStateStore
 
 from .models import ProjectScope
 
 
 class ProjectError(Exception):
-    pass
+    def __init__(self, message: str, *, hint: str | None = None) -> None:
+        super().__init__(message)
+        self.hint: str | None = hint
+
+
+@dataclass
+class ResolvedProject:
+    directory: Path
+    state: ProjectState
+    state_store: ProjectStateStore
 
 
 @dataclass
@@ -31,7 +42,8 @@ class ProjectServices:
     search: SearchService
 
 
-def discover_project_directory(explicit: Path | None) -> Path:
+def resolve_project(explicit: Path | None) -> ResolvedProject:
+    """Locate a project directory, following at most one `project_dir` redirect."""
     start = (explicit if explicit is not None else Path.cwd()).absolute()
     candidates = (start,) if explicit is not None else (start, *start.parents)
     for directory in candidates:
@@ -41,12 +53,41 @@ def discover_project_directory(explicit: Path | None) -> Path:
         if not store_directory.is_dir():
             msg = f"{store_directory}: expected a directory"
             raise ProjectError(msg)
-        return directory
+        state_store = ProjectStateStore(store_directory / "machinate.toml")
+        return _follow_redirect(directory, state_store, state_store.read_entry())
     raise ProjectError(
         f"No initialized project at {start}"
         if explicit is not None
         else f"No initialized project found from {start} upward; use -P DIRECTORY"
     )
+
+
+def _follow_redirect(
+    directory: Path, state_store: ProjectStateStore, entry: ProjectEntry
+) -> ResolvedProject:
+    if not isinstance(entry, ProjectRedirect):
+        return ResolvedProject(directory=directory, state=entry, state_store=state_store)
+    target = Path(os.path.normpath(directory / entry.project_dir.expanduser()))
+    target_store = ProjectStateStore(target / ".machi" / "machinate.toml")
+    try:
+        target_entry = target_store.read_entry()
+    except StorageError as exc:
+        msg = (
+            f"{state_store.path}: project_dir points at {target}, "
+            "which is not an initialized project"
+        )
+        raise ProjectError(
+            msg, hint="Fix project_dir or run 'machi init' in the target directory."
+        ) from exc
+    if isinstance(target_entry, ProjectRedirect):
+        msg = (
+            f"{state_store.path}: project_dir points at {target}, "
+            "which is itself a redirect; only one hop is allowed"
+        )
+        raise ProjectError(
+            msg, hint="Point project_dir at the directory that holds the shared store."
+        )
+    return ResolvedProject(directory=target, state=target_entry, state_store=target_store)
 
 
 def initialize_project(explicit: Path | None, project_name: str | None = None) -> ProjectScope:
@@ -74,10 +115,11 @@ def initialize_project(explicit: Path | None, project_name: str | None = None) -
 
 
 def open_project(explicit: Path | None = None) -> ProjectServices:
-    directory = discover_project_directory(explicit)
+    resolved = resolve_project(explicit)
+    directory = resolved.directory
     store_directory = directory / ".machi"
-    state_store = ProjectStateStore(store_directory / "machinate.toml")
-    state = state_store.read()
+    state_store = resolved.state_store
+    state = resolved.state
     layout = Layout()
     document_store = DocumentStore(store_directory)
     plans = PlanService(document_store, layout, state_store)
