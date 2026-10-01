@@ -67,10 +67,25 @@ class Execution:
     project: ProjectScope | None = None
 
     def open_project(self, project_directory: Path | None) -> ProjectServices:
-        """Load the project, recording its scope for later error output."""
-        services = self.dependencies.open_project(project_directory)
+        """Load the project, recording its scope for later error output.
+
+        An explicit ``-P`` path wins; otherwise MACHI_PROJECT_DIR, then discovery.
+        """
+        if project_directory is not None or self.settings.project_dir is None:
+            services = self.dependencies.open_project(project_directory)
+        else:
+            services = self._open_env_project(self.settings.project_dir)
         self.project = services.project
         return services
+
+    def _open_env_project(self, directory: Path) -> ProjectServices:
+        # A stale or leaked env var is easy to miss, so say where the path came from.
+        try:
+            return self.dependencies.open_project(directory)
+        except ProjectError as exc:
+            msg = f"{exc} (project directory set by MACHI_PROJECT_DIR)"
+            hint = exc.hint or "Unset MACHI_PROJECT_DIR or point it at an initialized project."
+            raise ProjectError(msg, hint=hint) from exc
 
     def fail(self, exc: Exception) -> NoReturn:
         """Render an error through the resolved formatter and exit with the error code."""

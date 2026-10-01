@@ -43,7 +43,7 @@ class ProjectServices:
 
 
 def resolve_project(explicit: Path | None) -> ResolvedProject:
-    """Locate a project directory, following at most one `project_dir` redirect."""
+    """Locate a project directory, following at most one ``project_dir`` redirect."""
     start = (explicit if explicit is not None else Path.cwd()).absolute()
     candidates = (start,) if explicit is not None else (start, *start.parents)
     for directory in candidates:

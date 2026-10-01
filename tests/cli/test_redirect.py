@@ -3,8 +3,12 @@
 from pathlib import Path
 
 import pytest
+from harness import cli
 
+from machinate.cli.dependencies import Dependencies
+from machinate.cli.models import InitResult, PlanListResult
 from machinate.cli.project_setup import ProjectError, open_project
+from machinate.cli.settings import Settings
 from machinate.storage import InvalidDocumentError, ProjectState, ProjectStateStore, StorageError
 
 
@@ -20,6 +24,11 @@ def make_redirect(repo: Path, target: str) -> Path:
     store.mkdir(parents=True)
     (store / "machinate.toml").write_text(f'project_dir = "{target}"\n')
     return repo
+
+
+def with_project_dir(directory: Path) -> Dependencies:
+    """Inject settings the way a MACHI_PROJECT_DIR env var would."""
+    return Dependencies(settings=Settings(project_dir=directory))
 
 
 def test_discovery_follows_relative_redirect(
@@ -100,3 +109,72 @@ def test_corrupt_local_state_keeps_storage_error(tmp_path: Path) -> None:
 
     with pytest.raises(StorageError):
         open_project(tmp_path / "repo-a")
+
+
+def test_env_var_follows_redirect(tmp_path: Path) -> None:
+    real = init_project(tmp_path / "planning")
+    repo = make_redirect(tmp_path / "repo-a", "../planning")
+
+    parsed = cli.json(
+        PlanListResult,
+        ["plan", "list", "--format", "json"],
+        dependencies=with_project_dir(repo),
+    )
+
+    assert parsed.project.directory == real
+    assert parsed.project.store_directory == real / ".machi"
+
+
+def test_explicit_path_beats_env_var(tmp_path: Path) -> None:
+    real = init_project(tmp_path / "planning")
+    other = init_project(tmp_path / "other")
+
+    parsed = cli.json(
+        PlanListResult,
+        ["plan", "list", "-P", str(other), "--format", "json"],
+        dependencies=with_project_dir(real),
+    )
+
+    assert parsed.project.directory == other
+
+
+def test_env_var_beats_discovery(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    env_target = init_project(tmp_path / "planning")
+    repo = init_project(tmp_path / "repo-a")
+    nested = repo / "src"
+    nested.mkdir()
+    monkeypatch.chdir(nested)
+
+    parsed = cli.json(
+        PlanListResult,
+        ["plan", "list", "--format", "json"],
+        dependencies=with_project_dir(env_target),
+    )
+
+    assert parsed.project.directory == env_target
+
+
+def test_init_ignores_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    shared = init_project(tmp_path / "planning")
+    target = tmp_path / "repo-a"
+    target.mkdir()
+    monkeypatch.chdir(target)
+
+    parsed = cli.json(
+        InitResult,
+        ["init", "--format", "json"],
+        dependencies=with_project_dir(shared),
+    )
+
+    assert parsed.project.directory == target
+    assert parsed.project.store_directory == target / ".machi"
+
+
+def test_env_var_failure_names_its_source(tmp_path: Path) -> None:
+    error = cli.error(
+        ["plan", "list", "--format", "json"],
+        code="project",
+        dependencies=with_project_dir(tmp_path / "nowhere"),
+    )
+
+    assert error.hint is not None
