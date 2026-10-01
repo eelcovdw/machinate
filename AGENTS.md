@@ -248,8 +248,13 @@ machinate; regenerate this section with `machi instructions`.
   plan is required, `plan select`/`unselect` fail, and output defaults to JSON. The
   first variable present decides; an empty value means human mode. `--format` and
   `MACHI_FORMAT` still override.
-- `-P DIR` targets an exact project directory; otherwise the nearest `.machi/` is
-  found by walking upward.
+- The project directory comes from `-P DIR`, else `MACHI_PROJECT_DIR`, else the
+  nearest `.machi/` found by walking upward. `-P` and the env var name the exact
+  directory; an empty env value counts as unset.
+- A `.machi/machinate.toml` holding `project_dir = "..."` redirects to a shared
+  project, one hop only; results report that project's directory. Document paths
+  then live outside the repo, so agents need that folder in their allowed
+  directories.
 
 ### Common commands
 
