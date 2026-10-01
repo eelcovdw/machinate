@@ -1,6 +1,6 @@
 [project]
 name = "machinate"
-version = "0.2.0"
+version = "0.2.1"
 description = "File-based project planning CLI for coding agents."
 readme = "README.md"
 license = "MIT"
