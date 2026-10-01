@@ -65,6 +65,28 @@ Plan commands take the plan name positionally (`machi plan show auth`). `-p PLAN
 narrows tasks, context, or search to one plan; `-P PROJECT_DIR` a project, `--format json`
 for agents.
 
+### One store for several repos
+
+Point a repo at an existing store instead of creating its own:
+
+```bash
+machi init --redirect ../planning   # run in repo/; ../planning holds the shared store
+```
+
+That writes only a redirect, `repo/.machi/machinate.toml`:
+
+```toml
+project_dir = "../planning"
+```
+
+Absolute and `~` paths are stored as given; relative paths are stored relative to the
+repo.
+
+`MACHI_PROJECT_DIR` names the project directory like `-P`; `-P` wins, then the env
+var, then upward discovery. `machi init` ignores it, so an env pointing at the
+shared store can't retarget init. Every repo using the store shares one
+`plan select`, so a selection made in one repo applies to the others.
+
 ## Use with coding agents
 
 Add the agent instructions to your project, so agents know how to use machinate:

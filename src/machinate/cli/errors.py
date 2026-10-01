@@ -42,7 +42,7 @@ def describe_error(exc: Exception) -> ErrorDetail:
     if isinstance(exc, ServiceError):
         return ErrorDetail(exc.code, str(exc), exc.hint)
     if isinstance(exc, ProjectError):
-        return ErrorDetail("project", str(exc))
+        return ErrorDetail("project", str(exc), exc.hint)
     if isinstance(exc, ValidationError):
         return ErrorDetail("input", validation_failure_detail(exc))
     detail = _describe_storage_error(exc)

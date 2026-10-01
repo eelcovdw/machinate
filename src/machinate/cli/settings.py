@@ -1,7 +1,8 @@
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Annotated, ClassVar, Self
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from .formatting import OutputFormat
 
@@ -16,6 +17,13 @@ class Settings(BaseModel):
         str | None, Field(validation_alias=AliasChoices("MACHI_AI_AGENT", "AI_AGENT"))
     ] = None
     format: Annotated[OutputFormat | None, Field(validation_alias="MACHI_FORMAT")] = None
+    project_dir: Annotated[Path | None, Field(validation_alias="MACHI_PROJECT_DIR")] = None
+
+    @field_validator("project_dir", mode="before")
+    @classmethod
+    def _empty_project_dir_is_unset(cls, value: object) -> object:
+        """Treat an empty MACHI_PROJECT_DIR as unset; Path("") would mean the cwd."""
+        return None if value == "" else value
 
     @property
     def is_agent_mode(self) -> bool:

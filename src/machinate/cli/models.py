@@ -31,6 +31,7 @@ class ProjectScope(BaseModel):
 class InitResult(BaseModel):
     command: Literal["init"]
     project: ProjectScope
+    redirected_from: Path | None = None
 
 
 class PlanListResult(BaseModel):

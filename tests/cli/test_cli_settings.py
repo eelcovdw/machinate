@@ -28,6 +28,16 @@ def test_environment_names_are_read_case_sensitively(
     assert settings.format == format_name
 
 
+def test_project_dir_env_is_read() -> None:
+    assert Settings.from_environ({"MACHI_PROJECT_DIR": "/srv/planning"}).project_dir == Path(
+        "/srv/planning"
+    )
+
+
+def test_empty_project_dir_env_is_unset() -> None:
+    assert Settings.from_environ({"MACHI_PROJECT_DIR": ""}).project_dir is None
+
+
 def test_invalid_env_format_reports_field(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MACHI_FORMAT", "human")
     result = runner.invoke(app, ["plan", "list", "-P", str(project)])
